@@ -30,20 +30,9 @@ func buildSelf(r runner.CommandRunner, job buildJob, onFirstOutput func()) error
 	}
 	defer os.RemoveAll(work)
 
-	goCmd := job.goCmd
-	var outputs []string
-	for pass := 1; pass <= selfBuildPasses; pass++ {
-		out, err := buildSelfPass(r, job, goCmd, work, pass, onFirstOutput)
-		if err != nil {
-			return fmt.Errorf("pass %d of the self-hosted build: %w", pass, err)
-		}
-		outputs = append(outputs, out)
-		goCmd = []string{out, "go"}
-		onFirstOutput = nil
-	}
-	last := outputs[len(outputs)-1]
-	if err := sameBytes(outputs[len(outputs)-2], last); err != nil {
-		return fmt.Errorf("the self-hosted build reached no fixed point: %w", err)
+	last, err := buildSelfPasses(r, job, work, onFirstOutput)
+	if err != nil {
+		return err
 	}
 	if err := copyFile(last, build.TempOutputPath(job.outputPath)); err != nil {
 		return err
@@ -52,6 +41,27 @@ func buildSelf(r runner.CommandRunner, job buildJob, onFirstOutput func()) error
 		return err
 	}
 	return build.CommitOutput(job.outputPath)
+}
+
+// buildSelfPasses runs the passes under work, each with the binary the
+// last a single built, and answers the binary that reproduced itself.
+func buildSelfPasses(r runner.CommandRunner, job buildJob, work string, onFirstOutput func()) (string, error) {
+	goCmd := job.goCmd
+	var outputs []string
+	for pass := 1; pass <= selfBuildPasses; pass++ {
+		out, err := buildSelfPass(r, job, goCmd, work, pass, onFirstOutput)
+		if err != nil {
+			return "", fmt.Errorf("pass %d of the self-hosted build: %w", pass, err)
+		}
+		outputs = append(outputs, out)
+		goCmd = []string{out, "go"}
+		onFirstOutput = nil
+	}
+	last := outputs[len(outputs)-1]
+	if err := sameBytes(outputs[len(outputs)-2], last); err != nil {
+		return "", fmt.Errorf("the self-hosted build reached no fixed point: %w", err)
+	}
+	return last, nil
 }
 
 // buildSelfPass writes the standard library blob with goCmd, then builds

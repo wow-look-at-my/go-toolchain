@@ -210,6 +210,9 @@ func run(cmd *cobra.Command, args []string) (err error) {
 	if err := generateForDeps(approvedGenerateHash()); err != nil {
 		return err
 	}
+	if err := reexecUnderOwnBuild(); err != nil {
+		return err
+	}
 
 	// Leads the phases: it reads bytes, not a type-checked package.
 	runCommentScanPhase(".")

@@ -224,6 +224,8 @@ The suite also re-executes rather than reading a cached result. Every `go test` 
 
 Fix both of those and re-measure before changing the number. A cold first build in this same job is ~190-200s.
 
+The run vets and tests under the toolchain it ships (`ownreexec.go`). The pipeline builds itself to the fixed point earliest, and when that binary differs from the one running, the run re-executes under it. A tool ID is content-derived, so vet's export data and the test objects compiled by a bootstrap compiler are useless to the shipped one. The second build runs under the shipped binary, which reproduces itself, so it stays put and reads what the first build compiled. Before this, the second build compiled vet's dependencies and every test cold and measured 653s.
+
 **The ceiling is temporarily 240s. The value it must return to is 30s.** The incremental build regressed past the derived 90s. The raise exists only to let the release path run while that is repaired. Nothing else about the gate changed. Bring it back down as soon as an unchanged second build measures under the target again.
 
 The tripwires themselves are asserted by `.github/dats-fixtures/cache-profile.dats`, run by the dats action in `host-build` the same way `identical.dats` and `smoke.dats` are run by their jobs. They were a workflow step once, which meant a push was the only way to reproduce a red. The fixture runs against any local `build/profile.json`. The second-build time limit above is still a workflow step, because asserting it means driving `go-toolchain` twice and timing.
