@@ -299,16 +299,16 @@ jobs:
           cp dist/go-toolchain "$RUNNER_TEMP/${{ matrix.gt }}"
           chmod +x "$RUNNER_TEMP/${{ matrix.gt }}"
 
-      - name: Probe each package's tests on NT, one process each
+      - name: Probe the pipeline's test phase on NT with every go subprocess traced
         if: matrix.origin == 'windows'
         shell: bash
         env:
-          GO_TOOLCHAIN_LINKED_GO: "1"
-          GOTOOLCHAIN: local
+          GITHUB_TOKEN: ${{ github.token }}
+          GOFLAGS: "-x"
         run: |
           set -uo pipefail
-          export GOROOT="$PWD/_gosmopolitan"
-          node .github/scripts/test-each-package.js "$RUNNER_TEMP/${{ matrix.gt }}"
+          timeout -k 5 900 "$RUNNER_TEMP/${{ matrix.gt }}" matrix --no-benchmark -v
+          echo "pipeline exit=$?"
           exit 1
 
       - name: Build this repo's APE here
