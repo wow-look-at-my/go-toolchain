@@ -1,12 +1,9 @@
 package cmd
 
 import (
-	"archive/tar"
 	"bufio"
 	"bytes"
-	"compress/gzip"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,79 +11,19 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/wow-look-at-my/go-toolchain/src/hostos"
-	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// Test seams — overridden in tests to avoid real downloads / corrupted runners.
+// Test seams, so a test drives the go command probe without a toolchain.
 var (
 	goCacheDirFunc        = goCacheDir
 	verifyGoToolchainFunc = verifyGoToolchain
-	symlinkFunc           = os.Symlink
 )
 
 // resolvedGoMinor caches the resolved Go minor version so goSupportsFeature avoids re-running "go version".
 var resolvedGoMinor int
 
-// activeGoVersion is the full version the fork on PATH reports, spelled as runtime.Version spells it.
+// activeGoVersion is the full version the go command reports, spelled as runtime.Version spells it.
 var activeGoVersion string
-
-// EnsureGoVersion puts the gosmopolitan toolchain on PATH and GOROOT, so every
-// phase after it -- tidy, vet, test, bench, build -- compiles with the fork and
-// nothing else. Whatever Go the host happens to carry is ignored: it lacks the
-// org's fixes, and its wasm support is unmaintained.
-//
-// The fork's own default GOOS is cosmo, which is why the build phase emits the
-// fat APE without asking for it, and why a per-platform native binary has no
-// compiler left to come out of.
-//
-// Call this early in main, before any cobra/build logic runs.
-func EnsureGoVersion() error {
-	goRoot, err := ensureCosmoToolchainFunc()
-	if err != nil {
-		return fmt.Errorf("the gosmopolitan toolchain is the only compiler this pipeline uses: %w", err)
-	}
-	useForkAsPipelineToolchain(goRoot)
-
-	goPath, err := exec.LookPath("go")
-	if err != nil {
-		return fmt.Errorf("gosmopolitan toolchain at %s is not on PATH after setup: %w", goRoot, err)
-	}
-	if err := verifyGoToolchainFunc(goPath); err != nil {
-		return fmt.Errorf("gosmopolitan toolchain at %s failed its integrity probe: %w", goRoot, err)
-	}
-
-	installed, err := installedGoVersion()
-	if err != nil {
-		return fmt.Errorf("gosmopolitan toolchain at %s will not report its version: %w", goRoot, err)
-	}
-	if err := forkSatisfiesGoMod(installed); err != nil {
-		return err
-	}
-	activeGoVersion = "go" + installed
-	recordGoMinor(goVersionCore(installed))
-	logger.Info("go-bootstrap: using the gosmopolitan toolchain %s from %s", installed, goRoot)
-	return nil
-}
-
-// forkFirstPath spells both separators for hostGOOS, not for the machine
-// doing the join, which is why filepath.Join is wrong here.
-func forkFirstPath(goRoot, rest, hostGOOS string) string {
-	listSep, pathSep := ":", "/"
-	if hostGOOS == "windows" {
-		listSep, pathSep = ";", `\`
-	}
-	return goRoot + pathSep + "bin" + listSep + rest
-}
-
-// useForkAsPipelineToolchain points this process and its children at goRoot.
-// GOTOOLCHAIN=local is what makes it stick: without it the go command fetches
-// a stock toolchain for a go.mod directive.
-func useForkAsPipelineToolchain(goRoot string) {
-	os.Setenv("PATH", forkFirstPath(goRoot, os.Getenv("PATH"), hostos.GOOS()))
-	os.Setenv("GOROOT", goRoot)
-	os.Setenv("GOTOOLCHAIN", "local")
-}
 
 // forkSatisfiesGoMod fails when go.mod asks for a newer Go than the fork
 // carries. There is no other toolchain to fall back to, so this names the
@@ -243,85 +180,4 @@ func goCacheDir() (string, error) {
 		return "", err
 	}
 	return cacheDir, nil
-}
-
-func extractTarGz(r io.Reader, destDir string) error {
-	gz, err := gzip.NewReader(r)
-	if err != nil {
-		return err
-	}
-	defer gz.Close()
-
-	// A refused symlink falls back to a copy, deferred until every entry extracts: a tar stream orders no link against its target.
-	var deferredSymlinks []struct{ target, linkname string }
-
-	tr := tar.NewReader(gz)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-
-		target := filepath.Join(destDir, hdr.Name)
-
-		// Guard against path traversal
-		if !strings.HasPrefix(filepath.Clean(target), filepath.Clean(destDir)+string(os.PathSeparator)) {
-			continue
-		}
-
-		switch hdr.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, os.FileMode(hdr.Mode)); err != nil {
-				return err
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-				return err
-			}
-			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode))
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(f, tr); err != nil {
-				f.Close()
-				return err
-			}
-			f.Close()
-		case tar.TypeSymlink:
-			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-				return err
-			}
-			os.Remove(target)
-			if err := symlinkFunc(hdr.Linkname, target); err != nil {
-				deferredSymlinks = append(deferredSymlinks, struct{ target, linkname string }{target, hdr.Linkname})
-			}
-		}
-	}
-
-	for _, s := range deferredSymlinks {
-		if err := copySymlinkTarget(s.target, filepath.Join(filepath.Dir(s.target), s.linkname)); err != nil {
-			return fmt.Errorf("symlink %s -> %s refused, and the fallback copy failed too: %w", s.target, s.linkname, err)
-		}
-	}
-	return nil
-}
-
-// copySymlinkTarget copies linkTarget's bytes to target, for a host that
-// refused to create the real symlink.
-func copySymlinkTarget(target, linkTarget string) error {
-	src, err := os.Open(linkTarget)
-	if err != nil {
-		return err
-	}
-	defer src.Close()
-	dst, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		return err
-	}
-	defer dst.Close()
-	_, err = io.Copy(dst, src)
-	return err
 }
