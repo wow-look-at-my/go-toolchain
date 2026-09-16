@@ -116,7 +116,7 @@ func New() CommandRunner {
 }
 
 type realRunner struct {
-	grace time.Duration // zero means defaultDrainGrace
+	grace time.Duration // 0 selects defaultDrainGrace
 }
 
 func (r *realRunner) Run(cfg Config) (IProcess, error) {
@@ -186,7 +186,7 @@ func relay(src *os.File, dst *io.PipeWriter) {
 // defaultDrainGrace is how long a relay runs on after the command exits.
 const defaultDrainGrace = 5 * time.Second
 
-// reap ends any read still waiting on EOF once the command is gone.
+// reap ends any read still waiting on EOF after the command is gone.
 // A grandchild holding the child's stdout keeps the OS pipe open, and that
 // read blocks inside a syscall no deadline or close can interrupt. So the
 // bound goes on the io.Pipe above it, and the relay stays parked.
