@@ -34,6 +34,23 @@ func TestSelfIsFixedPointComparesBytes(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestBuildSelfCommitsTheFixedPointThisRunProved(t *testing.T) {
+	t.Serial()
+	dir := t.TempDir()
+	proved := filepath.Join(dir, "proved")
+	require.NoError(t, os.WriteFile(proved, []byte("fixed point"), 0o755))
+	fixedPointSelf, fixedPointDir = proved, ""
+	defer func() { fixedPointSelf = "" }()
+
+	out := filepath.Join(dir, "build", "go-toolchain")
+	require.NoError(t, os.MkdirAll(filepath.Dir(out), 0o755))
+	require.NoError(t, buildSelf(nil, buildJob{outputPath: out}, nil))
+
+	got, err := os.ReadFile(out)
+	require.NoError(t, err)
+	assert.Equal(t, "fixed point", string(got))
+}
+
 func TestReexecUnderOwnBuildLeavesAConsumerAlone(t *testing.T) {
 	t.Chdir(t.TempDir())
 	require.NoError(t, os.WriteFile("go.mod", []byte("module example.com/consumer\n\ngo 1.27\n"), 0o644))
