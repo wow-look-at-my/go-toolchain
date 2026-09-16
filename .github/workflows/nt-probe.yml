@@ -1,20 +1,14 @@
 name: NT probe
 
 on:
+  push:
   workflow_dispatch:
-    inputs:
-      binary:
-        description: 'go-toolchain to probe: a buildhost download URL, or "previous" for the last release'
-        required: false
-        default: previous
-      command:
-        description: 'What to run: "measure" (the test command with both pipes read, stderr counted ahead of stdout) or "pipeline" (matrix --no-benchmark, bounded)'
-        required: false
-        default: measure
-      minutes:
-        description: 'Bound on the probed command, in minutes'
-        required: false
-        default: '10'
+
+# A push runs it only on a probe branch; the inputs below are fixed until dispatch works from a non-default branch.
+env:
+  PROBE_BINARY: previous
+  PROBE_COMMAND: measure
+  PROBE_MINUTES: '10'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -27,6 +21,7 @@ permissions:
 jobs:
   # Runs on the NT host directly with a binary buildhost already has, so a probe never waits for host-build.
   probe:
+    if: startsWith(github.ref_name, 'claude/nt-')
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -50,7 +45,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          url='${{ inputs.binary }}'
+          url="$PROBE_BINARY"
           if [ "$url" = previous ]; then
             url="https://dl.pazer.build/go-toolchain?os=windows&arch=amd64"
           fi
@@ -65,13 +60,13 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
-          minutes='${{ inputs.minutes }}'
-          if [ '${{ inputs.command }}' = measure ]; then minutes=3; fi
+          minutes="$PROBE_MINUTES"
+          if [ "$PROBE_COMMAND" = measure ]; then minutes=3; fi
           timeout -k 5 $(( minutes * 60 )) "$RUNNER_TEMP/gt-probe.exe" matrix --no-benchmark -v
           echo "pipeline exit=$?"
 
       - name: Measure the test command's stderr ahead of its first stdout byte
-        if: inputs.command == 'measure'
+        if: env.PROBE_COMMAND == 'measure'
         shell: bash
         env:
           GO_TOOLCHAIN_LINKED_GO: "1"
