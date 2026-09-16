@@ -83,7 +83,11 @@ type buildResult struct {
 
 func runRelease(cmd *cobra.Command, args []string) error {
 	InitTimeline()
-	// The matrix path ships too, so it runs under the toolchain it builds.
+	// A dependency's generated output enters through the compiler, so it lands
+	// before the toolchain is built, as on the root path.
+	if err := generateForDeps(approvedGenerateHash()); err != nil {
+		return err
+	}
 	if err := reexecUnderOwnBuild(); err != nil {
 		return err
 	}
