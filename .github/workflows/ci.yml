@@ -308,6 +308,20 @@ jobs:
           set -euo pipefail
           "$RUNNER_TEMP/${{ matrix.gt }}" matrix --no-benchmark
 
+      - name: Measure what the previous release's go test writes to stderr before its first stdout byte on NT
+        if: matrix.origin == 'windows'
+        shell: bash
+        env:
+          GO_TOOLCHAIN_LINKED_GO: "1"
+          GOTOOLCHAIN: local
+        run: |
+          set -uo pipefail
+          curl -fL --compressed "https://dl.pazer.build/go-toolchain?os=windows&arch=amd64" -o "$RUNNER_TEMP/gt-previous.exe"
+          chmod +x "$RUNNER_TEMP/gt-previous.exe"
+          "$RUNNER_TEMP/gt-previous.exe" version
+          export GOROOT="$PWD/_gosmopolitan"
+          node .github/scripts/measure-test-stderr.js "$RUNNER_TEMP/gt-previous.exe" $("$RUNNER_TEMP/gt-previous.exe" go list ./...)
+
       - name: Hand off this host's APE
         uses: wow-look-at-my/actions@cache-upload#latest
         with:
