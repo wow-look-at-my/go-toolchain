@@ -142,6 +142,10 @@ func statusLineIsToolchainWrite(line string, pins map[string][]string) bool {
 	if path == "" {
 		return false
 	}
+	// The fork checkout follows its branch's head, never the recorded commit.
+	if isForkSubmodulePath(path) {
+		return true
+	}
 	// A tracked pin's new commit, and the go.sum hashes that follow it. pins
 	// holds a directory only when its go.mod changed in no other way.
 	if moved, ok := pins[filepath.Dir(path)]; ok {

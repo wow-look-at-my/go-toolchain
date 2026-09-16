@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -31,7 +32,7 @@ func RunBenchmarks(r runner.CommandRunner, opts Options) (*BenchmarkReport, erro
 	goTestArgs = append([]string{goTestArgs[0], "-json"}, goTestArgs[1:]...)
 
 	// Clear GOCACHEPROG: a cacheprog child inheriting stdout blocks io.ReadAll.
-	proc, err := runner.Cmd("go", goTestArgs...).WithHostTarget().WithQuiet().WithEnv("GOCACHEPROG", "").Run(r)
+	proc, err := runner.Cmd("go", goTestArgs...).WithQuiet().WithEnv("GOCACHEPROG", "").Run(r)
 	if err != nil {
 		return nil, fmt.Errorf("benchmarks failed: %w", err)
 	}
@@ -117,7 +118,7 @@ func HasBenchmarks(root string) bool {
 			return nil
 		}
 		if d.IsDir() {
-			if name := d.Name(); name == "vendor" || name == "testdata" || (path != root && strings.HasPrefix(name, ".")) {
+			if name := d.Name(); name == "vendor" || name == "testdata" || (path != root && strings.HasPrefix(name, ".")) || (path != root && gomod.IsNestedModule(path)) {
 				return filepath.SkipDir
 			}
 			return nil

@@ -67,12 +67,16 @@ type buildJob struct {
 	outputPath string
 	// ldflags is the revision stamp plus whatever the caller put in GOFLAGS; runBuild appends its own.
 	ldflags string
-	// forkGoroot is the gosmopolitan GOROOT for fat-APE/wasm jobs; empty for normal jobs (go on PATH).
-	forkGoroot string
-	// cacheNamespace scopes cache keys per fork toolchain; required with forkGoroot or builds share keys and poison the cache.
-	cacheNamespace string
+	// goCmd starts the go command that compiles the job.
+	goCmd []string
+	// goroot is the GOROOT that go command reads.
+	goroot string
+	// apeAppend is a file the linker appends past the APE's load span, empty for none.
+	apeAppend string
 	// cosmoPlatforms is GOCOSMOPLATFORMS for a fat-APE job; empty leaves it unset (the fork's everything-default).
 	cosmoPlatforms string
+	// selfHosted marks this pipeline's own binary, which is built in passes and carries its standard library.
+	selfHosted bool
 }
 
 type buildResult struct {
