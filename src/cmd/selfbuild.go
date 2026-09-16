@@ -44,7 +44,7 @@ func buildSelf(r runner.CommandRunner, job buildJob, onFirstOutput func()) error
 }
 
 // buildSelfPasses runs the passes under work, each with the binary the
-// last one built, and answers the binary that reproduced itself.
+// last a single built, and answers the binary that reproduced itself.
 func buildSelfPasses(r runner.CommandRunner, job buildJob, work string, onFirstOutput func()) (string, error) {
 	goCmd := job.goCmd
 	var outputs []string
