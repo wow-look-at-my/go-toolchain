@@ -307,7 +307,7 @@ func TestRealRunnerStderr(t *testing.T) {
 
 // TestRealRunnerReadsBothStreamsWhileTheCallerReadsOne pins the shape that
 // hung the test phase on NT: the child fills stderr past any pipe buffer
-// before it writes stdout, and the caller reads stdout to its end first.
+// before it writes stdout, and the caller reads stdout to its end earliest.
 func TestRealRunnerReadsBothStreamsWhileTheCallerReadsOne(t *testing.T) {
 	t.Serial()
 	r := New()

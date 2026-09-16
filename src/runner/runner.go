@@ -152,8 +152,8 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 	}
 
 	// Both streams are read from the moment the child starts. A caller that
-	// reads one stream to its end before the other, or reads neither until
-	// Wait, never leaves the child blocked on a full pipe.
+	// reads a single stream to its end before the other, or reads neither
+	// until Wait, never leaves the child blocked on a full pipe.
 	p := &process{cmd: cmd, stdout: newSpool(), stderr: newSpool(), quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, stderrWriter: cfg.StderrWriter}
 	go p.stdout.fill(stdout)
 	go p.stderr.fill(stderr)
@@ -227,7 +227,7 @@ func (p *process) Wait() error {
 		}()
 		wg.Wait()
 	}
-	// cmd.Wait closes the pipes, so both spools must have seen their end first.
+	// cmd.Wait closes the pipes, so both spools must have seen their end earliest.
 	p.stdout.drained()
 	p.stderr.drained()
 	p.err = p.cmd.Wait()

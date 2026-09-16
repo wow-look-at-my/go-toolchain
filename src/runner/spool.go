@@ -5,12 +5,12 @@ import (
 	"sync"
 )
 
-// spool receives one output stream of a child as it is produced and serves it
-// to a reader at the reader's pace. The child writes into an OS pipe whose
-// buffer is a few kilobytes on NT, so a stream nobody is reading blocks the
-// child at its next write; the spool's fill goroutine reads that pipe as soon
-// as the child starts, and a caller that reads stdout to its end before it
-// looks at stderr gets both, in full, from a child that has already exited.
+// spool receives a single output stream of a child as it is produced and
+// serves it to a reader at the reader's pace. The child writes into an OS
+// pipe whose buffer is a few kilobytes on NT, so a stream nobody is reading
+// blocks the child at its next write; the spool's fill goroutine reads that
+// pipe as soon as the child starts, and a caller that reads stdout to its end
+// before it looks at stderr gets both, in full, from a child that has already exited.
 type spool struct {
 	mu   sync.Mutex
 	cond *sync.Cond
@@ -50,7 +50,7 @@ func (s *spool) fill(r io.Reader) {
 }
 
 // Read hands out what the child has produced so far, waiting for more when
-// the reader has caught up, and reports the end once the child's stream ends.
+// the reader has caught up, and reports the end a single time the child's stream ends.
 func (s *spool) Read(p []byte) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
