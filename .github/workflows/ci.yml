@@ -335,6 +335,25 @@ jobs:
           name: host-go-toolchain
           path: build
 
+      # A generator is an ordinary host program, so the runner's own go builds it. The hand-off cannot: it carries a standard library for its own target alone.
+      - name: Install the generators
+        env:
+          GOBIN: ${{ runner.temp }}/genbin
+        run: |
+          set -euo pipefail
+          mkdir -p "$GOBIN"
+          # Every generator a dependency names, one pinned version each so every host generates the same bytes.
+          for pkg in \
+            golang.org/x/tools/cmd/stringer@v0.49.0 \
+            golang.org/x/tools/cmd/goyacc@v0.49.0 \
+            golang.org/x/text/cmd/gotext@v0.42.0 \
+            github.com/mjibson/esc@v0.2.0 \
+            google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
+          ; do
+            go install "$pkg"
+          done
+          echo "$GOBIN" >> "$GITHUB_PATH"
+
       # The go-toolchain action itself cache-uploads build/ under the per-job name `go-build-<job... see docs/CI.md
       - uses: ./
         with:
@@ -396,7 +415,26 @@ jobs:
           cp dist/go-toolchain "$RUNNER_TEMP/${{ matrix.gt }}"
           chmod +x "$RUNNER_TEMP/${{ matrix.gt }}"
 
-      # This job installs no generator. The hand-off embeds a standard library for the host it was built on, so it cannot compile one for this host. It does not need to: host-build completes every module first, and this job reads those completions from the shared cache.
+      # A generator is an ordinary host program, so the runner's own go builds it. The hand-off cannot: it carries a standard library for its own target alone.
+      - name: Install the generators
+        shell: bash
+        env:
+          GOBIN: ${{ runner.temp }}/genbin
+        run: |
+          set -euo pipefail
+          mkdir -p "$GOBIN"
+          # Every generator a dependency names, one pinned version each so every host generates the same bytes.
+          for pkg in \
+            golang.org/x/tools/cmd/stringer@v0.49.0 \
+            golang.org/x/tools/cmd/goyacc@v0.49.0 \
+            golang.org/x/text/cmd/gotext@v0.42.0 \
+            github.com/mjibson/esc@v0.2.0 \
+            google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
+          ; do
+            go install "$pkg"
+          done
+          echo "$GOBIN" >> "$GITHUB_PATH"
+
       - name: Build this repo's APE here
         shell: bash
         env:
