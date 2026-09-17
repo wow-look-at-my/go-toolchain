@@ -335,6 +335,18 @@ jobs:
           name: host-go-toolchain
           path: build
 
+      # The generator installs below fetch modules, and the pipeline only configures a proxy once it starts. So this job asks for one first, the way every other job that installs them does.
+      - uses: wow-look-at-my/actions@secret-server#latest
+
+      - name: Configure Go proxy
+        run: |
+          if [ -n "$GO_PROXY_CONFIG" ]; then
+            proxy=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.proxy // empty')
+            if [ -n "$proxy" ]; then
+              echo "GOPROXY=${proxy}|direct" >> "$GITHUB_ENV"
+            fi
+          fi
+
       # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
       - name: Install the generators
         env:
