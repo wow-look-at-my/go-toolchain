@@ -17,6 +17,10 @@ for f in "$a" "$b"; do
 	echo "== $f around byte $first"
 	xxd -s "$((first > 64 ? first - 64 : 0))" -l 160 "$f"
 done
+for f in "$a" "$b"; do
+	echo "== $f build settings"
+	grep -a -o -E 'build[[:space:]]+(vcs\.[a-z]+|-[a-zA-Z]+|GO[A-Z]+)=[^[:space:]]*' "$f" | sort -u | head -30
+done
 echo "APE header lines:"
 head -c 4096 "$a" | strings | head -12
 head -c 4096 "$b" | strings | head -12
