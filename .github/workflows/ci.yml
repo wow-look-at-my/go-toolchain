@@ -46,12 +46,15 @@ jobs:
             echo "linked=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # A stock Go is the bootstrap compiler for the fork's make.bash and nothing else. see docs/CI.md
-      - uses: actions/setup-go@v5
+      # The fork's last published release is the bootstrap compiler for its make.bash: its go command carries the cache client in process, so go_bootstrap compiles from the shared cache; a stock Go cannot reach it.
+      - name: Install the fork's release as the bootstrap compiler
         if: steps.release.outputs.linked != 'true'
-        with:
-          go-version: stable
-          cache: false
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bootstrap"
+          curl -fL --compressed "https://dl.pazer.build/gosmopolitan?branch=master&os=linux&arch=amd64" | tar -xz -C "$RUNNER_TEMP/bootstrap"
+          echo "GOROOT_BOOTSTRAP=$RUNNER_TEMP/bootstrap/go" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/bootstrap/go/bin/go" version
 
       # The pipeline links the fork's go command, so the fork's own build is what first compiles it; it runs after the secrets because a CI run of the fork's go command refuses to build with no shared cache configured. see docs/CI.md
       - name: Build the bootstrap go command from the fork checkout
@@ -164,7 +167,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/deadline.sh
 
-  # The same build with no release involved: a stock Go runs the fork's make.bash, that go command builds the pipeline, and the pipeline builds itself; identical holds its APE to host-build's bytes. see docs/CI.md
+  # The same build with no go-toolchain release involved: the fork's release runs the fork's make.bash, that go command builds the pipeline, and the pipeline builds itself; identical holds its APE to host-build's bytes. see docs/CI.md
   bootstrap-scratch:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -176,12 +179,15 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version: stable
-          cache: false
-
       - uses: wow-look-at-my/actions@secret-server#latest
+
+      - name: Install the fork's release as the bootstrap compiler
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bootstrap"
+          curl -fL --compressed "https://dl.pazer.build/gosmopolitan?branch=master&os=linux&arch=amd64" | tar -xz -C "$RUNNER_TEMP/bootstrap"
+          echo "GOROOT_BOOTSTRAP=$RUNNER_TEMP/bootstrap/go" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/bootstrap/go/bin/go" version
 
       - name: Build the bootstrap go command from the fork checkout
         working-directory: _gosmopolitan/src
