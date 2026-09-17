@@ -343,6 +343,9 @@ jobs:
           GOBIN: ${{ runner.temp }}/genbin
           # The hand-off is an APE and this job has no binfmt handler, so a shell starts it.
           GO_TOOLCHAIN_LINKED_GO: "1"
+          # A linked go command takes the environment as it is, so the pipeline never configures the sumdb for it. This is the pipeline's own answer when no sumdb is configured.
+          GONOSUMDB: "*"
+          GONOSUMCHECK: "*"
         run: |
           set -euo pipefail
           mkdir -p "$GOBIN"
@@ -444,6 +447,9 @@ jobs:
           GOGENERATEDEPS: "off"
           GOBIN: ${{ runner.temp }}/genbin
           GO_TOOLCHAIN_LINKED_GO: "1"
+          # A linked go command takes the environment as it is, so the pipeline never configures the sumdb for it. This is the pipeline's own answer when no sumdb is configured.
+          GONOSUMDB: "*"
+          GONOSUMCHECK: "*"
         run: |
           set -euo pipefail
           gt="$RUNNER_TEMP/${{ matrix.gt }}"
