@@ -502,6 +502,14 @@ jobs:
       - name: Where the from-scratch bootstrap differs
         run: bash .github/scripts/explain-mismatch.sh ape/linux/go-toolchain ape/scratch/go-toolchain
 
+      # The cross-host pairs are the ones the fixture below actually compares, so a red run says which bytes moved rather than only that some did.
+      - name: Where each host's APE differs from the linux one
+        run: |
+          for host in darwin windows; do
+            echo "=== linux vs $host"
+            bash .github/scripts/explain-mismatch.sh ape/linux/go-toolchain "ape/$host/go-toolchain"
+          done
+
       # A missing hand-off fails too: comparing the hosts that answered proves nothing. see docs/CI.md
       - name: Every host built the same bytes
         uses: wow-look-at-my/dats@master
