@@ -175,7 +175,6 @@ func init() {
 // Execute runs the root command.
 func Execute() error {
 	defer emitBuildProfile()
-	defer removeGoLink()
 	defer removeFixedPointSelf()
 	return rootCmd.Execute()
 }
