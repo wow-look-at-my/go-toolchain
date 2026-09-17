@@ -335,7 +335,11 @@ jobs:
           name: host-go-toolchain
           path: build
 
-      # A generator is an ordinary host program, so the runner's own go builds it. The hand-off cannot: it carries a standard library for its own target alone.
+      # A generator is an ordinary host program, so a stock go builds it. The hand-off cannot: it carries a standard library for its own target alone. The version is pinned because the generators' own modules ask for a recent one, and a runner does not always carry it.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
       - name: Install the generators
         env:
           GOBIN: ${{ runner.temp }}/genbin
@@ -415,7 +419,11 @@ jobs:
           cp dist/go-toolchain "$RUNNER_TEMP/${{ matrix.gt }}"
           chmod +x "$RUNNER_TEMP/${{ matrix.gt }}"
 
-      # A generator is an ordinary host program, so the runner's own go builds it. The hand-off cannot: it carries a standard library for its own target alone.
+      # A generator is an ordinary host program, so a stock go builds it. The hand-off cannot: it carries a standard library for its own target alone. The version is pinned because the generators' own modules ask for a recent one, and a runner does not always carry it.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
       - name: Install the generators
         shell: bash
         env:
