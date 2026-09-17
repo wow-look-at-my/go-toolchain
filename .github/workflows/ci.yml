@@ -104,7 +104,7 @@ jobs:
           case "$RUNNER_OS" in Linux) goos=linux ;; macOS) goos=darwin ;; Windows) goos=windows ;; *) echo "unknown RUNNER_OS $RUNNER_OS" >&2; exit 1 ;; esac
           case "$RUNNER_ARCH" in X64) goarch=amd64 ;; ARM64) goarch=arm64 ;; *) echo "unknown RUNNER_ARCH $RUNNER_ARCH" >&2; exit 1 ;; esac
           # Every generator a dependency names, one pinned version each so every host generates the same bytes.
-          for pkg in golang.org/x/tools/cmd/stringer@v0.49.0 golang.org/x/text/cmd/gotext@v0.42.0; do
+          for pkg in golang.org/x/tools/cmd/stringer@v0.49.0 golang.org/x/tools/cmd/goyacc@v0.49.0 golang.org/x/text/cmd/gotext@v0.42.0; do
             GOOS="$goos" GOARCH="$goarch" "$go" install "$pkg"
           done
           echo "$GOBIN" >> "$GITHUB_PATH"
@@ -240,7 +240,7 @@ jobs:
           case "$RUNNER_OS" in Linux) goos=linux ;; macOS) goos=darwin ;; Windows) goos=windows ;; *) echo "unknown RUNNER_OS $RUNNER_OS" >&2; exit 1 ;; esac
           case "$RUNNER_ARCH" in X64) goarch=amd64 ;; ARM64) goarch=arm64 ;; *) echo "unknown RUNNER_ARCH $RUNNER_ARCH" >&2; exit 1 ;; esac
           # Every generator a dependency names, one pinned version each so every host generates the same bytes.
-          for pkg in golang.org/x/tools/cmd/stringer@v0.49.0 golang.org/x/text/cmd/gotext@v0.42.0; do
+          for pkg in golang.org/x/tools/cmd/stringer@v0.49.0 golang.org/x/tools/cmd/goyacc@v0.49.0 golang.org/x/text/cmd/gotext@v0.42.0; do
             GOOS="$goos" GOARCH="$goarch" "$go" install "$pkg"
           done
           echo "$GOBIN" >> "$GITHUB_PATH"
@@ -307,7 +307,7 @@ jobs:
           case "$RUNNER_OS" in Linux) goos=linux ;; macOS) goos=darwin ;; Windows) goos=windows ;; *) echo "unknown RUNNER_OS $RUNNER_OS" >&2; exit 1 ;; esac
           case "$RUNNER_ARCH" in X64) goarch=amd64 ;; ARM64) goarch=arm64 ;; *) echo "unknown RUNNER_ARCH $RUNNER_ARCH" >&2; exit 1 ;; esac
           # Every generator a dependency names, one pinned version each so every host generates the same bytes.
-          for pkg in golang.org/x/tools/cmd/stringer@v0.49.0 golang.org/x/text/cmd/gotext@v0.42.0; do
+          for pkg in golang.org/x/tools/cmd/stringer@v0.49.0 golang.org/x/tools/cmd/goyacc@v0.49.0 golang.org/x/text/cmd/gotext@v0.42.0; do
             GOOS="$goos" GOARCH="$goarch" sh build/go-toolchain go install "$pkg"
           done
           echo "$GOBIN" >> "$GITHUB_PATH"
@@ -388,7 +388,7 @@ jobs:
           case "$RUNNER_OS" in Linux) goos=linux ;; macOS) goos=darwin ;; Windows) goos=windows ;; *) echo "unknown RUNNER_OS $RUNNER_OS" >&2; exit 1 ;; esac
           case "$RUNNER_ARCH" in X64) goarch=amd64 ;; ARM64) goarch=arm64 ;; *) echo "unknown RUNNER_ARCH $RUNNER_ARCH" >&2; exit 1 ;; esac
           # Every generator a dependency names, one pinned version each so every host generates the same bytes.
-          for pkg in golang.org/x/tools/cmd/stringer@v0.49.0 golang.org/x/text/cmd/gotext@v0.42.0; do
+          for pkg in golang.org/x/tools/cmd/stringer@v0.49.0 golang.org/x/tools/cmd/goyacc@v0.49.0 golang.org/x/text/cmd/gotext@v0.42.0; do
             GOOS="$goos" GOARCH="$goarch" "$gt" go install "$pkg"
           done
           echo "$GOBIN" >> "$GITHUB_PATH"
