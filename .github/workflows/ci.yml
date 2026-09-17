@@ -138,6 +138,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GOCACHEDEBUG: "1"
           GOCACHELOG: ${{ runner.temp }}/gocache.log
+          # The test cache says per package why a result replayed or did not, which is what a slow second build needs answered. see docs/CI.md
+          GODEBUG: gocachetest=1
         run: |
           cp build/go-toolchain /usr/local/bin/go-toolchain
           rm -rf build/
