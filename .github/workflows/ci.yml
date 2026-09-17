@@ -85,7 +85,7 @@ jobs:
             fi
           fi
 
-      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. The version is go.mod's tools pin, so every host completes those modules to the same bytes for the shared cache.
+      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
       - name: Install stringer
         env:
           # Building the generator must not complete the module that provides it: that fetch wants stringer, which is what this step is making.
@@ -99,7 +99,7 @@ jobs:
           else
             go="$PWD/_gosmopolitan/bin/go"
           fi
-          "$go" install github.com/wow-look-at-my/gosmopolitan_tools/cmd/stringer@v0.0.0-20260912193235-5a3c03065002
+          "$go" install golang.org/x/tools/cmd/stringer@v0.49.0
           echo "$("$go" env GOPATH)/bin" >> "$GITHUB_PATH"
 
       # The bootstrap pipeline is an APE the fork's own go command built from this tree, with the flags the pipeline builds itself with, so its compiler shares the passes' tool ID. see docs/CI.md
@@ -220,7 +220,7 @@ jobs:
             fi
           fi
 
-      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. The version is go.mod's tools pin, so every host completes those modules to the same bytes for the shared cache.
+      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
       - name: Install stringer
         env:
           # Building the generator must not complete the module that provides it: that fetch wants stringer, which is what this step is making.
@@ -228,7 +228,7 @@ jobs:
         run: |
           set -euo pipefail
           go="$PWD/_gosmopolitan/bin/go"
-          "$go" install github.com/wow-look-at-my/gosmopolitan_tools/cmd/stringer@v0.0.0-20260912193235-5a3c03065002
+          "$go" install golang.org/x/tools/cmd/stringer@v0.49.0
           echo "$("$go" env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Build the bootstrap pipeline from the fork checkout
@@ -279,7 +279,7 @@ jobs:
           name: host-go-toolchain
           path: build
 
-      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. The version is go.mod's tools pin, so every host completes those modules to the same bytes for the shared cache.
+      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
       - name: Install stringer
         env:
           # Building the generator must not complete the module that provides it: that fetch wants stringer, which is what this step is making.
@@ -288,7 +288,7 @@ jobs:
           GO_TOOLCHAIN_LINKED_GO: "1"
         run: |
           set -euo pipefail
-          sh build/go-toolchain go install github.com/wow-look-at-my/gosmopolitan_tools/cmd/stringer@v0.0.0-20260912193235-5a3c03065002
+          sh build/go-toolchain go install golang.org/x/tools/cmd/stringer@v0.49.0
           echo "$(sh build/go-toolchain go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       # The go-toolchain action itself cache-uploads build/ under the per-job name `go-build-<job... see docs/CI.md
@@ -352,7 +352,7 @@ jobs:
           cp dist/go-toolchain "$RUNNER_TEMP/${{ matrix.gt }}"
           chmod +x "$RUNNER_TEMP/${{ matrix.gt }}"
 
-      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. The version is go.mod's tools pin, so every host completes those modules to the same bytes for the shared cache.
+      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
       - name: Install stringer
         shell: bash
         env:
@@ -362,7 +362,7 @@ jobs:
         run: |
           set -euo pipefail
           gt="$RUNNER_TEMP/${{ matrix.gt }}"
-          "$gt" go install github.com/wow-look-at-my/gosmopolitan_tools/cmd/stringer@v0.0.0-20260912193235-5a3c03065002
+          "$gt" go install golang.org/x/tools/cmd/stringer@v0.49.0
           echo "$("$gt" go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Build this repo's APE here
