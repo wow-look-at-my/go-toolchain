@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"bytes"
 	"io"
 	"os"
 	"os/exec"
@@ -152,20 +151,17 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 		return nil, err
 	}
 
-	held := newBufferedPipe()
-	p := &process{cmd: cmd, stdoutPipe: stdout, stderrPipe: held, quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, stderrDrained: make(chan struct{})}
-
-	// The console still sees each line; held keeps a copy for Stderr.
-	var sink io.Writer = held
+	// Both streams are read from the moment the child starts. A caller that
+	// reads a single stream to its end before the other, or reads neither
+	// until Wait, never leaves the child blocked on a full pipe.
+	p := &process{cmd: cmd, stdout: newSpool(), stderr: newSpool(), quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter}
+	go p.stdout.fill(stdout)
+	// The console still sees each stderr line as it arrives; the spool keeps a copy for Stderr.
 	if live := cfg.liveStderr(); live != nil {
-		sink = io.MultiWriter(&firstOutputWriter{target: live, hadOutput: &p.hadOutput, callback: cfg.OnFirstOutput}, held)
+		go p.stderr.fill(io.TeeReader(stderr, &firstOutputWriter{target: live, hadOutput: &p.hadOutput, callback: cfg.OnFirstOutput}))
+	} else {
+		go p.stderr.fill(stderr)
 	}
-	// Draining here stops a full stderr pipe wedging the child.
-	go func() {
-		defer close(p.stderrDrained)
-		defer held.Close()
-		io.Copy(sink, stderr)
-	}()
 	return p, nil
 }
 
@@ -178,49 +174,6 @@ func (c *Config) liveStderr() io.Writer {
 		return os.Stderr
 	}
 	return nil
-}
-
-// bufferedPipe accepts a write without blocking and serves it to a reader.
-type bufferedPipe struct {
-	mu     sync.Mutex
-	cond   *sync.Cond
-	buf    bytes.Buffer
-	closed bool
-}
-
-func newBufferedPipe() *bufferedPipe {
-	b := &bufferedPipe{}
-	b.cond = sync.NewCond(&b.mu)
-	return b
-}
-
-func (b *bufferedPipe) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	n, err := b.buf.Write(p)
-	b.cond.Broadcast()
-	return n, err
-}
-
-// Close reports EOF to a reader that has taken everything written.
-func (b *bufferedPipe) Close() error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.closed = true
-	b.cond.Broadcast()
-	return nil
-}
-
-func (b *bufferedPipe) Read(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	for b.buf.Len() == 0 && !b.closed {
-		b.cond.Wait()
-	}
-	if b.buf.Len() == 0 {
-		return 0, io.EOF
-	}
-	return b.buf.Read(p)
 }
 
 // firstOutputWriter wraps a writer and calls a callback before any write.
@@ -243,16 +196,14 @@ func (w *firstOutputWriter) Write(p []byte) (int, error) {
 
 type process struct {
 	cmd          *exec.Cmd
-	stdoutPipe   io.Reader
-	stderrPipe   io.Reader
+	stdout       *spool
+	stderr       *spool
 	quiet        bool
 	done         bool
 	err          error
 	hadOutput    atomic.Bool
 	onFirst      func()
 	stdoutWriter io.Writer
-	// Closed when Run's stderr drain reaches EOF.
-	stderrDrained chan struct{}
 }
 
 func (p *process) Wait() error {
@@ -270,9 +221,11 @@ func (p *process) Wait() error {
 			hadOutput: &p.hadOutput,
 			callback:  p.onFirst,
 		}
-		io.Copy(w, p.stdoutPipe)
+		io.Copy(w, p.stdout)
 	}
-	<-p.stderrDrained
+	// cmd.Wait closes the pipes, so both spools must have seen their end earliest.
+	p.stdout.drained()
+	p.stderr.drained()
 	p.err = p.cmd.Wait()
 	p.done = true
 	return p.err
@@ -288,9 +241,9 @@ func HadOutput(proc IProcess) bool {
 }
 
 func (p *process) Stdout() io.Reader {
-	return p.stdoutPipe
+	return p.stdout
 }
 
 func (p *process) Stderr() io.Reader {
-	return p.stderrPipe
+	return p.stderr
 }
