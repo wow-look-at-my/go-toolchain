@@ -51,9 +51,6 @@ func depGenerateDirectives() ([]generateDirective, error) {
 			}
 		}
 	}
-	// Only a module still owing output is worth listing: the go command
-	// generates every package of a listed module, and most modules carry
-	// directives whose output the zip already holds.
 	owing := set.New[string]()
 	for _, d := range out {
 		if owesOutput(d) {

@@ -27,9 +27,6 @@ type generateDirective struct {
 	Command string // the command to execute (after "//go:generate ")
 	// Label replaces File in the hash, so a version bump changing no directive needs no fresh approval.
 	Label string
-	// ReadDir is the directory the go command reads the package from when that
-	// is not the directory holding File: the copy beside a cached module that
-	// the go command generated the package into.
 	ReadDir string
 }
 
