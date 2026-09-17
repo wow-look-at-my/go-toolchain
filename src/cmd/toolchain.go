@@ -89,8 +89,12 @@ func linkGoToSelf(exe string) (string, error) {
 	if base == "" {
 		base = os.TempDir()
 	}
-	sum := sha256.Sum256([]byte(exe))
-	dir := filepath.Join(base, "go-toolchain-go-"+hex.EncodeToString(sum[:8]))
+	name := resolvedCommit()
+	if name == "unknown" {
+		sum := sha256.Sum256([]byte(exe))
+		name = hex.EncodeToString(sum[:8])
+	}
+	dir := filepath.Join(base, "go-toolchain-go-"+name)
 	if err := os.MkdirAll(dir, 0o777); err != nil {
 		return "", err
 	}
