@@ -328,7 +328,6 @@ jobs:
           - origin: darwin
             runner: macos-latest
             gt: gt-ape
-          # The APE reads no GO_BUILDCACHE_CONFIG on an NT host: the runner logs the variable in this step's env, and the binary reports it unset. This leg builds uncached.
           - origin: windows
             runner: windows-latest
             gt: gt-ape.exe

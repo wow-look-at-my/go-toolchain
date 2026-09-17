@@ -24,7 +24,7 @@ A trailing step asserts the shape the default exists to produce. The manifest is
 
 Linux comes from `build` rather than from a leg of its own. `build` already builds this repo's APE on ubuntu with the same host binary, and its hand-off is the one `publish` ships. The non-linux legs do not go through `uses: ./`: the composite action installs itself with `sudo`, which a Windows runner has not. That is why the smoke jobs stage the APE by hand too.
 
-The NT leg builds uncached: the runner logs `GO_BUILDCACHE_CONFIG` in that step's environment and the APE then reports it unset. So the credential the job holds cannot be used there. Caching changes how long a build takes and never what it emits. So the leg still answers the question this job asks.
+Every leg reads the shared cache, the NT one included: its test run fetched thousands of entries from the server. Each leg also restores the module cache and its `GOCACHE` from the branch's last run. Caching changes how long a build takes and never what it emits. So the leg still answers the question this job asks.
 
 A missing hand-off fails rather than passing on the survivors. Comparing the hosts that answered will report green for a property no host was checked on. `publish` needs `identical`. So a build that is not reproducible never ships.
 
@@ -214,17 +214,17 @@ The second build re-invokes go-toolchain, which also submits the dependency snap
 
 #Then
 
-Caching moved into gosmopolitan's `cmd/go` (docs/CACHE.md), so this job can no longer read a cache-satisfied percentage or the poison tripwires to tell a slow runner. The budget is a wall-clock stand-in for that.
+Caching moved into gosmopolitan's `cmd/go` (docs/CACHE.md). So this job can no longer read a cache-satisfied percentage or the poison tripwires to tell a slow runner. The budget is a wall-clock stand-in for that.
 
 The number assumes an unchanged second build measures 60-70s. It does not. It measures 117-127s. It fails on master as readily as on a branch. The cause sits below rather than in any one branch.
 
 The step deletes `build/`, which makes `isUpToDate` answer no. The pipeline then re-runs vet and the whole test suite. `inputsUnchanged` and `outputsPresent` are separate questions for that reason. Losing the outputs means build again. It does not mean ask vet and the tests again, since those answer about the INPUTS. That split does not fire yet, because the fingerprint does not match across runs of an unchanged tree.
 
-The suite also re-executes rather than reading a cached result. Every `go test` invocation carries an argument that differs per run. `-coverprofile` naming itself after the PID was among them. A stable name there restored no cache hit at all, so something else varies as well. The action-graph dump the build profile asks for is the next candidate. `-count=1` is NOT the cause: the fork treats it as a no-op.
+The suite re-executed rather than reading a cached result because every test binary opens itself, under the go command's per-run build directory. The fork's test cache hashed that path once it was gone. The fork now treats a gone path under the temporary directory as scratch in the spelling the test used (gosmopolitan #182). `-count=1` was never the cause: the fork treats it as a no-op, and the pipeline no longer passes it. Every test run in this workflow carries `GODEBUG=gocachetest=1`, so a package that still re-runs says why in the log.
 
-Fix both of those and re-measure before changing the number. A cold first build in this same job is ~190-200s.
+The module cache and the build cache are restored from the branch's last run (`actions/cache`, keyed by the fork commit and `go.sum`). So a test whose inputs did not change replays across pushes too. Re-measure before changing the number. A cold first build in this same job is ~190-200s.
 
-The run vets and tests under the toolchain it ships (`ownreexec.go`). The pipeline builds itself to the fixed point earliest, and when that binary differs from the one running, the run re-executes under it. A tool ID is content-derived, so vet's export data and the test objects compiled by a bootstrap compiler are useless to the shipped one. The second build runs under the shipped binary, which reproduces itself, so it stays put and reads what the first build compiled. Before this, the second build compiled vet's dependencies and every test cold and measured 653s.
+The run vets and tests under the toolchain it ships (`ownreexec.go`). The pipeline builds itself to the fixed point earliest, and when that binary differs from the one running, the run re-executes under it. A tool ID is content-derived, so vet's export data and the test objects compiled by a bootstrap compiler are useless to the shipped one. The second build runs under the shipped binary, which reproduces itself. So it stays put and reads what the first build compiled. Before this, the second build compiled vet's dependencies and every test cold and measured 653s.
 
 **The ceiling is temporarily 240s. The value it must return to is 30s.** The incremental build regressed past the derived 90s. The raise exists only to let the release path run while that is repaired. Nothing else about the gate changed. Bring it back down as soon as an unchanged second build measures under the target again.
 
