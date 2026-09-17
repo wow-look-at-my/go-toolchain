@@ -2,6 +2,12 @@
 
 `.github/workflows/ci.yml` — five stages: `host-build` → `build` → three `smoke-*` jobs → `publish`. It dogfoods the composite action and gates the release on the artifacts actually running.
 
+## The run's budget
+
+The whole run has a 15-minute budget. GitHub caps a job, never a run. So the cap is built from job caps. `host-build` and `bootstrap-scratch` carry the whole budget as their `timeout-minutes`. Every later job's `timeout-minutes` is the whole minutes left of the budget when the job it needs finished. `.github/scripts/deadline.sh` computes that from the run's start time, writes it to the job's outputs, and fails when the budget has passed. So a job that starts late fails before it does work. A job runs it first and last: first to refuse a late start, last to hand what is left to the jobs after it.
+
+The caches (below) are saved with `if: always()`. So a run that fails the budget still leaves its modules and objects for the next run. The first run on a branch is cold and fails the budget. The ones after it start warm.
+
 ## host-build
 
 Builds go-toolchain from source with the previous release as the bootstrap (the passes and the from-scratch fallback are described under build-everywhere and identical below). Its cache-validation step runs `build/go-toolchain` again over the same tree and holds the warm build to a time ceiling.

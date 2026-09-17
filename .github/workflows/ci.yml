@@ -16,9 +16,13 @@ permissions:
   actions: read
   checks: read
 
+# The whole run has 15 minutes. The first jobs carry that as their timeout, and every later job's timeout is what is left of it when the job it needs finished (.github/scripts/deadline.sh). see docs/CI.md
 jobs:
   host-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      minutes_left: ${{ steps.deadline.outputs.minutes_left }}
     steps:
       # No persisted credentials: the header checkout leaves in the workspace names THIS repository, so every git question about another one is asked as the wrong identity.
       - uses: actions/checkout@v7
@@ -35,7 +39,8 @@ jobs:
 
       # Fetched modules and the generated trees gendep keeps beside them survive across runs; a module version is fixed bytes, so the tree is too. see docs/CI.md
       - name: Restore the module cache
-        uses: actions/cache@v4
+        id: gomod
+        uses: actions/cache/restore@v4
         with:
           path: ~/go/pkg/mod
           key: gomod-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
@@ -45,7 +50,8 @@ jobs:
 
       # The disk build cache the stock Go fills for make.bash and the fork fills for everything after; tool build IDs are content-derived, so a stale entry cannot answer. see docs/CI.md
       - name: Restore the build cache
-        uses: actions/cache@v4
+        id: gobuild
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cache/go-build
           key: gobuild-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
@@ -179,10 +185,33 @@ jobs:
           name: socketharness-build
           path: harness
 
+      # Saved whatever happened above: a run that failed still compiled, and the next one starts from that. see docs/CI.md
+      - name: Save the module cache
+        if: always() && steps.gomod.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ steps.gomod.outputs.cache-primary-key }}
+
+      - name: Save the build cache
+        if: always() && steps.gobuild.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ steps.gobuild.outputs.cache-primary-key }}
+
+      - name: Minutes left of the run's budget
+        id: deadline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/deadline.sh
+
   # The same build with no release involved: a stock Go runs the fork's make.bash, that go command builds the pipeline, and the pipeline builds itself; identical holds its APE to host-build's bytes. see docs/CI.md
   bootstrap-scratch:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
+    outputs:
+      minutes_left: ${{ steps.deadline.outputs.minutes_left }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -202,7 +231,8 @@ jobs:
 
       # The same caches host-build restores: a cache changes when a step runs, never what it computes, so the APE this job hands off is still the from-scratch answer. see docs/CI.md
       - name: Restore the module cache
-        uses: actions/cache@v4
+        id: gomod
+        uses: actions/cache/restore@v4
         with:
           path: ~/go/pkg/mod
           key: gomod-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
@@ -211,7 +241,8 @@ jobs:
             gomod-${{ runner.os }}-
 
       - name: Restore the build cache
-        uses: actions/cache@v4
+        id: gobuild
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cache/go-build
           key: gobuild-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
@@ -262,16 +293,45 @@ jobs:
           name: ape-scratch
           path: build/go-toolchain
 
+      - name: Save the module cache
+        if: always() && steps.gomod.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ steps.gomod.outputs.cache-primary-key }}
+
+      - name: Save the build cache
+        if: always() && steps.gobuild.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ steps.gobuild.outputs.cache-primary-key }}
+
+      - name: Minutes left of the run's budget
+        id: deadline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/deadline.sh
+
   # Build + test via the composite action with NO target inputs, which is exactly what a... see docs/CI.md
   build:
     needs: host-build
     runs-on: ubuntu-latest
+    timeout-minutes: ${{ fromJSON(needs.host-build.outputs.minutes_left) }}
+    outputs:
+      minutes_left: ${{ steps.deadline.outputs.minutes_left }}
     steps:
       # Same reason as host-build: a persisted credential for this repository answers for no other one.
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
           submodules: recursive
+
+      - name: The run's budget still has time
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/deadline.sh
+
       # The dats phase sandboxes every suite command (dats' default), and the backend it picks... see docs/CI.md
       - name: Provision the sandbox backend (bubblewrap)
         run: |
@@ -286,7 +346,8 @@ jobs:
         run: echo "sha=$(git rev-parse HEAD:_gosmopolitan)" >> "$GITHUB_OUTPUT"
 
       - name: Restore the module cache
-        uses: actions/cache@v4
+        id: gomod
+        uses: actions/cache/restore@v4
         with:
           path: ~/go/pkg/mod
           key: gomod-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
@@ -295,7 +356,8 @@ jobs:
             gomod-${{ runner.os }}-
 
       - name: Restore the build cache
-        uses: actions/cache@v4
+        id: gobuild
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cache/go-build
           key: gobuild-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
@@ -318,6 +380,26 @@ jobs:
           # A build of this module compiles the fork's standard library from its checkout, in passes. see docs/CI.md
           timeout: '30'
 
+      - name: Save the module cache
+        if: always() && steps.gomod.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ steps.gomod.outputs.cache-primary-key }}
+
+      - name: Save the build cache
+        if: always() && steps.gobuild.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ steps.gobuild.outputs.cache-primary-key }}
+
+      - name: Minutes left of the run's budget
+        id: deadline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/deadline.sh
+
 
   # Each non-linux host builds this repo's APE with the linux-built binary, so a difference in the output is the host and nothing else. see docs/CI.md
   build-everywhere:
@@ -332,11 +414,19 @@ jobs:
             runner: windows-latest
             gt: gt-ape.exe
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    timeout-minutes: ${{ fromJSON(needs.host-build.outputs.minutes_left) }}
+    outputs:
+      minutes_left: ${{ steps.deadline.outputs.minutes_left }}
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: recursive
+
+      - name: The run's budget still has time
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/deadline.sh
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
@@ -364,7 +454,8 @@ jobs:
         run: echo "sha=$(git rev-parse HEAD:_gosmopolitan)" >> "$GITHUB_OUTPUT"
 
       - name: Restore the module cache
-        uses: actions/cache@v4
+        id: gomod
+        uses: actions/cache/restore@v4
         with:
           path: ~/go/pkg/mod
           key: gomod-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
@@ -374,7 +465,8 @@ jobs:
 
       # GOCACHE is named outright so the path cached is the path the APE writes, whatever the host calls its cache directory. see docs/CI.md
       - name: Restore the build cache
-        uses: actions/cache@v4
+        id: gobuild
+        uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/go-build
           key: gobuild-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
@@ -413,14 +505,42 @@ jobs:
           name: ape-${{ matrix.origin }}
           path: build/go-toolchain
 
+      - name: Save the module cache
+        if: always() && steps.gomod.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ steps.gomod.outputs.cache-primary-key }}
+
+      - name: Save the build cache
+        if: always() && steps.gobuild.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/go-build
+          key: ${{ steps.gobuild.outputs.cache-primary-key }}
+
+      - name: Minutes left of the run's budget
+        id: deadline
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/deadline.sh
+
   # The smoke jobs run ONE host's APE on all three. That says what every host ships only if every... see docs/CI.md
   identical:
     needs: [build, build-everywhere, bootstrap-scratch]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: ${{ fromJSON(needs.build-everywhere.outputs.minutes_left) }}
+    outputs:
+      minutes_left: ${{ steps.deadline.outputs.minutes_left }}
     steps:
       # Only for the dats fixture below -- this job otherwise runs no repo code.
       - uses: actions/checkout@v7
+
+      - name: The run's budget still has time
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/deadline.sh
 
       # ape/linux is `build`'s hand-off, the same bytes `publish` ships.
       - name: Download each host's APE
@@ -462,6 +582,12 @@ jobs:
         with:
           tests: .github/dats-fixtures/identical.dats
 
+      - name: Minutes left of the run's budget
+        id: deadline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/deadline.sh
+
       # The differing bytes, for a local diff after a red run.
       - name: Keep the APEs that differed
         if: failure()
@@ -481,11 +607,16 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    # A cold stdlib compile under the fork is slower on NT than on the other two hosts.
-    timeout-minutes: 30
+    timeout-minutes: ${{ fromJSON(needs.build.outputs.minutes_left) }}
     steps:
       # Only for the dats fixtures in .github/dats-fixtures/ -- this job otherwise runs no repo code.
       - uses: actions/checkout@v7
+
+      - name: The run's budget still has time
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/deadline.sh
 
       # For GO_BUILDCACHE_CONFIG alone: the fork refuses a CI build without it. see docs/CI.md
       - uses: wow-look-at-my/actions@secret-server#latest
@@ -519,6 +650,7 @@ jobs:
   publish:
     needs: [identical, smoke]
     runs-on: ubuntu-latest
+    timeout-minutes: ${{ fromJSON(needs.identical.outputs.minutes_left) }}
     permissions:
       id-token: write
       contents: read
@@ -528,6 +660,11 @@ jobs:
     steps:
       # Explicit name: multiple same-run hand-offs -- see smoke-linux.
       - uses: actions/checkout@v7
+
+      - name: The run's budget still has time
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/deadline.sh
 
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
