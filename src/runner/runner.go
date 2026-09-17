@@ -163,9 +163,14 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 	stdoutW.Close()
 	stderrW.Close()
 
+	// Both streams are read from the moment the child starts. A caller that
+	// reads a single stream to its end before the other, or reads neither
+	// until Wait, never leaves the child blocked on a full pipe.
 	outR, outW := io.Pipe()
 	errR, errW := io.Pipe()
-	p := &process{cmd: cmd, stdoutPipe: outR, stderrPipe: errR, quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, stderrWriter: cfg.StderrWriter, exited: make(chan struct{})}
+	p := &process{cmd: cmd, stdout: newSpool(), stderr: newSpool(), quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, stderrWriter: cfg.StderrWriter, exited: make(chan struct{})}
+	go p.stdout.fill(outR)
+	go p.stderr.fill(errR)
 	go relay(stdoutR, outW)
 	go relay(stderrR, errW)
 	go p.reap(outW, errW)
@@ -215,8 +220,8 @@ func (w *firstOutputWriter) Write(p []byte) (int, error) {
 
 type process struct {
 	cmd          *exec.Cmd
-	stdoutPipe   *io.PipeReader
-	stderrPipe   *io.PipeReader
+	stdout       *spool
+	stderr       *spool
 	quiet        bool
 	done         bool
 	err          error
@@ -256,19 +261,21 @@ func (p *process) Wait() error {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			io.Copy(w, p.stdoutPipe)
+			io.Copy(w, p.stdout)
 		}()
 		go func() {
 			defer wg.Done()
-			io.Copy(wErr, p.stderrPipe)
+			io.Copy(wErr, p.stderr)
 		}()
 		wg.Wait()
 	}
+	// Wait reports only once both spools have seen their end: reap closes the
+	// relays after the grace, releasing a stream a grandchild still holds open.
+	p.stdout.drained()
+	p.stderr.drained()
 	<-p.exited
 	p.err = p.waitErr
 	p.done = true
-	p.stdoutPipe.Close()
-	p.stderrPipe.Close()
 	return p.err
 }
 
@@ -282,9 +289,9 @@ func HadOutput(proc IProcess) bool {
 }
 
 func (p *process) Stdout() io.Reader {
-	return p.stdoutPipe
+	return p.stdout
 }
 
 func (p *process) Stderr() io.Reader {
-	return p.stderrPipe
+	return p.stderr
 }
