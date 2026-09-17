@@ -78,12 +78,12 @@ func EnsureGoVersion() error {
 }
 
 // linkGoToSelf answers the directory holding go, a link to exe. The directory
-// is named after exe, so every run of one executable puts the same PATH in
-// front of the programs it starts: a test that resolves a program records
-// PATH as an input, and a name that changed per run kept every such test
-// from replaying. A link left by an earlier run of the same file is reused;
-// one pointing elsewhere is replaced in one rename. NT runs no symlink as a
-// program, so there it is a hard link, or a copy when the volumes differ.
+// is named after exe, so every run of a single executable puts the same PATH
+// in front of the programs it starts: a test that resolves a program records
+// PATH as an input, and a name that changed per run kept every such test from
+// replaying. A link left by an earlier run of the same file is reused; a
+// single pointing elsewhere is replaced in a single rename. NT runs no
+// symlink as a program, so there it is a hard link, or a copy when the volumes differ.
 func linkGoToSelf(exe string) (string, error) {
 	base := scratchBase(hostos.GOOS())
 	if base == "" {

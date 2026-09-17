@@ -29,7 +29,6 @@ func depGenerateDirectives() ([]generateDirective, error) {
 		return nil, err
 	}
 	mods := depModules(cache)
-	read := readDirs(cache, mods)
 	var out []generateDirective
 	for _, dir := range depPackageDirs(cache, mods) {
 		entries, err := os.ReadDir(dir)
@@ -48,20 +47,38 @@ func depGenerateDirectives() ([]generateDirective, error) {
 			for _, d := range found {
 				// The hash reads the label, which carries no version.
 				d.Label = cacheLabel(cache, path)
-				d.ReadDir = read[slashPath(dir)]
 				out = append(out, d)
 			}
 		}
 	}
+	// Only a module still owing output is worth listing: the go command
+	// generates every package of a listed module, and most modules carry
+	// directives whose output the zip already holds.
+	owing := set.New[string]()
+	for _, d := range out {
+		if owesOutput(d) {
+			owing.Add(moduleRootOf(cache, d.File))
+		}
+	}
+	var listed []depModule
+	for _, m := range mods {
+		if owing.Contains(m.Dir) {
+			listed = append(listed, m)
+		}
+	}
+	read := readDirs(cache, listed)
+	for i := range out {
+		out[i].ReadDir = read[slashPath(filepath.Dir(out[i].File))]
+	}
 	return out, nil
 }
 
-// readDirs answers where the go command reads each package of the dependency
-// modules from, keyed by the package's cached directory, for the packages it
-// reads from somewhere else. The go command generates a dependency package
-// that carries directives into a copy beside the cached module, and listing
-// every package of every dependency module is what makes it generate them
-// all, from the shared build cache when another build already has.
+// readDirs answers where the go command reads each package of the given
+// dependency modules from, keyed by the package's cached directory, for the
+// packages it reads from somewhere else. The go command generates a
+// dependency package that carries directives into a copy beside the cached
+// module, and listing every package of a module is what makes it generate
+// them all, from the shared build cache when another build already has.
 func readDirs(cache string, mods []depModule) map[string]string {
 	if len(mods) == 0 {
 		return nil
