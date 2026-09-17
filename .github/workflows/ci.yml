@@ -16,6 +16,10 @@ permissions:
   actions: read
   checks: read
 
+# The shared cache's look-ahead pool: the server sends the objects stored beside each hit ahead of the build asking, off the critical path (go-s3-server docs/look-ahead.md).
+env:
+  GO_TOOLCHAIN_CACHE_LOOKAHEAD: "16"
+
 # The whole run has 15 minutes. The first jobs carry that as their timeout, and every later job's timeout is what is left of it when the job it needs finished (.github/scripts/deadline.sh). see docs/CI.md
 jobs:
   host-build:
