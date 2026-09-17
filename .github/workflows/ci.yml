@@ -20,13 +20,9 @@ permissions:
 env:
   GO_TOOLCHAIN_CACHE_LOOKAHEAD: "16"
 
-# The whole run has 15 minutes. The first jobs carry that as their timeout, and every later job's timeout is what is left of it when the job it needs finished (.github/scripts/deadline.sh). see docs/CI.md
 jobs:
   host-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    outputs:
-      minutes_left: ${{ steps.deadline.outputs.minutes_left }}
     steps:
       # No persisted credentials: the header checkout leaves in the workspace names THIS repository, so every git question about another one is asked as the wrong identity.
       - uses: actions/checkout@v7
@@ -165,18 +161,10 @@ jobs:
           name: socketharness-build
           path: harness
 
-      - name: Minutes left of the run's budget
-        id: deadline
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash .github/scripts/deadline.sh
-
   # The same build with no go-toolchain release involved: the fork's release runs the fork's make.bash, that go command builds the pipeline, and the pipeline builds itself; identical holds its APE to host-build's bytes. see docs/CI.md
   bootstrap-scratch:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    outputs:
-      minutes_left: ${{ steps.deadline.outputs.minutes_left }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
         with:
@@ -236,30 +224,16 @@ jobs:
           name: ape-scratch
           path: build/go-toolchain
 
-      - name: Minutes left of the run's budget
-        id: deadline
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash .github/scripts/deadline.sh
-
   # Build + test via the composite action with NO target inputs, which is exactly what a... see docs/CI.md
   build:
     needs: host-build
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ fromJSON(needs.host-build.outputs.minutes_left) }}
-    outputs:
-      minutes_left: ${{ steps.deadline.outputs.minutes_left }}
     steps:
       # Same reason as host-build: a persisted credential for this repository answers for no other one.
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
           submodules: recursive
-
-      - name: The run's budget still has time
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash .github/scripts/deadline.sh
 
       # The dats phase sandboxes every suite command (dats' default), and the backend it picks... see docs/CI.md
       - name: Provision the sandbox backend (bubblewrap)
@@ -285,12 +259,6 @@ jobs:
           # A build of this module compiles the fork's standard library from its checkout, in passes. see docs/CI.md
           timeout: '30'
 
-      - name: Minutes left of the run's budget
-        id: deadline
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash .github/scripts/deadline.sh
-
   # Each non-linux host builds this repo's APE with the linux-built binary, so a difference in the output is the host and nothing else. see docs/CI.md
   build-everywhere:
     needs: host-build
@@ -304,19 +272,11 @@ jobs:
             runner: windows-latest
             gt: gt-ape.exe
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: ${{ fromJSON(needs.host-build.outputs.minutes_left) }}
-    outputs:
-      minutes_left: ${{ steps.deadline.outputs.minutes_left }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: recursive
-
-      - name: The run's budget still has time
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash .github/scripts/deadline.sh
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
@@ -368,28 +328,14 @@ jobs:
           name: ape-${{ matrix.origin }}
           path: build/go-toolchain
 
-      - name: Minutes left of the run's budget
-        id: deadline
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash .github/scripts/deadline.sh
-
   # The smoke jobs run ONE host's APE on all three. That says what every host ships only if every... see docs/CI.md
   identical:
     needs: [build, build-everywhere, bootstrap-scratch]
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ fromJSON(needs.build-everywhere.outputs.minutes_left) }}
-    outputs:
-      minutes_left: ${{ steps.deadline.outputs.minutes_left }}
+    timeout-minutes: 10
     steps:
       # Only for the dats fixture below -- this job otherwise runs no repo code.
       - uses: actions/checkout@v7
-
-      - name: The run's budget still has time
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash .github/scripts/deadline.sh
 
       # ape/linux is `build`'s hand-off, the same bytes `publish` ships.
       - name: Download each host's APE
@@ -431,12 +377,6 @@ jobs:
         with:
           tests: .github/dats-fixtures/identical.dats
 
-      - name: Minutes left of the run's budget
-        id: deadline
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash .github/scripts/deadline.sh
-
       # The differing bytes, for a local diff after a red run.
       - name: Keep the APEs that differed
         if: failure()
@@ -456,16 +396,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: ${{ fromJSON(needs.build.outputs.minutes_left) }}
+    # A cold stdlib compile under the fork is slower on NT than on the other two hosts.
+    timeout-minutes: 30
     steps:
       # Only for the dats fixtures in .github/dats-fixtures/ -- this job otherwise runs no repo code.
       - uses: actions/checkout@v7
-
-      - name: The run's budget still has time
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash .github/scripts/deadline.sh
 
       # For GO_BUILDCACHE_CONFIG alone: the fork refuses a CI build without it. see docs/CI.md
       - uses: wow-look-at-my/actions@secret-server#latest
@@ -499,7 +434,6 @@ jobs:
   publish:
     needs: [identical, smoke]
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ fromJSON(needs.identical.outputs.minutes_left) }}
     permissions:
       id-token: write
       contents: read
@@ -509,11 +443,6 @@ jobs:
     steps:
       # Explicit name: multiple same-run hand-offs -- see smoke-linux.
       - uses: actions/checkout@v7
-
-      - name: The run's budget still has time
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash .github/scripts/deadline.sh
 
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
