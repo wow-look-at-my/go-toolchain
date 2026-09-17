@@ -103,7 +103,10 @@ jobs:
           mkdir -p "$GOBIN"
           case "$RUNNER_OS" in Linux) goos=linux ;; macOS) goos=darwin ;; Windows) goos=windows ;; *) echo "unknown RUNNER_OS $RUNNER_OS" >&2; exit 1 ;; esac
           case "$RUNNER_ARCH" in X64) goarch=amd64 ;; ARM64) goarch=arm64 ;; *) echo "unknown RUNNER_ARCH $RUNNER_ARCH" >&2; exit 1 ;; esac
-          GOOS="$goos" GOARCH="$goarch" "$go" install golang.org/x/tools/cmd/stringer@v0.49.0
+          # Every generator a dependency names, one pinned version each so every host generates the same bytes.
+          for pkg in golang.org/x/tools/cmd/stringer@v0.49.0 golang.org/x/text/cmd/gotext@v0.42.0; do
+            GOOS="$goos" GOARCH="$goarch" "$go" install "$pkg"
+          done
           echo "$GOBIN" >> "$GITHUB_PATH"
 
       # The bootstrap pipeline is an APE the fork's own go command built from this tree, with the flags the pipeline builds itself with, so its compiler shares the passes' tool ID. see docs/CI.md
@@ -236,7 +239,10 @@ jobs:
           mkdir -p "$GOBIN"
           case "$RUNNER_OS" in Linux) goos=linux ;; macOS) goos=darwin ;; Windows) goos=windows ;; *) echo "unknown RUNNER_OS $RUNNER_OS" >&2; exit 1 ;; esac
           case "$RUNNER_ARCH" in X64) goarch=amd64 ;; ARM64) goarch=arm64 ;; *) echo "unknown RUNNER_ARCH $RUNNER_ARCH" >&2; exit 1 ;; esac
-          GOOS="$goos" GOARCH="$goarch" "$go" install golang.org/x/tools/cmd/stringer@v0.49.0
+          # Every generator a dependency names, one pinned version each so every host generates the same bytes.
+          for pkg in golang.org/x/tools/cmd/stringer@v0.49.0 golang.org/x/text/cmd/gotext@v0.42.0; do
+            GOOS="$goos" GOARCH="$goarch" "$go" install "$pkg"
+          done
           echo "$GOBIN" >> "$GITHUB_PATH"
 
       - name: Build the bootstrap pipeline from the fork checkout
@@ -300,7 +306,10 @@ jobs:
           mkdir -p "$GOBIN"
           case "$RUNNER_OS" in Linux) goos=linux ;; macOS) goos=darwin ;; Windows) goos=windows ;; *) echo "unknown RUNNER_OS $RUNNER_OS" >&2; exit 1 ;; esac
           case "$RUNNER_ARCH" in X64) goarch=amd64 ;; ARM64) goarch=arm64 ;; *) echo "unknown RUNNER_ARCH $RUNNER_ARCH" >&2; exit 1 ;; esac
-          GOOS="$goos" GOARCH="$goarch" sh build/go-toolchain go install golang.org/x/tools/cmd/stringer@v0.49.0
+          # Every generator a dependency names, one pinned version each so every host generates the same bytes.
+          for pkg in golang.org/x/tools/cmd/stringer@v0.49.0 golang.org/x/text/cmd/gotext@v0.42.0; do
+            GOOS="$goos" GOARCH="$goarch" sh build/go-toolchain go install "$pkg"
+          done
           echo "$GOBIN" >> "$GITHUB_PATH"
 
       # The go-toolchain action itself cache-uploads build/ under the per-job name `go-build-<job... see docs/CI.md
@@ -378,7 +387,10 @@ jobs:
           mkdir -p "$GOBIN"
           case "$RUNNER_OS" in Linux) goos=linux ;; macOS) goos=darwin ;; Windows) goos=windows ;; *) echo "unknown RUNNER_OS $RUNNER_OS" >&2; exit 1 ;; esac
           case "$RUNNER_ARCH" in X64) goarch=amd64 ;; ARM64) goarch=arm64 ;; *) echo "unknown RUNNER_ARCH $RUNNER_ARCH" >&2; exit 1 ;; esac
-          GOOS="$goos" GOARCH="$goarch" "$gt" go install golang.org/x/tools/cmd/stringer@v0.49.0
+          # Every generator a dependency names, one pinned version each so every host generates the same bytes.
+          for pkg in golang.org/x/tools/cmd/stringer@v0.49.0 golang.org/x/text/cmd/gotext@v0.42.0; do
+            GOOS="$goos" GOARCH="$goarch" "$gt" go install "$pkg"
+          done
           echo "$GOBIN" >> "$GITHUB_PATH"
 
       - name: Build this repo's APE here
