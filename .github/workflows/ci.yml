@@ -32,33 +32,6 @@ jobs:
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
-      # The fork commit keys every cross-run cache below: the module cache holds trees the fork's generators wrote, and the build cache holds objects its compiler wrote. see docs/CI.md
-      - name: Name the fork commit
-        id: fork
-        run: echo "sha=$(git rev-parse HEAD:_gosmopolitan)" >> "$GITHUB_OUTPUT"
-
-      # Fetched modules and the generated trees gendep keeps beside them survive across runs; a module version is fixed bytes, so the tree is too. see docs/CI.md
-      - name: Restore the module cache
-        id: gomod
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/go/pkg/mod
-          key: gomod-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            gomod-${{ runner.os }}-${{ steps.fork.outputs.sha }}-
-            gomod-${{ runner.os }}-
-
-      # The disk build cache the stock Go fills for make.bash and the fork fills for everything after; tool build IDs are content-derived, so a stale entry cannot answer. see docs/CI.md
-      - name: Restore the build cache
-        id: gobuild
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.cache/go-build
-          key: gobuild-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            gobuild-${{ runner.os }}-${{ steps.fork.outputs.sha }}-
-            gobuild-${{ runner.os }}-
-
       # The last release a green master run published is the bootstrap, as it is for every consumer; a release without the linked go command hands the job to the from-scratch steps below. see docs/CI.md
       - name: Install the previous release as the bootstrap pipeline
         id: release
@@ -185,21 +158,6 @@ jobs:
           name: socketharness-build
           path: harness
 
-      # Saved whatever happened above: a run that failed still compiled, and the next one starts from that. see docs/CI.md
-      - name: Save the module cache
-        if: always() && steps.gomod.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ steps.gomod.outputs.cache-primary-key }}
-
-      - name: Save the build cache
-        if: always() && steps.gobuild.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.cache/go-build
-          key: ${{ steps.gobuild.outputs.cache-primary-key }}
-
       - name: Minutes left of the run's budget
         id: deadline
         env:
@@ -224,31 +182,6 @@ jobs:
           cache: false
 
       - uses: wow-look-at-my/actions@secret-server#latest
-
-      - name: Name the fork commit
-        id: fork
-        run: echo "sha=$(git rev-parse HEAD:_gosmopolitan)" >> "$GITHUB_OUTPUT"
-
-      # The same caches host-build restores: a cache changes when a step runs, never what it computes, so the APE this job hands off is still the from-scratch answer. see docs/CI.md
-      - name: Restore the module cache
-        id: gomod
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/go/pkg/mod
-          key: gomod-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            gomod-${{ runner.os }}-${{ steps.fork.outputs.sha }}-
-            gomod-${{ runner.os }}-
-
-      - name: Restore the build cache
-        id: gobuild
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.cache/go-build
-          key: gobuild-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            gobuild-${{ runner.os }}-${{ steps.fork.outputs.sha }}-
-            gobuild-${{ runner.os }}-
 
       - name: Build the bootstrap go command from the fork checkout
         working-directory: _gosmopolitan/src
@@ -293,20 +226,6 @@ jobs:
           name: ape-scratch
           path: build/go-toolchain
 
-      - name: Save the module cache
-        if: always() && steps.gomod.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ steps.gomod.outputs.cache-primary-key }}
-
-      - name: Save the build cache
-        if: always() && steps.gobuild.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.cache/go-build
-          key: ${{ steps.gobuild.outputs.cache-primary-key }}
-
       - name: Minutes left of the run's budget
         id: deadline
         env:
@@ -341,30 +260,6 @@ jobs:
             --ro-bind-try /lib64 /lib64 --ro-bind-try /etc /etc \
             --dev /dev --proc /proc --tmpfs /tmp --chdir / --unshare-pid --die-with-parent true
 
-      - name: Name the fork commit
-        id: fork
-        run: echo "sha=$(git rev-parse HEAD:_gosmopolitan)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore the module cache
-        id: gomod
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/go/pkg/mod
-          key: gomod-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            gomod-${{ runner.os }}-${{ steps.fork.outputs.sha }}-
-            gomod-${{ runner.os }}-
-
-      - name: Restore the build cache
-        id: gobuild
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.cache/go-build
-          key: gobuild-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            gobuild-${{ runner.os }}-${{ steps.fork.outputs.sha }}-
-            gobuild-${{ runner.os }}-
-
       # Explicit name (host-build's "Upload host binary" hand-off): the strict cache-download... see docs/CI.md
       - name: Download host binary
         uses: wow-look-at-my/actions@cache-download#latest
@@ -380,26 +275,11 @@ jobs:
           # A build of this module compiles the fork's standard library from its checkout, in passes. see docs/CI.md
           timeout: '30'
 
-      - name: Save the module cache
-        if: always() && steps.gomod.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ steps.gomod.outputs.cache-primary-key }}
-
-      - name: Save the build cache
-        if: always() && steps.gobuild.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.cache/go-build
-          key: ${{ steps.gobuild.outputs.cache-primary-key }}
-
       - name: Minutes left of the run's budget
         id: deadline
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/deadline.sh
-
 
   # Each non-linux host builds this repo's APE with the linux-built binary, so a difference in the output is the host and nothing else. see docs/CI.md
   build-everywhere:
@@ -448,32 +328,6 @@ jobs:
 
       # The NT leg gets no backend step: a WSL1 dockerd answers `docker version` and then fails every run in runc, which is worse than no daemon. see docs/DATS-PHASE.md
 
-      - name: Name the fork commit
-        id: fork
-        shell: bash
-        run: echo "sha=$(git rev-parse HEAD:_gosmopolitan)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore the module cache
-        id: gomod
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/go/pkg/mod
-          key: gomod-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            gomod-${{ runner.os }}-${{ steps.fork.outputs.sha }}-
-            gomod-${{ runner.os }}-
-
-      # GOCACHE is named outright so the path cached is the path the APE writes, whatever the host calls its cache directory. see docs/CI.md
-      - name: Restore the build cache
-        id: gobuild
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ runner.temp }}/go-build
-          key: gobuild-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            gobuild-${{ runner.os }}-${{ steps.fork.outputs.sha }}-
-            gobuild-${{ runner.os }}-
-
       - name: Download host binary
         uses: wow-look-at-my/actions@cache-download#latest
         with:
@@ -493,7 +347,6 @@ jobs:
         env:
           # A build inside the checkout submits a dependency snapshot, and a missing token fails it.
           GITHUB_TOKEN: ${{ github.token }}
-          GOCACHE: ${{ runner.temp }}/go-build
           GODEBUG: gocachetest=1
         run: |
           set -euo pipefail
@@ -504,20 +357,6 @@ jobs:
         with:
           name: ape-${{ matrix.origin }}
           path: build/go-toolchain
-
-      - name: Save the module cache
-        if: always() && steps.gomod.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ steps.gomod.outputs.cache-primary-key }}
-
-      - name: Save the build cache
-        if: always() && steps.gobuild.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ runner.temp }}/go-build
-          key: ${{ steps.gobuild.outputs.cache-primary-key }}
 
       - name: Minutes left of the run's budget
         id: deadline
