@@ -19,3 +19,9 @@ tests:
 
 	- desc: the from-scratch bootstrap reaches the same bytes as the release bootstrap
 	  cmd: cmp ape/linux/go-toolchain ape/scratch/go-toolchain
+
+	- desc: host-build handed off an APE
+	  cmd: test -f ape/host/go-toolchain
+
+	- desc: the build job reproduces the host-build APE it ran
+	  cmd: cmp ape/host/go-toolchain ape/linux/go-toolchain

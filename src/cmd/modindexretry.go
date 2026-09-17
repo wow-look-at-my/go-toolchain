@@ -34,6 +34,9 @@ func (t *tailBuffer) String() string { return string(t.buf) }
 // disableGoModuleIndex disables cmd/go's module index for this process and its children; it only slows scans.
 func disableGoModuleIndex() {
 	godebug := os.Getenv("GODEBUG")
+	if strings.Contains(","+godebug+",", ",goindex=0,") {
+		return
+	}
 	if godebug != "" {
 		godebug += ","
 	}

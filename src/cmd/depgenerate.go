@@ -28,8 +28,9 @@ func depGenerateDirectives() ([]generateDirective, error) {
 	if err != nil || cache == "" {
 		return nil, err
 	}
+	mods := depModules(cache)
 	var out []generateDirective
-	for _, dir := range depPackageDirs(cache) {
+	for _, dir := range depPackageDirs(cache, mods) {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			continue
@@ -50,16 +51,64 @@ func depGenerateDirectives() ([]generateDirective, error) {
 			}
 		}
 	}
+	owing := set.New[string]()
+	for _, d := range out {
+		if owesOutput(d) {
+			owing.Add(moduleRootOf(cache, d.File))
+		}
+	}
+	var listed []depModule
+	for _, m := range mods {
+		if owing.Contains(m.Dir) {
+			listed = append(listed, m)
+		}
+	}
+	read := readDirs(cache, listed)
+	for i := range out {
+		out[i].ReadDir = read[slashPath(filepath.Dir(out[i].File))]
+	}
 	return out, nil
+}
+
+// readDirs answers where the go command reads each package of the given
+// dependency modules from, keyed by the package's cached directory, for the
+// packages it reads from somewhere else. The go command generates a
+// dependency package that carries directives into a copy beside the cached
+// module, and listing every package of a module is what makes it generate
+// them all, from the shared build cache when another build already has.
+func readDirs(cache string, mods []depModule) map[string]string {
+	if len(mods) == 0 {
+		return nil
+	}
+	args := []string{"list", "-e", "-f", "{{.Dir}}"}
+	for _, m := range mods {
+		args = append(args, m.Path+"/...")
+	}
+	out, err := goOutput(args...)
+	if err != nil {
+		return nil
+	}
+	generated := cache + "/cache/generate/"
+	read := make(map[string]string)
+	for line := range strings.SplitSeq(out, "\n") {
+		dir := slashPath(strings.TrimSpace(line))
+		rest, ok := strings.CutPrefix(dir, generated)
+		if !ok {
+			continue
+		}
+		read[cache+"/"+rest] = dir
+	}
+	return read
 }
 
 // depPackageDirs reads every package directory of every dependency MODULE, and
 // not just the ones an import reaches. Generating is what changes which ones an
 // import reaches, and a set that grows as it is satisfied cannot be approved.
-func depPackageDirs(cache string) []string {
+func depPackageDirs(cache string, mods []depModule) []string {
 	seen := set.New[string]()
 	var dirs []string
-	for _, root := range depModuleDirs(cache) {
+	for _, m := range mods {
+		root := m.Dir
 		filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 			if err != nil || !d.IsDir() {
 				return nil
@@ -102,23 +151,33 @@ func hasGoFile(dir string) bool {
 	return false
 }
 
-// depModuleDirs names the cached root of every module this module builds against.
-func depModuleDirs(cache string) []string {
-	out, err := goOutput("list", "-deps", "-f", "{{with .Module}}{{.Dir}}{{end}}", "./...")
+// depModule is a module this module builds against: its path and its cached root.
+type depModule struct {
+	Path string
+	Dir  string
+}
+
+// depModules names every module this module builds against that sits in the module cache.
+func depModules(cache string) []depModule {
+	out, err := goOutput("list", "-deps", "-f", "{{with .Module}}{{.Path}} {{.Dir}}{{end}}", "./...")
 	if err != nil {
 		return nil
 	}
 	seen := set.New[string]()
-	var dirs []string
-	for _, line := range strings.Split(out, "\n") {
-		dir := slashPath(strings.TrimSpace(line))
+	var mods []depModule
+	for line := range strings.SplitSeq(out, "\n") {
+		path, dir, ok := strings.Cut(strings.TrimSpace(line), " ")
+		if !ok {
+			continue
+		}
+		dir = slashPath(dir)
 		if dir == "" || !strings.HasPrefix(dir, cache) || seen.Contains(dir) {
 			continue
 		}
 		seen.Add(dir)
-		dirs = append(dirs, dir)
+		mods = append(mods, depModule{Path: path, Dir: dir})
 	}
-	return dirs
+	return mods
 }
 
 // cacheLabel names a cached file by its module path and the file inside it,
@@ -221,13 +280,20 @@ func generatedOutput(command string) string {
 }
 
 // owesOutput reports that a directive names a file it writes and that the file
-// is not there.
+// is neither beside the directive nor in the copy the go command reads the
+// package from.
 func owesOutput(d generateDirective) bool {
 	out := generatedOutput(d.Command)
 	if out == "" {
 		return false
 	}
-	_, err := os.Stat(filepath.Join(filepath.Dir(d.File), out))
+	if _, err := os.Stat(filepath.Join(filepath.Dir(d.File), out)); !os.IsNotExist(err) {
+		return false
+	}
+	if d.ReadDir == "" {
+		return true
+	}
+	_, err := os.Stat(filepath.Join(d.ReadDir, out))
 	return os.IsNotExist(err)
 }
 
