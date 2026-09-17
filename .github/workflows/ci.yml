@@ -451,50 +451,7 @@ jobs:
           cp dist/go-toolchain "$RUNNER_TEMP/${{ matrix.gt }}"
           chmod +x "$RUNNER_TEMP/${{ matrix.gt }}"
 
-      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
-      - name: Install the generators
-        shell: bash
-        env:
-          # Building a generator must not complete the module that provides it: that fetch wants the generator, which is what this step is making.
-          GOGENERATEDEPS: "off"
-          GOBIN: ${{ runner.temp }}/genbin
-          GO_TOOLCHAIN_LINKED_GO: "1"
-          # A linked go command takes the environment as it is, so the pipeline never configures the sumdb for it. This is the pipeline's own answer when no sumdb is configured.
-          GONOSUMDB: "*"
-          GONOSUMCHECK: "*"
-        run: |
-          set -euo pipefail
-          gt="$RUNNER_TEMP/${{ matrix.gt }}"
-          mkdir -p "$GOBIN"
-          case "$RUNNER_OS" in Linux) goos=linux ;; macOS) goos=darwin ;; Windows) goos=windows ;; *) echo "unknown RUNNER_OS $RUNNER_OS" >&2; exit 1 ;; esac
-          case "$RUNNER_ARCH" in X64) goarch=amd64 ;; ARM64) goarch=arm64 ;; *) echo "unknown RUNNER_ARCH $RUNNER_ARCH" >&2; exit 1 ;; esac
-          # Every generator a dependency names, one pinned version each so every host generates the same bytes.
-          for pkg in \
-            golang.org/x/tools/cmd/stringer@v0.49.0 \
-            golang.org/x/tools/cmd/goyacc@v0.49.0 \
-            golang.org/x/text/cmd/gotext@v0.42.0 \
-            github.com/mjibson/esc@v0.2.0 \
-            google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
-          ; do
-            GOOS="$goos" GOARCH="$goarch" "$gt" go install "$pkg"
-          done
-          # protoc is a C++ binary, so go install cannot reach it. The release is pinned.
-          protoc_version=27.2
-          case "$RUNNER_OS-$RUNNER_ARCH" in
-            Linux-X64) protoc_asset=linux-x86_64 ;;
-            Linux-ARM64) protoc_asset=linux-aarch_64 ;;
-            macOS-X64) protoc_asset=osx-x86_64 ;;
-            macOS-ARM64) protoc_asset=osx-aarch_64 ;;
-            Windows-X64) protoc_asset=win64 ;;
-            *) echo "no protoc release for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
-          esac
-          curl -fsSL -o "$RUNNER_TEMP/protoc.zip" \
-            "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-${protoc_asset}.zip"
-          unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
-          chmod +x "$RUNNER_TEMP/protoc/bin/protoc" || true
-          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
-          echo "$GOBIN" >> "$GITHUB_PATH"
-
+      # This job installs no generator. The hand-off embeds a standard library for the host it was built on, so it cannot compile one for this host. It does not need to: host-build completes every module first, and this job reads those completions from the shared cache.
       - name: Build this repo's APE here
         shell: bash
         env:
