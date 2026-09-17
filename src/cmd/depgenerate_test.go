@@ -126,6 +126,13 @@ func TestOnlyAMissingNamedOutputIsOwed(t *testing.T) {
 	assert.True(t, owesOutput(at("go run tool -out parser.go in.c")), "named and absent")
 	assert.False(t, owesOutput(at("stringer -type=Kind")), "names no output, so nothing is known")
 
+	read := t.TempDir()
+	generated := at("go run tool -out parser.go in.c")
+	generated.ReadDir = read
+	assert.True(t, owesOutput(generated), "absent from the copy the go command reads too")
+	require.NoError(t, os.WriteFile(filepath.Join(read, "parser.go"), []byte("x"), 0o644))
+	assert.False(t, owesOutput(generated), "the go command generated it into its copy")
+
 	write("parser.go")
 	assert.False(t, owesOutput(at("go run tool -out parser.go in.c")), "the file is there")
 	assert.False(t, owesOutput(at("go run tool -out=parser.go in.c")), "the joined spelling reads too")
