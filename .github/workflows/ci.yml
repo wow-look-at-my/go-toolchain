@@ -113,8 +113,7 @@ jobs:
           ; do
             GOOS="$goos" GOARCH="$goarch" "$go" install "$pkg"
           done
-          # protoc is a C++ binary, so the loop above cannot reach it. The release is
-          # pinned so every host runs the same compiler.
+          # protoc is a C++ binary, so go install cannot reach it. The release is pinned.
           protoc_version=27.2
           case "$RUNNER_OS-$RUNNER_ARCH" in
             Linux-X64) protoc_asset=linux-x86_64 ;;
@@ -271,8 +270,7 @@ jobs:
           ; do
             GOOS="$goos" GOARCH="$goarch" "$go" install "$pkg"
           done
-          # protoc is a C++ binary, so the loop above cannot reach it. The release is
-          # pinned so every host runs the same compiler.
+          # protoc is a C++ binary, so go install cannot reach it. The release is pinned.
           protoc_version=27.2
           case "$RUNNER_OS-$RUNNER_ARCH" in
             Linux-X64) protoc_asset=linux-x86_64 ;;
@@ -360,8 +358,7 @@ jobs:
           ; do
             GOOS="$goos" GOARCH="$goarch" sh build/go-toolchain go install "$pkg"
           done
-          # protoc is a C++ binary, so the loop above cannot reach it. The release is
-          # pinned so every host runs the same compiler.
+          # protoc is a C++ binary, so go install cannot reach it. The release is pinned.
           protoc_version=27.2
           case "$RUNNER_OS-$RUNNER_ARCH" in
             Linux-X64) protoc_asset=linux-x86_64 ;;
@@ -463,8 +460,7 @@ jobs:
           ; do
             GOOS="$goos" GOARCH="$goarch" "$gt" go install "$pkg"
           done
-          # protoc is a C++ binary, so the loop above cannot reach it. The release is
-          # pinned so every host runs the same compiler.
+          # protoc is a C++ binary, so go install cannot reach it. The release is pinned.
           protoc_version=27.2
           case "$RUNNER_OS-$RUNNER_ARCH" in
             Linux-X64) protoc_asset=linux-x86_64 ;;
