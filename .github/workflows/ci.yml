@@ -347,6 +347,9 @@ jobs:
       - name: What each host handed off
         run: sha256sum ape/*/go-toolchain
 
+      - name: Where the from-scratch bootstrap differs
+        run: bash .github/scripts/explain-mismatch.sh ape/linux/go-toolchain ape/scratch/go-toolchain
+
       # A missing hand-off fails too: comparing the hosts that answered proves nothing. see docs/CI.md
       - name: Every host built the same bytes
         uses: wow-look-at-my/dats@master
