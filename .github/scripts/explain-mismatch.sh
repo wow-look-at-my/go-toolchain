@@ -24,3 +24,5 @@ done
 echo "APE header lines:"
 head -c 4096 "$a" | strings | head -12
 head -c 4096 "$b" | strings | head -12
+echo "strings in only one of the two (< $a, > $b):"
+diff <(strings -n 8 "$a" | sort -u) <(strings -n 8 "$b" | sort -u) | grep '^[<>]' | head -120

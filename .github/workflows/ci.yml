@@ -343,9 +343,17 @@ jobs:
         with:
           name: ape-scratch
           path: ape/scratch
+      # The APE host-build reached, which `build` ran to produce ape/linux.
+      - uses: wow-look-at-my/actions@cache-download#latest
+        with:
+          name: host-go-toolchain
+          path: ape/host
 
       - name: What each host handed off
         run: sha256sum ape/*/go-toolchain
+
+      - name: Where the build job's APE differs from the host-build APE it ran
+        run: bash .github/scripts/explain-mismatch.sh ape/host/go-toolchain ape/linux/go-toolchain
 
       - name: Where the from-scratch bootstrap differs
         run: bash .github/scripts/explain-mismatch.sh ape/linux/go-toolchain ape/scratch/go-toolchain
@@ -355,6 +363,18 @@ jobs:
         uses: wow-look-at-my/dats@master
         with:
           tests: .github/dats-fixtures/identical.dats
+
+      # The differing bytes, for a local diff after a red run.
+      - name: Keep the APEs that differed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apes-that-differed
+          path: |
+            ape/host/go-toolchain
+            ape/linux/go-toolchain
+            ape/scratch/go-toolchain
+          compression-level: 1
 
   # One suite, every host: a host-specific answer is paired with uname inside the fixture. see docs/CI.md
   smoke:
