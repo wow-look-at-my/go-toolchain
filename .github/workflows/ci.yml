@@ -86,9 +86,9 @@ jobs:
           fi
 
       # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
-      - name: Install stringer
+      - name: Install the generators
         env:
-          # Building the generator must not complete the module that provides it: that fetch wants stringer, which is what this step is making.
+          # Building a generator must not complete the module that provides it: that fetch wants the generator, which is what this step is making.
           GOGENERATEDEPS: "off"
           GOBIN: ${{ runner.temp }}/genbin
         run: |
@@ -104,9 +104,31 @@ jobs:
           case "$RUNNER_OS" in Linux) goos=linux ;; macOS) goos=darwin ;; Windows) goos=windows ;; *) echo "unknown RUNNER_OS $RUNNER_OS" >&2; exit 1 ;; esac
           case "$RUNNER_ARCH" in X64) goarch=amd64 ;; ARM64) goarch=arm64 ;; *) echo "unknown RUNNER_ARCH $RUNNER_ARCH" >&2; exit 1 ;; esac
           # Every generator a dependency names, one pinned version each so every host generates the same bytes.
-          for pkg in golang.org/x/tools/cmd/stringer@v0.49.0 golang.org/x/tools/cmd/goyacc@v0.49.0 golang.org/x/text/cmd/gotext@v0.42.0; do
+          for pkg in \
+            golang.org/x/tools/cmd/stringer@v0.49.0 \
+            golang.org/x/tools/cmd/goyacc@v0.49.0 \
+            golang.org/x/text/cmd/gotext@v0.42.0 \
+            github.com/mjibson/esc@v0.2.0 \
+            google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
+          ; do
             GOOS="$goos" GOARCH="$goarch" "$go" install "$pkg"
           done
+          # protoc is a C++ binary, so the loop above cannot reach it. The release is
+          # pinned so every host runs the same compiler.
+          protoc_version=27.2
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) protoc_asset=linux-x86_64 ;;
+            Linux-ARM64) protoc_asset=linux-aarch_64 ;;
+            macOS-X64) protoc_asset=osx-x86_64 ;;
+            macOS-ARM64) protoc_asset=osx-aarch_64 ;;
+            Windows-X64) protoc_asset=win64 ;;
+            *) echo "no protoc release for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          curl -fsSL -o "$RUNNER_TEMP/protoc.zip" \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-${protoc_asset}.zip"
+          unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          chmod +x "$RUNNER_TEMP/protoc/bin/protoc" || true
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
           echo "$GOBIN" >> "$GITHUB_PATH"
 
       # The bootstrap pipeline is an APE the fork's own go command built from this tree, with the flags the pipeline builds itself with, so its compiler shares the passes' tool ID. see docs/CI.md
@@ -228,9 +250,9 @@ jobs:
           fi
 
       # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
-      - name: Install stringer
+      - name: Install the generators
         env:
-          # Building the generator must not complete the module that provides it: that fetch wants stringer, which is what this step is making.
+          # Building a generator must not complete the module that provides it: that fetch wants the generator, which is what this step is making.
           GOGENERATEDEPS: "off"
           GOBIN: ${{ runner.temp }}/genbin
         run: |
@@ -240,9 +262,31 @@ jobs:
           case "$RUNNER_OS" in Linux) goos=linux ;; macOS) goos=darwin ;; Windows) goos=windows ;; *) echo "unknown RUNNER_OS $RUNNER_OS" >&2; exit 1 ;; esac
           case "$RUNNER_ARCH" in X64) goarch=amd64 ;; ARM64) goarch=arm64 ;; *) echo "unknown RUNNER_ARCH $RUNNER_ARCH" >&2; exit 1 ;; esac
           # Every generator a dependency names, one pinned version each so every host generates the same bytes.
-          for pkg in golang.org/x/tools/cmd/stringer@v0.49.0 golang.org/x/tools/cmd/goyacc@v0.49.0 golang.org/x/text/cmd/gotext@v0.42.0; do
+          for pkg in \
+            golang.org/x/tools/cmd/stringer@v0.49.0 \
+            golang.org/x/tools/cmd/goyacc@v0.49.0 \
+            golang.org/x/text/cmd/gotext@v0.42.0 \
+            github.com/mjibson/esc@v0.2.0 \
+            google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
+          ; do
             GOOS="$goos" GOARCH="$goarch" "$go" install "$pkg"
           done
+          # protoc is a C++ binary, so the loop above cannot reach it. The release is
+          # pinned so every host runs the same compiler.
+          protoc_version=27.2
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) protoc_asset=linux-x86_64 ;;
+            Linux-ARM64) protoc_asset=linux-aarch_64 ;;
+            macOS-X64) protoc_asset=osx-x86_64 ;;
+            macOS-ARM64) protoc_asset=osx-aarch_64 ;;
+            Windows-X64) protoc_asset=win64 ;;
+            *) echo "no protoc release for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          curl -fsSL -o "$RUNNER_TEMP/protoc.zip" \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-${protoc_asset}.zip"
+          unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          chmod +x "$RUNNER_TEMP/protoc/bin/protoc" || true
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
           echo "$GOBIN" >> "$GITHUB_PATH"
 
       - name: Build the bootstrap pipeline from the fork checkout
@@ -294,9 +338,9 @@ jobs:
           path: build
 
       # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
-      - name: Install stringer
+      - name: Install the generators
         env:
-          # Building the generator must not complete the module that provides it: that fetch wants stringer, which is what this step is making.
+          # Building a generator must not complete the module that provides it: that fetch wants the generator, which is what this step is making.
           GOGENERATEDEPS: "off"
           GOBIN: ${{ runner.temp }}/genbin
           # The hand-off is an APE and this job has no binfmt handler, so a shell starts it.
@@ -307,9 +351,31 @@ jobs:
           case "$RUNNER_OS" in Linux) goos=linux ;; macOS) goos=darwin ;; Windows) goos=windows ;; *) echo "unknown RUNNER_OS $RUNNER_OS" >&2; exit 1 ;; esac
           case "$RUNNER_ARCH" in X64) goarch=amd64 ;; ARM64) goarch=arm64 ;; *) echo "unknown RUNNER_ARCH $RUNNER_ARCH" >&2; exit 1 ;; esac
           # Every generator a dependency names, one pinned version each so every host generates the same bytes.
-          for pkg in golang.org/x/tools/cmd/stringer@v0.49.0 golang.org/x/tools/cmd/goyacc@v0.49.0 golang.org/x/text/cmd/gotext@v0.42.0; do
+          for pkg in \
+            golang.org/x/tools/cmd/stringer@v0.49.0 \
+            golang.org/x/tools/cmd/goyacc@v0.49.0 \
+            golang.org/x/text/cmd/gotext@v0.42.0 \
+            github.com/mjibson/esc@v0.2.0 \
+            google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
+          ; do
             GOOS="$goos" GOARCH="$goarch" sh build/go-toolchain go install "$pkg"
           done
+          # protoc is a C++ binary, so the loop above cannot reach it. The release is
+          # pinned so every host runs the same compiler.
+          protoc_version=27.2
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) protoc_asset=linux-x86_64 ;;
+            Linux-ARM64) protoc_asset=linux-aarch_64 ;;
+            macOS-X64) protoc_asset=osx-x86_64 ;;
+            macOS-ARM64) protoc_asset=osx-aarch_64 ;;
+            Windows-X64) protoc_asset=win64 ;;
+            *) echo "no protoc release for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          curl -fsSL -o "$RUNNER_TEMP/protoc.zip" \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-${protoc_asset}.zip"
+          unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          chmod +x "$RUNNER_TEMP/protoc/bin/protoc" || true
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
           echo "$GOBIN" >> "$GITHUB_PATH"
 
       # The go-toolchain action itself cache-uploads build/ under the per-job name `go-build-<job... see docs/CI.md
@@ -374,10 +440,10 @@ jobs:
           chmod +x "$RUNNER_TEMP/${{ matrix.gt }}"
 
       # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
-      - name: Install stringer
+      - name: Install the generators
         shell: bash
         env:
-          # Building the generator must not complete the module that provides it: that fetch wants stringer, which is what this step is making.
+          # Building a generator must not complete the module that provides it: that fetch wants the generator, which is what this step is making.
           GOGENERATEDEPS: "off"
           GOBIN: ${{ runner.temp }}/genbin
           GO_TOOLCHAIN_LINKED_GO: "1"
@@ -388,9 +454,31 @@ jobs:
           case "$RUNNER_OS" in Linux) goos=linux ;; macOS) goos=darwin ;; Windows) goos=windows ;; *) echo "unknown RUNNER_OS $RUNNER_OS" >&2; exit 1 ;; esac
           case "$RUNNER_ARCH" in X64) goarch=amd64 ;; ARM64) goarch=arm64 ;; *) echo "unknown RUNNER_ARCH $RUNNER_ARCH" >&2; exit 1 ;; esac
           # Every generator a dependency names, one pinned version each so every host generates the same bytes.
-          for pkg in golang.org/x/tools/cmd/stringer@v0.49.0 golang.org/x/tools/cmd/goyacc@v0.49.0 golang.org/x/text/cmd/gotext@v0.42.0; do
+          for pkg in \
+            golang.org/x/tools/cmd/stringer@v0.49.0 \
+            golang.org/x/tools/cmd/goyacc@v0.49.0 \
+            golang.org/x/text/cmd/gotext@v0.42.0 \
+            github.com/mjibson/esc@v0.2.0 \
+            google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
+          ; do
             GOOS="$goos" GOARCH="$goarch" "$gt" go install "$pkg"
           done
+          # protoc is a C++ binary, so the loop above cannot reach it. The release is
+          # pinned so every host runs the same compiler.
+          protoc_version=27.2
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) protoc_asset=linux-x86_64 ;;
+            Linux-ARM64) protoc_asset=linux-aarch_64 ;;
+            macOS-X64) protoc_asset=osx-x86_64 ;;
+            macOS-ARM64) protoc_asset=osx-aarch_64 ;;
+            Windows-X64) protoc_asset=win64 ;;
+            *) echo "no protoc release for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          curl -fsSL -o "$RUNNER_TEMP/protoc.zip" \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-${protoc_asset}.zip"
+          unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          chmod +x "$RUNNER_TEMP/protoc/bin/protoc" || true
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
           echo "$GOBIN" >> "$GITHUB_PATH"
 
       - name: Build this repo's APE here
