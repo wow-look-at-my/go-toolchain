@@ -151,7 +151,12 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 		return nil, err
 	}
 
-	p := &process{cmd: cmd, stdoutPipe: stdout, stderrPipe: stderr, quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, stderrWriter: cfg.StderrWriter}
+	// Both streams are read from the moment the child starts. A caller that
+	// reads a single stream to its end before the other, or reads neither
+	// until Wait, never leaves the child blocked on a full pipe.
+	p := &process{cmd: cmd, stdout: newSpool(), stderr: newSpool(), quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, stderrWriter: cfg.StderrWriter}
+	go p.stdout.fill(stdout)
+	go p.stderr.fill(stderr)
 	return p, nil
 }
 
@@ -175,8 +180,8 @@ func (w *firstOutputWriter) Write(p []byte) (int, error) {
 
 type process struct {
 	cmd          *exec.Cmd
-	stdoutPipe   io.Reader
-	stderrPipe   io.Reader
+	stdout       *spool
+	stderr       *spool
 	quiet        bool
 	done         bool
 	err          error
@@ -214,14 +219,17 @@ func (p *process) Wait() error {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			io.Copy(w, p.stdoutPipe)
+			io.Copy(w, p.stdout)
 		}()
 		go func() {
 			defer wg.Done()
-			io.Copy(wErr, p.stderrPipe)
+			io.Copy(wErr, p.stderr)
 		}()
 		wg.Wait()
 	}
+	// cmd.Wait closes the pipes, so both spools must have seen their end earliest.
+	p.stdout.drained()
+	p.stderr.drained()
 	p.err = p.cmd.Wait()
 	p.done = true
 	return p.err
@@ -237,9 +245,9 @@ func HadOutput(proc IProcess) bool {
 }
 
 func (p *process) Stdout() io.Reader {
-	return p.stdoutPipe
+	return p.stdout
 }
 
 func (p *process) Stderr() io.Reader {
-	return p.stderrPipe
+	return p.stderr
 }
