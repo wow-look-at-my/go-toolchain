@@ -175,7 +175,7 @@ func init() {
 // Execute runs the root command.
 func Execute() error {
 	defer emitBuildProfile()
-	defer removeGoLink()
+	defer removeFixedPointSelf()
 	return rootCmd.Execute()
 }
 
@@ -208,6 +208,9 @@ func run(cmd *cobra.Command, args []string) (err error) {
 	// The comment rule is imported, and its extractor reads a parse table that a generate step writes: a dependency ships
 	// the directive and not
 	if err := generateForDeps(approvedGenerateHash()); err != nil {
+		return err
+	}
+	if err := reexecUnderOwnBuild(); err != nil {
 		return err
 	}
 
