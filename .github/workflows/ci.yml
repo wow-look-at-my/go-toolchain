@@ -85,11 +85,6 @@ jobs:
             echo "GONOSUMCHECK=*"
           } >> "$GITHUB_ENV"
 
-      # A generator is an ordinary host program, so a stock go builds it. The linked release cannot: that binary is an APE, and it carries a standard library for no concrete host, so `go install` panics on the missing manifest entry. The version is pinned because the generators' own modules ask for a recent one, and a runner does not always carry it.
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-
       # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
       - name: Install the generators
         env:
@@ -98,8 +93,15 @@ jobs:
           GOBIN: ${{ runner.temp }}/genbin
         run: |
           set -euo pipefail
+          if [ "${{ steps.release.outputs.linked }}" = "true" ]; then
+            go="$RUNNER_TEMP/gt-bootstrap-go"
+            printf '#!/bin/sh\nGO_TOOLCHAIN_LINKED_GO=1 exec sh "%s" go "$@"\n' "$RUNNER_TEMP/gt-bootstrap" > "$go"
+            chmod +x "$go"
+          else
+            go="$PWD/_gosmopolitan/bin/go"
+          fi
           mkdir -p "$GOBIN"
-          # Every generator a dependency names, one pinned version each so every host generates the same bytes.
+          # No GOOS or GOARCH: this go command is itself an APE, so its own target is cosmo, and cosmo is what its embedded standard library carries. Naming the host instead asks it for a standard library it does not have, and a generator built for one host is no use to the others.
           for pkg in \
             golang.org/x/tools/cmd/stringer@v0.49.0 \
             golang.org/x/tools/cmd/goyacc@v0.49.0 \
@@ -107,7 +109,7 @@ jobs:
             github.com/mjibson/esc@v0.2.0 \
             google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
           ; do
-            go install "$pkg"
+            "$go" install "$pkg"
           done
           # protoc is a C++ binary, so go install cannot reach it. The release is pinned.
           protoc_version=27.2
@@ -254,9 +256,7 @@ jobs:
           set -euo pipefail
           go="$PWD/_gosmopolitan/bin/go"
           mkdir -p "$GOBIN"
-          case "$RUNNER_OS" in Linux) goos=linux ;; macOS) goos=darwin ;; Windows) goos=windows ;; *) echo "unknown RUNNER_OS $RUNNER_OS" >&2; exit 1 ;; esac
-          case "$RUNNER_ARCH" in X64) goarch=amd64 ;; ARM64) goarch=arm64 ;; *) echo "unknown RUNNER_ARCH $RUNNER_ARCH" >&2; exit 1 ;; esac
-          # Every generator a dependency names, one pinned version each so every host generates the same bytes.
+          # No GOOS or GOARCH: the fork's own target is cosmo, so each generator comes out an APE that every host can run. Naming the host builds one that only this host can.
           for pkg in \
             golang.org/x/tools/cmd/stringer@v0.49.0 \
             golang.org/x/tools/cmd/goyacc@v0.49.0 \
@@ -264,7 +264,7 @@ jobs:
             github.com/mjibson/esc@v0.2.0 \
             google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
           ; do
-            GOOS="$goos" GOARCH="$goarch" "$go" install "$pkg"
+            "$go" install "$pkg"
           done
           # protoc is a C++ binary, so go install cannot reach it. The release is pinned.
           protoc_version=27.2
@@ -331,16 +331,15 @@ jobs:
           name: host-go-toolchain
           path: build
 
-      # A generator is an ordinary host program, so a stock go builds it. The hand-off cannot: it carries a standard library for its own target alone. The version is pinned because the generators' own modules ask for a recent one, and a runner does not always carry it.
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-
+      # The hand-off builds its own generators: it is an APE, its target is cosmo, and cosmo is what its embedded standard library carries. A stock go here would build each generator for this one host instead.
       - name: Install the generators
         env:
           GOBIN: ${{ runner.temp }}/genbin
         run: |
           set -euo pipefail
+          go="$RUNNER_TEMP/gt-build-go"
+          printf '#!/bin/sh\nGO_TOOLCHAIN_LINKED_GO=1 exec sh "%s" go "$@"\n' "$PWD/build/go-toolchain" > "$go"
+          chmod +x "$go"
           mkdir -p "$GOBIN"
           # Every generator a dependency names, one pinned version each so every host generates the same bytes.
           for pkg in \
@@ -350,7 +349,7 @@ jobs:
             github.com/mjibson/esc@v0.2.0 \
             google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
           ; do
-            go install "$pkg"
+            "$go" install "$pkg"
           done
           echo "$GOBIN" >> "$GITHUB_PATH"
 
@@ -420,17 +419,16 @@ jobs:
           cp dist/go-toolchain "$RUNNER_TEMP/${{ matrix.gt }}"
           chmod +x "$RUNNER_TEMP/${{ matrix.gt }}"
 
-      # A generator is an ordinary host program, so a stock go builds it. The hand-off cannot: it carries a standard library for its own target alone. The version is pinned because the generators' own modules ask for a recent one, and a runner does not always carry it.
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-
+      # This host's own APE builds the generators: its target is cosmo, and cosmo is what its embedded standard library carries. A stock go here would build each generator for this one host instead.
       - name: Install the generators
         shell: bash
         env:
           GOBIN: ${{ runner.temp }}/genbin
         run: |
           set -euo pipefail
+          go="$RUNNER_TEMP/gt-everywhere-go"
+          printf '#!/bin/sh\nGO_TOOLCHAIN_LINKED_GO=1 exec sh "%s" go "$@"\n' "$RUNNER_TEMP/${{ matrix.gt }}" > "$go"
+          chmod +x "$go"
           mkdir -p "$GOBIN"
           # Every generator a dependency names, one pinned version each so every host generates the same bytes.
           for pkg in \
@@ -440,7 +438,7 @@ jobs:
             github.com/mjibson/esc@v0.2.0 \
             google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
           ; do
-            go install "$pkg"
+            "$go" install "$pkg"
           done
           echo "$GOBIN" >> "$GITHUB_PATH"
 
