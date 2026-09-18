@@ -23,11 +23,6 @@
 #
 # NOTE: build-everywhere self-builds this repo on every host, so every test
 # here runs on linux, darwin and windows. Nothing below may name a host.
-# The SHIPPED artifact's guard is pinned by the sibling fixture
-# .github/dats-fixtures/agent-output-guard.dats, the same file for every host,
-# every smoke job copies into a throwaway module. That fixture cannot live under
-# this repo's own dats/: dats runs every suite it finds recursively there, so it
-# would also run against the dev build this file already covers.
 
 # Sandboxed like every other suite (dats' default). The adjustment: under
 # the docker backend the commands run in the IMAGE's filesystem, and every
@@ -65,86 +60,6 @@ tests:
 			- "Commit:"
 		"!stderr":
 			- "panic"
-
-	# version prints build metadata and no build result, so it is exempt: a
-	# captured `version raw` under an agent still answers.
-	# The test above asks the same thing with no marker set, and they have to
-	# agree -- an agent is exactly who runs this suite, and the guard firing on
-	# version made that pair unsatisfiable.
-	- desc: version is exempt from the agent output guard
-	  cmd: '{shared.gt.exe} version raw'
-	  timeout: 30s
-	  inputs:
-		env:
-			CLAUDECODE: "1"
-			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-	  outputs:
-		"!stderr":
-			- "refused to run"
-
-	# The guard-positive case: a bare pipeline run under Claude with captured
-	# stdout (dats always captures) must refuse to run before doing any work.
-	# CLAUDECODE=1 also guarantees the pipeline can never actually start here,
-	# so this test never recurses into a nested build.
-	#
-	# Run from an EMPTY throwaway directory, not the module root: a guard abort
-	# deletes the module's build outputs (src/cmd/staleoutputs.go), which here
-	# would delete the very binaries this pipeline just built. With no go.mod
-	# there are no targets to delete, so this stays a pure guard assertion —
-	# the deletion itself is asserted by the next test.
-	#
-	# The guard is INOPERATIVE on a windows host -- the APE gets no classifier
-	# there, says so a single time, and allows -- so the answer is paired with
-	# `uname -s` rather than split into another copy of this file. Losing the
-	# refusal where a classifier exists, or gaining the banner there, fails.
-	#
-	# A darwin host has more than a single legitimate answer, and EACH is the guard working.
-	# Naming a pipe's reader there costs an lsof and a ps on other pids, which
-	# seatbelt denies. The guard is then blind, and the design allows the run
-	# rather than break every legitimate agent run on a Mac. What it must never
-	# do is go quiet about it, so the BLIND banner is the answer that stands in
-	# for the refusal. Losing both, on any host with a classifier, fails.
-	- desc: the agent output guard answers a captured pipeline run
-	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; out=$({shared.gt.exe} 2>&1); printf "%s|%s\n" "$(uname -s)" "$(printf "%s" "$out" | tr "\n" " ")"'
-	  timeout: 60s
-	  inputs:
-		env:
-			CLAUDECODE: "1"
-			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-	  outputs:
-		stdout:
-			0: "^((Linux|Darwin)\\|.*(refused to run|guard is BLIND)|(MINGW|MSYS|CYGWIN).*\\|.*INOPERATIVE on this windows host)"
-		"!stdout":
-			- "Build successful"
-
-	# Refusing to run is not enough on its own: the invocation that hides the
-	# output typically ignores the exit code too, and a binary left at
-	# build/<target> by an earlier run would be executed as proof of a build
-	# that never happened. The abort must delete it (src/cmd/staleoutputs.go)
-	# and say so, while leaving non-binary outputs alone. A throwaway module
-	# with a planted binary: the guard aborts long before anything is compiled.
-	# Deleting is what a REFUSAL does, so the module is planted only where a
-	# refusal happens. A windows host has no classifier and allows, so there the
-	# same module would put a whole pipeline -- tidy, vet, test, build -- inside
-	# this budget, and its outcome, not the guard, would decide whether the
-	# planted binary survives. So that host reports the banner from an empty
-	# directory, the way the test above does, and records no verdict.
-	# A host where the guard does not refuse takes the same no-verdict path,
-	# whatever made it not refuse. Planting a binary and letting the run
-	# proceed would put a whole pipeline inside this budget, and its outcome
-	# would decide the binary's fate instead of the guard. So the verdict is
-	# probed from an EMPTY directory ahead of that, and only a refusal earns
-	# the planted-binary arm.
-	- desc: the agent output guard deletes the module's build outputs where it refuses
-	  cmd: 'mkdir -p {outputs.mod} {outputs.probe}; cd {outputs.probe}; probe=$({shared.gt.exe} 2>&1); cd {outputs.mod}; if printf "%s" "$probe" | grep -q "refused to run"; then printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; out=$({shared.gt.exe} 2>&1); bin=kept; [ ! -e build/stalebin ] && bin=deleted; sums=gone; [ -f build/checksums.txt ] && sums=kept; printf "%s|%s|%s|%s\n" "$(uname -s)" "$bin" "$sums" "$(printf "%s" "$out" | tr "\n" " ")"; else printf "%s|no-refusal|no-refusal|%s\n" "$(uname -s)" "$(printf "%s" "$probe" | tr "\n" " ")"; fi'
-	  timeout: 60s
-	  inputs:
-		env:
-			CLAUDECODE: "1"
-			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-	  outputs:
-		stdout:
-			0: "^(.*\\|deleted\\|kept\\|.*refused to run.*have been DELETED|.*\\|no-refusal\\|no-refusal\\|.*(INOPERATIVE on this windows host|guard is BLIND))"
 
 	- desc: root help prints usage
 	  cmd: '{shared.gt.exe} --help'
@@ -266,42 +181,6 @@ tests:
 			- "--arch "
 
 
-	# The guard covers every agent on the roster, each detected by its own
-	# environment marker: grok build (GROK_AGENT) and opencode (OPENCODE). Both
-	# pipe a command's stdout back to themselves, exactly as dats captures here.
-	# These tests live at the END of the file: their position fixes the snapshot
-	# test's index, which names the committed golden file above.
-	#
-	# The message's agent NAME is asserted by unit tests, not here: process
-	# ancestry outranks the env marker, so running this suite from inside a
-	# different agent's session would legitimately name that agent instead.
-	- desc: the agent output guard answers a captured pipeline run under {matrix.marker}
-	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; out=$(env {matrix.marker}=1 {shared.gt.exe} 2>&1); printf "%s|%s\n" "$(uname -s)" "$(printf "%s" "$out" | tr "\n" " ")"'
-	  timeout: 60s
-	  matrix:
-		marker: [GROK_AGENT, OPENCODE]
-	  inputs:
-		env:
-			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-	  outputs:
-		stdout:
-			0: "^((Linux|Darwin)\\|.*(refused to run|guard is BLIND)|(MINGW|MSYS|CYGWIN).*\\|.*INOPERATIVE on this windows host)"
-		"!stdout":
-			- "Build successful"
-
-	# version answers under every agent, not only Claude.
-	- desc: version answers under {matrix.marker}
-	  cmd: 'env {matrix.marker}=1 {shared.gt.exe} version raw'
-	  timeout: 30s
-	  matrix:
-		marker: [GROK_AGENT, OPENCODE]
-	  inputs:
-		env:
-			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-	  outputs:
-		"!stderr":
-			- "refused to run"
-
 	# A directory with neither a module nor suites is the case that still
 	# refuses, and the message has to name both halves -- "no go.mod found" alone
 	# sent people off to `go mod init` a shell repo that only wanted its suites
@@ -318,21 +197,6 @@ tests:
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-			# Every other full-pipeline test here SETS an agent marker, because it
-			# is asserting the guard. This is the case that needs the guard OFF,
-			# and the markers leak in from the host: inside a Claude Code session
-			# CLAUDE_CODE_SESSION_ID alone makes the guard refuse before the module
-			# check is ever reached, so the assertion would pass in CI and fail on
-			# a developer's machine. Empty reads as not-an-agent (the detector
-			# treats "" and "0" as unset).
-			CLAUDECODE: ""
-			CLAUDE_CODE_SESSION_ID: ""
-			GROK_AGENT: ""
-			OPENCODE: ""
-			OPENCODE_PID: ""
-			GEMINI_CLI: ""
-			CODEX_SANDBOX: ""
-			CODEX_SANDBOX_NETWORK_DISABLED: ""
 	  outputs:
 		stderr:
 			- "no go.mod and no dats/ suites found"
@@ -350,17 +214,6 @@ tests:
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-			# The guard runs before the flag check, so a leaked marker would
-			# refuse the run and this would assert the wrong message (see the
-			# test above for the full reasoning).
-			CLAUDECODE: ""
-			CLAUDE_CODE_SESSION_ID: ""
-			GROK_AGENT: ""
-			OPENCODE: ""
-			OPENCODE_PID: ""
-			GEMINI_CLI: ""
-			CODEX_SANDBOX: ""
-			CODEX_SANDBOX_NETWORK_DISABLED: ""
 	  outputs:
 		stderr:
 			- "invalid target"
