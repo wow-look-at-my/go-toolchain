@@ -147,7 +147,6 @@ jobs:
           # Every go process logs what the shared cache tier did, timestamped, to a file instead of stderr. see docs/CI.md
           GOCACHEDEBUG: "1"
           GOCACHELOG: ${{ runner.temp }}/gocache.log
-          GODEBUG: gocachetest=1
         # A shell starts the APE, since execve alone reads no shell header; generate approvals live in go.mod. see docs/PIPELINE.md
         run: sh "$RUNNER_TEMP/gt-bootstrap"
 
@@ -464,7 +463,6 @@ jobs:
         env:
           # A build inside the checkout submits a dependency snapshot, and a missing token fails it.
           GITHUB_TOKEN: ${{ github.token }}
-          GODEBUG: gocachetest=1
         run: |
           set -euo pipefail
           "$RUNNER_TEMP/${{ matrix.gt }}" matrix --no-benchmark
