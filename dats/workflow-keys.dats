@@ -1,5 +1,5 @@
 # Tests for .github/scripts/check-step-keys.sh, which refuses a key that
-# appears twice in one step.
+# appears again in a single step.
 #
 # GitHub rejects the whole file for that, before it creates any job. The run
 # carries no jobs and no logs, and names the workflow by its path rather than

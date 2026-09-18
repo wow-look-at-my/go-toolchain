@@ -1,14 +1,6 @@
 #!/usr/bin/env bash
-# Refuse a key that appears twice in one step of a workflow or an action.
-#
-# GitHub rejects the whole file for it, before it creates any job. That shows
-# up as a run with no jobs, no logs, and the workflow named by its path rather
-# than its name, which is a long way from the edit that caused it.
-#
-# Nothing else here catches it. yq reads the file without complaint and keeps
-# the last key, and the org's workflow lint reads comments rather than shape.
-#
-# Usage: check-step-keys.sh FILE...
+
+# GitHub rejects a whole file for a repeated step key, before it makes any job.
 set -euo pipefail
 
 status=0
