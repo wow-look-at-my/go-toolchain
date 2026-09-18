@@ -159,6 +159,24 @@ func TestADirectiveWithNoGeneratorInTheModuleIsDropped(t *testing.T) {
 	assert.Empty(t, missingGenerator(at("go run equal_fold_asm.go -stubs never_written.go")), "a name after a flag is an output, not a source")
 }
 
+// A generator binary this machine never installed cannot run, so it is dropped
+// rather than failing the whole resolve for every consumer of the module.
+func TestADirectiveNamingAnUninstalledToolIsDropped(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "catalog.go"), []byte("x"), 0o644))
+	at := func(cmd string) generateDirective {
+		return generateDirective{File: filepath.Join(dir, "catalog.go"), Line: 1, Command: cmd, Label: "x/text/catalog.go"}
+	}
+
+	absent := at("gotext-not-a-real-binary -out catalog.gen.go update")
+	require.True(t, owesOutput(absent), "the output is genuinely missing")
+	assert.Equal(t, "gotext-not-a-real-binary", missingTool(absent))
+	assert.Empty(t, pendingDepDirectives([]generateDirective{absent}), "an uninstalled tool owes nothing")
+
+	assert.Empty(t, missingTool(at("go run gen.go -out catalog.gen.go")), "go run carries its own program")
+	assert.Empty(t, missingTool(at("sh -out catalog.gen.go")), "a tool on PATH runs")
+}
+
 // A run is grouped per module, because the clone is per repository.
 func TestDirectivesGroupByTheirModule(t *testing.T) {
 	a := under("github.com/wow/dep@v1/g/gen.go")
