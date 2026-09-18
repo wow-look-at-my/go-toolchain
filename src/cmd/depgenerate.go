@@ -297,10 +297,10 @@ func owesOutput(d generateDirective) bool {
 	return os.IsNotExist(err)
 }
 
-// missingGenerator names the first `go run` source file of a directive that is
-// absent from the directive's own directory. It is empty when every source is
-// present. A module zip carries the packages the module builds, and a generator
-// program is a separate main package that some modules leave out of the zip.
+// missingGenerator names the earliest `go run` source file of a directive that
+// is absent from the directive's own directory. It is empty when every source
+// is present. A module zip carries the packages the module builds, and a
+// generator program is a separate main package that some modules leave out of the zip.
 func missingGenerator(d generateDirective) string {
 	args, err := splitGenerateCommand(d.Command)
 	if err != nil || len(args) < 2 || args[0] != "go" || args[1] != "run" {
@@ -308,8 +308,8 @@ func missingGenerator(d generateDirective) string {
 	}
 	dir := filepath.Dir(d.File)
 	for _, a := range args[2:] {
-		// The operands end at the program's own first flag, and a .go name
-		// after that is an output the program writes, such as -stubs.
+		// The operands end at the program's own earliest flag, and a .go
+		// name after that is an output the program writes, such as -stubs.
 		if strings.HasPrefix(a, "-") {
 			break
 		}
