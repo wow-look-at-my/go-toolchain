@@ -90,7 +90,6 @@ jobs:
         env:
           # Building a generator must not complete the module that provides it: that fetch wants the generator, which is what this step is making.
           GOGENERATEDEPS: "off"
-          GOBIN: ${{ runner.temp }}/genbin
         run: |
           set -euo pipefail
           if [ "${{ steps.release.outputs.linked }}" = "true" ]; then
@@ -100,8 +99,8 @@ jobs:
           else
             go="$PWD/_gosmopolitan/bin/go"
           fi
-          mkdir -p "$GOBIN"
-          # No GOOS or GOARCH: this go command is itself an APE, so its own target is cosmo, and cosmo is what its embedded standard library carries. Naming the host instead asks it for a standard library it does not have, and a generator built for one host is no use to the others.
+          # No GOOS, GOARCH or GOBIN: this go is an APE targeting cosmo, which is what it embeds, and cmd/go reads a cosmo build as a cross-compile because the host it RUNS on is not cosmo. A cross-compile refuses GOBIN and lands in a per-target subdirectory of GOPATH/bin.
+          genbin="$("$go" env GOPATH)/bin/$("$go" env GOOS)_$("$go" env GOARCH)"
           for pkg in \
             golang.org/x/tools/cmd/stringer@v0.49.0 \
             golang.org/x/tools/cmd/goyacc@v0.49.0 \
@@ -126,7 +125,7 @@ jobs:
           unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
           chmod +x "$RUNNER_TEMP/protoc/bin/protoc" || true
           echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
-          echo "$GOBIN" >> "$GITHUB_PATH"
+          echo "$genbin" >> "$GITHUB_PATH"
 
       # The bootstrap pipeline is an APE the fork's own go command built from this tree, with the flags the pipeline builds itself with, so its compiler shares the passes' tool ID. see docs/CI.md
       - name: Build the bootstrap pipeline from the fork checkout
@@ -251,12 +250,11 @@ jobs:
         env:
           # Building a generator must not complete the module that provides it: that fetch wants the generator, which is what this step is making.
           GOGENERATEDEPS: "off"
-          GOBIN: ${{ runner.temp }}/genbin
         run: |
           set -euo pipefail
           go="$PWD/_gosmopolitan/bin/go"
-          mkdir -p "$GOBIN"
-          # No GOOS or GOARCH: the fork's own target is cosmo, so each generator comes out an APE that every host can run. Naming the host builds one that only this host can.
+          # No GOOS, GOARCH or GOBIN: the fork targets cosmo, so each generator comes out an APE every host runs, and cmd/go reads that as a cross-compile, which refuses GOBIN and lands in a per-target subdirectory of GOPATH/bin.
+          genbin="$("$go" env GOPATH)/bin/$("$go" env GOOS)_$("$go" env GOARCH)"
           for pkg in \
             golang.org/x/tools/cmd/stringer@v0.49.0 \
             golang.org/x/tools/cmd/goyacc@v0.49.0 \
@@ -281,7 +279,7 @@ jobs:
           unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
           chmod +x "$RUNNER_TEMP/protoc/bin/protoc" || true
           echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
-          echo "$GOBIN" >> "$GITHUB_PATH"
+          echo "$genbin" >> "$GITHUB_PATH"
 
       - name: Build the bootstrap pipeline from the fork checkout
         run: |
@@ -333,15 +331,13 @@ jobs:
 
       # The hand-off builds its own generators: it is an APE, its target is cosmo, and cosmo is what its embedded standard library carries. A stock go here would build each generator for this one host instead.
       - name: Install the generators
-        env:
-          GOBIN: ${{ runner.temp }}/genbin
         run: |
           set -euo pipefail
           go="$RUNNER_TEMP/gt-build-go"
           printf '#!/bin/sh\nGO_TOOLCHAIN_LINKED_GO=1 exec sh "%s" go "$@"\n' "$PWD/build/go-toolchain" > "$go"
           chmod +x "$go"
-          mkdir -p "$GOBIN"
-          # Every generator a dependency names, one pinned version each so every host generates the same bytes.
+          # A cosmo build reads as a cross-compile, because the host this APE runs on is not cosmo, and a cross-compile refuses GOBIN.
+          genbin="$("$go" env GOPATH)/bin/$("$go" env GOOS)_$("$go" env GOARCH)"
           for pkg in \
             golang.org/x/tools/cmd/stringer@v0.49.0 \
             golang.org/x/tools/cmd/goyacc@v0.49.0 \
@@ -351,7 +347,7 @@ jobs:
           ; do
             "$go" install "$pkg"
           done
-          echo "$GOBIN" >> "$GITHUB_PATH"
+          echo "$genbin" >> "$GITHUB_PATH"
 
       # The go-toolchain action itself cache-uploads build/ under the per-job name `go-build-<job... see docs/CI.md
       - uses: ./
@@ -422,15 +418,13 @@ jobs:
       # This host's own APE builds the generators: its target is cosmo, and cosmo is what its embedded standard library carries. A stock go here would build each generator for this one host instead.
       - name: Install the generators
         shell: bash
-        env:
-          GOBIN: ${{ runner.temp }}/genbin
         run: |
           set -euo pipefail
           go="$RUNNER_TEMP/gt-everywhere-go"
           printf '#!/bin/sh\nGO_TOOLCHAIN_LINKED_GO=1 exec sh "%s" go "$@"\n' "$RUNNER_TEMP/${{ matrix.gt }}" > "$go"
           chmod +x "$go"
-          mkdir -p "$GOBIN"
-          # Every generator a dependency names, one pinned version each so every host generates the same bytes.
+          # A cosmo build reads as a cross-compile, because the host this APE runs on is not cosmo, and a cross-compile refuses GOBIN.
+          genbin="$("$go" env GOPATH)/bin/$("$go" env GOOS)_$("$go" env GOARCH)"
           for pkg in \
             golang.org/x/tools/cmd/stringer@v0.49.0 \
             golang.org/x/tools/cmd/goyacc@v0.49.0 \
@@ -440,7 +434,7 @@ jobs:
           ; do
             "$go" install "$pkg"
           done
-          echo "$GOBIN" >> "$GITHUB_PATH"
+          echo "$genbin" >> "$GITHUB_PATH"
 
       - name: Build this repo's APE here
         shell: bash
