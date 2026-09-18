@@ -29,4 +29,4 @@ replace charm.land/bubbletea/v2 => github.com/wow-look-at-my/bubbletea/v2 v2.0.0
 
 `cmd/go` reads the name. This pipeline does not. The version token beside the name is still the placeholder. So a named line is not a pin.
 
-A named branch never falls back to the default branch. A name that stopped resolving fails the build, which is what a merged pull request does to the branch it was opened from.
+A name is resolved the same way the branch this repository is on is. A dependency with no branch of that name takes its default branch. So the pin follows the code once a merged pull request deletes the branch it was opened from.
