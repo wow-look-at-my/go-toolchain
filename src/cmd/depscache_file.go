@@ -37,9 +37,9 @@ type fileDepsCache struct {
 // runs. The store maps a dependency and its version to a result, which needs
 // no engine. Depth: docs/CMD.md
 func openDepsCache() (depsCache, error) {
-	cacheDir, err := os.UserCacheDir()
+	cacheDir, err := userCacheRoot()
 	if err != nil {
-		cacheDir = filepath.Join(os.Getenv("HOME"), ".cache")
+		return nil, err
 	}
 
 	dir := filepath.Join(cacheDir, cacheSubdir)

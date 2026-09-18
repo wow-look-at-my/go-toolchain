@@ -166,14 +166,9 @@ func normalizeGoVersion(v string) string {
 }
 
 func goCacheDir() (string, error) {
-	dir, err := os.UserCacheDir()
+	dir, err := userCacheRoot()
 	if err != nil {
-		// Fallback for systems without XDG
-		home, err2 := os.UserHomeDir()
-		if err2 != nil {
-			return "", fmt.Errorf("cannot determine cache directory: %w", err)
-		}
-		dir = filepath.Join(home, ".cache")
+		return "", err
 	}
 	cacheDir := filepath.Join(dir, "go-toolchain")
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
