@@ -37,6 +37,8 @@ var orgPinFiles = []string{
 	"go.sum",
 	"vendor/modules.txt",
 	".gitmodules",
+	"action.yml",
+	"action.yaml",
 	".github/workflows/*.yml",
 	".github/workflows/*.yaml",
 	".github/actions/*/action.yml",
