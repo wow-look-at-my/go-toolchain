@@ -8,13 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// setHome points the home directory at dir on every host: os.UserHomeDir reads
-// USERPROFILE on windows and HOME elsewhere.
-func setHome(t *testing.T, dir string) {
-	t.Setenv("HOME", dir)
-	t.Setenv("USERPROFILE", dir)
-}
-
 func TestUserCacheRootPrefersAbsoluteXDG(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()
