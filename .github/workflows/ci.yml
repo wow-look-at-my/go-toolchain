@@ -19,6 +19,10 @@ permissions:
   deployments: write
   artifact-metadata: write
 
+# The shared cache's look-ahead pool: the server sends the objects stored beside each hit ahead of the build asking, off the critical path (go-s3-server docs/look-ahead.md).
+env:
+  GO_TOOLCHAIN_CACHE_LOOKAHEAD: "16"
+
 jobs:
   host-build:
     runs-on: ubuntu-latest
@@ -45,12 +49,15 @@ jobs:
             echo "linked=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # A stock Go is the bootstrap compiler for the fork's make.bash and nothing else. see docs/CI.md
-      - uses: actions/setup-go@v5
+      # The fork's last published release is the bootstrap compiler for its make.bash: its go command carries the cache client in process, so go_bootstrap compiles from the shared cache; a stock Go cannot reach it.
+      - name: Install the fork's release as the bootstrap compiler
         if: steps.release.outputs.linked != 'true'
-        with:
-          go-version: stable
-          cache: false
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bootstrap"
+          curl -fL --compressed "https://dl.pazer.build/gosmopolitan?branch=master&os=linux&arch=amd64" | tar -xz -C "$RUNNER_TEMP/bootstrap"
+          echo "GOROOT_BOOTSTRAP=$RUNNER_TEMP/bootstrap/go" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/bootstrap/go/bin/go" version
 
       # The pipeline links the fork's go command, so the fork's own build is what first compiles it; it runs after the secrets because a CI run of the fork's go command refuses to build with no shared cache configured. see docs/CI.md
       - name: Build the bootstrap go command from the fork checkout
@@ -81,6 +88,51 @@ jobs:
             fi
           fi
 
+      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
+      - name: Install the generators
+        env:
+          # Building a generator must not complete the module that provides it: that fetch wants the generator, which is what this step is making.
+          GOGENERATEDEPS: "off"
+          GOBIN: ${{ runner.temp }}/genbin
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.release.outputs.linked }}" = "true" ]; then
+            go="$RUNNER_TEMP/gt-bootstrap-go"
+            printf '#!/bin/sh\nGO_TOOLCHAIN_LINKED_GO=1 exec sh "%s" go "$@"\n' "$RUNNER_TEMP/gt-bootstrap" > "$go"
+            chmod +x "$go"
+          else
+            go="$PWD/_gosmopolitan/bin/go"
+          fi
+          mkdir -p "$GOBIN"
+          case "$RUNNER_OS" in Linux) goos=linux ;; macOS) goos=darwin ;; Windows) goos=windows ;; *) echo "unknown RUNNER_OS $RUNNER_OS" >&2; exit 1 ;; esac
+          case "$RUNNER_ARCH" in X64) goarch=amd64 ;; ARM64) goarch=arm64 ;; *) echo "unknown RUNNER_ARCH $RUNNER_ARCH" >&2; exit 1 ;; esac
+          # Every generator a dependency names, one pinned version each so every host generates the same bytes.
+          for pkg in \
+            golang.org/x/tools/cmd/stringer@v0.49.0 \
+            golang.org/x/tools/cmd/goyacc@v0.49.0 \
+            golang.org/x/text/cmd/gotext@v0.42.0 \
+            github.com/mjibson/esc@v0.2.0 \
+            google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
+          ; do
+            GOOS="$goos" GOARCH="$goarch" "$go" install "$pkg"
+          done
+          # protoc is a C++ binary, so go install cannot reach it. The release is pinned.
+          protoc_version=27.2
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) protoc_asset=linux-x86_64 ;;
+            Linux-ARM64) protoc_asset=linux-aarch_64 ;;
+            macOS-X64) protoc_asset=osx-x86_64 ;;
+            macOS-ARM64) protoc_asset=osx-aarch_64 ;;
+            Windows-X64) protoc_asset=win64 ;;
+            *) echo "no protoc release for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          curl -fsSL -o "$RUNNER_TEMP/protoc.zip" \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-${protoc_asset}.zip"
+          unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          chmod +x "$RUNNER_TEMP/protoc/bin/protoc" || true
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+          echo "$GOBIN" >> "$GITHUB_PATH"
+
       # The bootstrap pipeline is an APE the fork's own go command built from this tree, with the flags the pipeline builds itself with, so its compiler shares the passes' tool ID. see docs/CI.md
       - name: Build the bootstrap pipeline from the fork checkout
         if: steps.release.outputs.linked != 'true'
@@ -100,6 +152,7 @@ jobs:
           # Every go process logs what the shared cache tier did, timestamped, to a file instead of stderr. see docs/CI.md
           GOCACHEDEBUG: "1"
           GOCACHELOG: ${{ runner.temp }}/gocache.log
+          GODEBUG: gocachetest=1
         # A shell starts the APE, since execve alone reads no shell header; generate approvals live in go.mod. see docs/PIPELINE.md
         run: sh "$RUNNER_TEMP/gt-bootstrap"
 
@@ -134,6 +187,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GOCACHEDEBUG: "1"
           GOCACHELOG: ${{ runner.temp }}/gocache.log
+          # The test cache says per package why a result replayed or did not, which is what a slow second build needs answered. see docs/CI.md
+          GODEBUG: gocachetest=1
         run: |
           cp build/go-toolchain /usr/local/bin/go-toolchain
           rm -rf build/
@@ -172,7 +227,7 @@ jobs:
           name: socketharness-build
           path: harness
 
-  # The same build with no release involved: a stock Go runs the fork's make.bash, that go command builds the pipeline, and the pipeline builds itself; identical holds its APE to host-build's bytes. see docs/CI.md
+  # The same build with no go-toolchain release involved: the fork's release runs the fork's make.bash, that go command builds the pipeline, and the pipeline builds itself; identical holds its APE to host-build's bytes. see docs/CI.md
   bootstrap-scratch:
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -182,12 +237,15 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version: stable
-          cache: false
-
       - uses: wow-look-at-my/actions@secret-server#latest
+
+      - name: Install the fork's release as the bootstrap compiler
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bootstrap"
+          curl -fL --compressed "https://dl.pazer.build/gosmopolitan?branch=master&os=linux&arch=amd64" | tar -xz -C "$RUNNER_TEMP/bootstrap"
+          echo "GOROOT_BOOTSTRAP=$RUNNER_TEMP/bootstrap/go" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/bootstrap/go/bin/go" version
 
       - name: Build the bootstrap go command from the fork checkout
         working-directory: _gosmopolitan/src
@@ -211,6 +269,45 @@ jobs:
             fi
           fi
 
+      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
+      - name: Install the generators
+        env:
+          # Building a generator must not complete the module that provides it: that fetch wants the generator, which is what this step is making.
+          GOGENERATEDEPS: "off"
+          GOBIN: ${{ runner.temp }}/genbin
+        run: |
+          set -euo pipefail
+          go="$PWD/_gosmopolitan/bin/go"
+          mkdir -p "$GOBIN"
+          case "$RUNNER_OS" in Linux) goos=linux ;; macOS) goos=darwin ;; Windows) goos=windows ;; *) echo "unknown RUNNER_OS $RUNNER_OS" >&2; exit 1 ;; esac
+          case "$RUNNER_ARCH" in X64) goarch=amd64 ;; ARM64) goarch=arm64 ;; *) echo "unknown RUNNER_ARCH $RUNNER_ARCH" >&2; exit 1 ;; esac
+          # Every generator a dependency names, one pinned version each so every host generates the same bytes.
+          for pkg in \
+            golang.org/x/tools/cmd/stringer@v0.49.0 \
+            golang.org/x/tools/cmd/goyacc@v0.49.0 \
+            golang.org/x/text/cmd/gotext@v0.42.0 \
+            github.com/mjibson/esc@v0.2.0 \
+            google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
+          ; do
+            GOOS="$goos" GOARCH="$goarch" "$go" install "$pkg"
+          done
+          # protoc is a C++ binary, so go install cannot reach it. The release is pinned.
+          protoc_version=27.2
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) protoc_asset=linux-x86_64 ;;
+            Linux-ARM64) protoc_asset=linux-aarch_64 ;;
+            macOS-X64) protoc_asset=osx-x86_64 ;;
+            macOS-ARM64) protoc_asset=osx-aarch_64 ;;
+            Windows-X64) protoc_asset=win64 ;;
+            *) echo "no protoc release for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          curl -fsSL -o "$RUNNER_TEMP/protoc.zip" \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-${protoc_asset}.zip"
+          unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          chmod +x "$RUNNER_TEMP/protoc/bin/protoc" || true
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+          echo "$GOBIN" >> "$GITHUB_PATH"
+
       - name: Build the bootstrap pipeline from the fork checkout
         run: |
           set -euo pipefail
@@ -223,7 +320,8 @@ jobs:
       - name: Build and test
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: sh "$RUNNER_TEMP/gt-bootstrap"
+        # The same command the action runs, so identical compares like with like. see docs/CI.md
+        run: sh "$RUNNER_TEMP/gt-bootstrap" matrix --cosmo-platforms linux/amd64,darwin/arm64,windows/amd64
 
       - name: Hand off the from-scratch APE
         uses: wow-look-at-my/actions@cache-upload#latest
@@ -241,6 +339,7 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+
       # The dats phase sandboxes every suite command (dats' default), and the backend it picks... see docs/CI.md
       - name: Provision the sandbox backend (bubblewrap)
         run: |
@@ -257,6 +356,29 @@ jobs:
           name: host-go-toolchain
           path: build
 
+      # A generator is an ordinary host program, so a stock go builds it. The hand-off cannot: it carries a standard library for its own target alone. The version is pinned because the generators' own modules ask for a recent one, and a runner does not always carry it.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Install the generators
+        env:
+          GOBIN: ${{ runner.temp }}/genbin
+        run: |
+          set -euo pipefail
+          mkdir -p "$GOBIN"
+          # Every generator a dependency names, one pinned version each so every host generates the same bytes.
+          for pkg in \
+            golang.org/x/tools/cmd/stringer@v0.49.0 \
+            golang.org/x/tools/cmd/goyacc@v0.49.0 \
+            golang.org/x/text/cmd/gotext@v0.42.0 \
+            github.com/mjibson/esc@v0.2.0 \
+            google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
+          ; do
+            go install "$pkg"
+          done
+          echo "$GOBIN" >> "$GITHUB_PATH"
+
       # The go-toolchain action itself cache-uploads build/ under the per-job name `go-build-<job... see docs/CI.md
       - uses: ./
         with:
@@ -264,7 +386,6 @@ jobs:
           autorelease: 'false'
           # A build of this module compiles the fork's standard library from its checkout, in passes. see docs/CI.md
           timeout: '30'
-
 
   # Each non-linux host builds this repo's APE with the linux-built binary, so a difference in the output is the host and nothing else. see docs/CI.md
   build-everywhere:
@@ -275,7 +396,6 @@ jobs:
           - origin: darwin
             runner: macos-latest
             gt: gt-ape
-          # The APE reads no GO_BUILDCACHE_CONFIG on an NT host: the runner logs the variable in this step's env, and the binary reports it unset. This leg builds uncached.
           - origin: windows
             runner: windows-latest
             gt: gt-ape.exe
@@ -320,11 +440,36 @@ jobs:
           cp dist/go-toolchain "$RUNNER_TEMP/${{ matrix.gt }}"
           chmod +x "$RUNNER_TEMP/${{ matrix.gt }}"
 
+      # A generator is an ordinary host program, so a stock go builds it. The hand-off cannot: it carries a standard library for its own target alone. The version is pinned because the generators' own modules ask for a recent one, and a runner does not always carry it.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Install the generators
+        shell: bash
+        env:
+          GOBIN: ${{ runner.temp }}/genbin
+        run: |
+          set -euo pipefail
+          mkdir -p "$GOBIN"
+          # Every generator a dependency names, one pinned version each so every host generates the same bytes.
+          for pkg in \
+            golang.org/x/tools/cmd/stringer@v0.49.0 \
+            golang.org/x/tools/cmd/goyacc@v0.49.0 \
+            golang.org/x/text/cmd/gotext@v0.42.0 \
+            github.com/mjibson/esc@v0.2.0 \
+            google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
+          ; do
+            go install "$pkg"
+          done
+          echo "$GOBIN" >> "$GITHUB_PATH"
+
       - name: Build this repo's APE here
         shell: bash
         env:
           # A build inside the checkout submits a dependency snapshot, and a missing token fails it.
           GITHUB_TOKEN: ${{ github.token }}
+          GODEBUG: gocachetest=1
         run: |
           set -euo pipefail
           "$RUNNER_TEMP/${{ matrix.gt }}" matrix --no-benchmark
@@ -363,15 +508,46 @@ jobs:
         with:
           name: ape-scratch
           path: ape/scratch
+      # The APE host-build reached, which `build` ran to produce ape/linux.
+      - uses: wow-look-at-my/actions@cache-download#latest
+        with:
+          name: host-go-toolchain
+          path: ape/host
 
       - name: What each host handed off
         run: sha256sum ape/*/go-toolchain
+
+      - name: Where the build job's APE differs from the host-build APE it ran
+        run: bash .github/scripts/explain-mismatch.sh ape/host/go-toolchain ape/linux/go-toolchain
+
+      - name: Where the from-scratch bootstrap differs
+        run: bash .github/scripts/explain-mismatch.sh ape/linux/go-toolchain ape/scratch/go-toolchain
+
+      # The cross-host pairs are the ones the fixture below actually compares, so a red run says which bytes moved rather than only that some did.
+      - name: Where each host's APE differs from the linux one
+        run: |
+          for host in darwin windows; do
+            echo "=== linux vs $host"
+            bash .github/scripts/explain-mismatch.sh ape/linux/go-toolchain "ape/$host/go-toolchain"
+          done
 
       # A missing hand-off fails too: comparing the hosts that answered proves nothing. see docs/CI.md
       - name: Every host built the same bytes
         uses: wow-look-at-my/dats@master
         with:
           tests: .github/dats-fixtures/identical.dats
+
+      # The differing bytes, for a local diff after a red run.
+      - name: Keep the APEs that differed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apes-that-differed
+          path: |
+            ape/host/go-toolchain
+            ape/linux/go-toolchain
+            ape/scratch/go-toolchain
+          compression-level: 1
 
   # One suite, every host: a host-specific answer is paired with uname inside the fixture. see docs/CI.md
   smoke:

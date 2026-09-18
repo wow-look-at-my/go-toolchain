@@ -10,22 +10,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// gitIn runs git in dir. The working directory is what cosmo spells for the
+// host, where an argument is handed over as written.
+func gitIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	require.NoError(t, cmd.Run(), "git %v failed", args)
+}
+
 // newGoModRepo builds a repository whose only committed file is go.mod, and
 // returns the repository and that file.
 func newGoModRepo(t *testing.T, goLine string) (dir, mod string) {
 	t.Helper()
 	dir = t.TempDir()
-	for _, args := range [][]string{
-		{"init", "-q"},
-		{"config", "user.email", "t@example.com"},
-		{"config", "user.name", "t"},
-	} {
-		require.NoError(t, exec.Command("git", append([]string{"-C", dir}, args...)...).Run())
-	}
+	gitIn(t, dir, "init", "-q")
+	gitIn(t, dir, "config", "user.email", "t@example.com")
+	gitIn(t, dir, "config", "user.name", "t")
 	mod = filepath.Join(dir, "go.mod")
 	require.NoError(t, os.WriteFile(mod, []byte("module example.com/x\n\n"+goLine+"\n"), 0644))
-	require.NoError(t, exec.Command("git", "-C", dir, "add", "go.mod").Run())
-	require.NoError(t, exec.Command("git", "-C", dir, "commit", "-qm", "init").Run())
+	gitIn(t, dir, "add", "go.mod")
+	gitIn(t, dir, "commit", "-qm", "init")
 	return dir, mod
 }
 
@@ -94,7 +99,7 @@ func TestDirtyDiffShowsTheChange(t *testing.T) {
 	assert.Contains(t, got, "+go 1.28")
 
 	// Staged is not the same as absent, and the reader is told which.
-	require.NoError(t, exec.Command("git", "-C", dir, "add", "go.mod").Run())
+	gitIn(t, dir, "add", "go.mod")
 	assert.Contains(t, dirtyDiffIn(dir, " M go.mod"), "(staged)")
 }
 

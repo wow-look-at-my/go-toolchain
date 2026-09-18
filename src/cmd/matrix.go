@@ -83,6 +83,14 @@ type buildResult struct {
 
 func runRelease(cmd *cobra.Command, args []string) error {
 	InitTimeline()
+	// A dependency's generated output enters through the compiler, so it lands
+	// before the toolchain is built, as on the root path.
+	if err := generateForDeps(approvedGenerateHash()); err != nil {
+		return err
+	}
+	if err := reexecUnderOwnBuild(); err != nil {
+		return err
+	}
 	// Collects per-action build profiles; no Chrome trace here, but the deferred capture still parses graphs for emitBuildProfile.
 	initBuildProfile()
 	defer captureProfileTrace()

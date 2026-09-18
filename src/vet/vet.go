@@ -448,8 +448,10 @@ func checkFileCommittedByName(filename string) error {
 
 // checkFileCommittedExec checks file status by shelling out to the git CLI.
 // Used as a fallback when go-git encounters bugs or unsupported repo features.
+// The file's directory is the working directory, which cosmo spells for the
+// host, and the pathspec is the base name, which needs no spelling at all.
 func checkFileCommittedExec(filename string) error {
-	cmd := exec.Command("git", "status", "--porcelain", "--", filename)
+	cmd := exec.Command("git", "status", "--porcelain", "--", filepath.Base(filename))
 	cmd.Dir = filepath.Dir(filename)
 	out, err := cmd.Output()
 	if err != nil {

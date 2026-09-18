@@ -24,13 +24,15 @@ func reexecAfterDepGenerate() error {
 		return nil
 	}
 	st := logStep("rebuilding the pipeline against the generated output")
-	bin, err := buildSelfForHost(pkg)
+	bin, dir, err := buildSelfFixedPoint(pkg)
 	if err != nil {
-		st.done()
+		st.failed()
 		return err
 	}
-	defer func() { _ = os.Remove(bin) }()
 	st.done()
-	os.Exit(runSelfWith(bin, depGenerateReexecEnv))
+	// The rebuilt binary is the fixed point, so the child skips that re-exec too.
+	code := runSelfWith(bin, depGenerateReexecEnv, selfReexecEnv)
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
 	return nil
 }

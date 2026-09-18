@@ -7,11 +7,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
 // The pipeline runs only as a build of the active toolchain's front end. Depth: docs/CI.md
@@ -29,46 +29,37 @@ func ownMainPackage() (string, bool) {
 	return mains[0], true
 }
 
-func buildSelfForHost(pkg string) (string, error) {
-	// The path enters an argument list, which cosmo does not translate.
-	dir, err := os.MkdirTemp(argListTempDir(hostos.GOOS()), "go-toolchain-self-")
+// buildSelfFixedPoint builds pkg the way the build phase does, in passes
+// until a binary reproduces itself, and answers that binary and the
+// directory holding it, which the caller removes.
+func buildSelfFixedPoint(pkg string) (bin, dir string, err error) {
+	env, err := resolveForkBuildEnv(true)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	bin := filepath.Join(dir, "go-toolchain"+hostExeSuffix())
-	if err := goBuildHost(pkg, bin); err != nil {
+	// The path enters an argument list, which cosmo does not translate.
+	dir, err = os.MkdirTemp(argListTempDir(hostos.GOOS()), "go-toolchain-self-")
+	if err != nil {
+		return "", "", err
+	}
+	job := env.apeJob(pkg, filepath.Join(dir, "go-toolchain"+hostExeSuffix()))
+	bin, err = buildSelfPasses(runner.New(), job, dir, nil)
+	if err != nil {
 		_ = os.RemoveAll(dir)
-		return "", err
+		return "", "", fmt.Errorf("rebuilding the pipeline failed: %w", err)
 	}
-	return bin, nil
+	return bin, dir, nil
 }
 
-// goBuildHost compiles pkg as an APE, which runs on this host, with the go
-// command this binary is.
-func goBuildHost(pkg, bin string) error {
-	if len(activeGoCmd) == 0 {
-		return fmt.Errorf("no go command is set up for this run: EnsureGoVersion has to run first")
-	}
-	args := append(append([]string{}, activeGoCmd[1:]...), "build", "-o", bin, pkg)
-	cmd := exec.Command(activeGoCmd[0], args...)
-	cmd.Env = append(os.Environ(),
-		"GOTOOLCHAIN=local",
-		"GOROOT="+activeGoroot,
-		"GOOS=cosmo",
-		"GOARCH="+runtime.GOARCH,
-	)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("rebuilding the pipeline failed: %w: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-// runSelfWith hands this invocation to bin, with guard set in its
+// runSelfWith hands this invocation to bin, with each guard set in its
 // environment, and answers its exit status.
-func runSelfWith(bin, guard string) int {
+func runSelfWith(bin string, guards ...string) int {
 	cmd := exec.Command(bin, os.Args[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	cmd.Env = append(os.Environ(), guard+"=1")
+	cmd.Env = os.Environ()
+	for _, guard := range guards {
+		cmd.Env = append(cmd.Env, guard+"=1")
+	}
 	if err := cmd.Run(); err != nil {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
