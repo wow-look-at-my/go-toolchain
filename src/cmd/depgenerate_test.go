@@ -138,6 +138,26 @@ func TestOnlyAMissingNamedOutputIsOwed(t *testing.T) {
 	assert.False(t, owesOutput(at("go run tool -out=parser.go in.c")), "the joined spelling reads too")
 }
 
+// A generator the module zip left out cannot run, so it is not pending.
+func TestADirectiveWithNoGeneratorInTheModuleIsDropped(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "equal_fold.go"), []byte("x"), 0o644))
+	at := func(cmd string) generateDirective {
+		return generateDirective{File: filepath.Join(dir, "equal_fold.go"), Line: 1, Command: cmd, Label: "dep/ascii/equal_fold.go"}
+	}
+
+	absent := at("go run equal_fold_asm.go -out equal_fold_amd64.s -stubs equal_fold_amd64.go")
+	require.True(t, owesOutput(absent), "the output is genuinely missing")
+	assert.Equal(t, "equal_fold_asm.go", missingGenerator(absent))
+	assert.Empty(t, pendingDepDirectives([]generateDirective{absent}), "an unrunnable directive owes nothing")
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "equal_fold_asm.go"), []byte("x"), 0o644))
+	assert.Empty(t, missingGenerator(absent), "the generator ships after all")
+	assert.Len(t, pendingDepDirectives([]generateDirective{absent}), 1, "a runnable directive stays pending")
+
+	assert.Empty(t, missingGenerator(at("stringer -type=Kind")), "only a go run command names its sources")
+}
+
 // A run is grouped per module, because the clone is per repository.
 func TestDirectivesGroupByTheirModule(t *testing.T) {
 	a := under("github.com/wow/dep@v1/g/gen.go")
