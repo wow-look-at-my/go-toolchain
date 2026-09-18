@@ -331,6 +331,13 @@ jobs:
 
       # The hand-off builds its own generators: it is an APE, its target is cosmo, and cosmo is what its embedded standard library carries. A stock go here would build each generator for this one host instead.
       - name: Install the generators
+        env:
+          # Building a generator must not complete the module that provides it: that fetch wants the generator, which is what this step is making.
+          GOGENERATEDEPS: "off"
+          # This job has no proxy step, and the linked-go entry point skips the pipeline's own env setup, so the values it would have written go here.
+          GOPROXY: direct
+          GONOSUMDB: "*"
+          GONOSUMCHECK: "*"
         run: |
           set -euo pipefail
           go="$RUNNER_TEMP/gt-build-go"
@@ -418,6 +425,9 @@ jobs:
       # This host's own APE builds the generators: its target is cosmo, and cosmo is what its embedded standard library carries. A stock go here would build each generator for this one host instead.
       - name: Install the generators
         shell: bash
+        env:
+          # Building a generator must not complete the module that provides it: that fetch wants the generator, which is what this step is making.
+          GOGENERATEDEPS: "off"
         run: |
           set -euo pipefail
           go="$RUNNER_TEMP/gt-everywhere-go"
