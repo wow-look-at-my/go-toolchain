@@ -55,7 +55,7 @@ func currentBranch(r runner.CommandRunner) string {
 // table of hosts. Backoff triggers on a git-level failure, never on an empty
 // answer from a reachable remote. A request for HEAD adds --symref, so the
 // answer also names the branch HEAD points at. On total failure the earliest
-// error, from the full module path, is the one reported.
+// error, from the full module path, is the error reported.
 func resolveGitURLAndRef(r runner.CommandRunner, mod string, refs ...string) (gitURL string, output []byte, err error) {
 	parts := strings.Split(mod, "/")
 	var firstErr error

@@ -104,7 +104,7 @@ func TestResolveGitURLAndRef(t *testing.T) {
 }
 
 // A symref answer carries the default branch beside the commits, which is how
-// one question covers both the branch to follow and the fallback.
+// a single question covers both the branch to follow and the fallback.
 func TestParseLsRemoteRefs(t *testing.T) {
 	t.Serial()
 	out := []byte("ref: refs/heads/master\tHEAD\n" +
