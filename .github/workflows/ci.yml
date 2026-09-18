@@ -76,21 +76,20 @@ jobs:
             --ro-bind-try /lib64 /lib64 --ro-bind-try /etc /etc \
             --dev /dev --proc /proc --tmpfs /tmp --chdir / --unshare-pid --die-with-parent true
 
+      # The org module proxy is gone. Modules come from their own source, and the sumdb goes with the proxy that mirrored it. These are the values src/goenv.go already falls back to with no proxy configured.
       - name: Configure Go proxy
         run: |
-          if [ -n "$GO_PROXY_CONFIG" ]; then
-            proxy=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.proxy // empty')
-            if [ -n "$proxy" ]; then
-              echo "GOPROXY=${proxy}|direct" >> "$GITHUB_ENV"
-            fi
-          fi
+          {
+            echo "GOPROXY=direct"
+            echo "GONOSUMDB=*"
+            echo "GONOSUMCHECK=*"
+          } >> "$GITHUB_ENV"
 
       # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
       - name: Install the generators
         env:
           # Building a generator must not complete the module that provides it: that fetch wants the generator, which is what this step is making.
           GOGENERATEDEPS: "off"
-          GOBIN: ${{ runner.temp }}/genbin
         run: |
           set -euo pipefail
           if [ "${{ steps.release.outputs.linked }}" = "true" ]; then
@@ -100,10 +99,8 @@ jobs:
           else
             go="$PWD/_gosmopolitan/bin/go"
           fi
-          mkdir -p "$GOBIN"
-          case "$RUNNER_OS" in Linux) goos=linux ;; macOS) goos=darwin ;; Windows) goos=windows ;; *) echo "unknown RUNNER_OS $RUNNER_OS" >&2; exit 1 ;; esac
-          case "$RUNNER_ARCH" in X64) goarch=amd64 ;; ARM64) goarch=arm64 ;; *) echo "unknown RUNNER_ARCH $RUNNER_ARCH" >&2; exit 1 ;; esac
-          # Every generator a dependency names, one pinned version each so every host generates the same bytes.
+          # No GOOS, GOARCH or GOBIN: this go is an APE targeting cosmo, which is what it embeds, and cmd/go reads a cosmo build as a cross-compile because the host it RUNS on is not cosmo. A cross-compile refuses GOBIN and lands in a per-target subdirectory of GOPATH/bin.
+          genbin="$("$go" env GOPATH)/bin/$("$go" env GOOS)_$("$go" env GOARCH)"
           for pkg in \
             golang.org/x/tools/cmd/stringer@v0.49.0 \
             golang.org/x/tools/cmd/goyacc@v0.49.0 \
@@ -111,7 +108,7 @@ jobs:
             github.com/mjibson/esc@v0.2.0 \
             google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
           ; do
-            GOOS="$goos" GOARCH="$goarch" "$go" install "$pkg"
+            "$go" install "$pkg"
           done
           # protoc is a C++ binary, so go install cannot reach it. The release is pinned.
           protoc_version=27.2
@@ -128,7 +125,8 @@ jobs:
           unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
           chmod +x "$RUNNER_TEMP/protoc/bin/protoc" || true
           echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
-          echo "$GOBIN" >> "$GITHUB_PATH"
+          echo "$genbin" >> "$GITHUB_PATH"
+          echo "GENBIN=$genbin" >> "$GITHUB_ENV"
 
       # The bootstrap pipeline is an APE the fork's own go command built from this tree, with the flags the pipeline builds itself with, so its compiler shares the passes' tool ID. see docs/CI.md
       - name: Build the bootstrap pipeline from the fork checkout
@@ -149,7 +147,6 @@ jobs:
           # Every go process logs what the shared cache tier did, timestamped, to a file instead of stderr. see docs/CI.md
           GOCACHEDEBUG: "1"
           GOCACHELOG: ${{ runner.temp }}/gocache.log
-          GODEBUG: gocachetest=1
         # A shell starts the APE, since execve alone reads no shell header; generate approvals live in go.mod. see docs/PIPELINE.md
         run: sh "$RUNNER_TEMP/gt-bootstrap"
 
@@ -191,6 +188,20 @@ jobs:
         with:
           name: host-go-toolchain
           path: build/go-toolchain
+
+      # Each generator is an APE, so one build of it runs on every host. The jobs that follow take these rather than compiling their own: this is the only host whose linked go can type-check against its embedded standard library, and it is the point of an APE that they need not.
+      - name: Gather the generator APEs
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/generators"
+          cp "$GENBIN"/* "$RUNNER_TEMP/generators/"
+          ls -la "$RUNNER_TEMP/generators"
+
+      - name: Upload the generators
+        uses: wow-look-at-my/actions@cache-upload#latest
+        with:
+          name: generator-apes
+          path: ${{ runner.temp }}/generators
 
       # socketharness reproduces a coding agent's own tool-execution plumbing (a socketpair for a... see docs/CI.md
       - name: Build socketharness
@@ -240,28 +251,25 @@ jobs:
           sudo apt-get update && sudo apt-get install -y bubblewrap
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
 
+      # The org module proxy is gone. Modules come from their own source, and the sumdb goes with the proxy that mirrored it. These are the values src/goenv.go already falls back to with no proxy configured.
       - name: Configure Go proxy
         run: |
-          if [ -n "$GO_PROXY_CONFIG" ]; then
-            proxy=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.proxy // empty')
-            if [ -n "$proxy" ]; then
-              echo "GOPROXY=${proxy}|direct" >> "$GITHUB_ENV"
-            fi
-          fi
+          {
+            echo "GOPROXY=direct"
+            echo "GONOSUMDB=*"
+            echo "GONOSUMCHECK=*"
+          } >> "$GITHUB_ENV"
 
       # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
       - name: Install the generators
         env:
           # Building a generator must not complete the module that provides it: that fetch wants the generator, which is what this step is making.
           GOGENERATEDEPS: "off"
-          GOBIN: ${{ runner.temp }}/genbin
         run: |
           set -euo pipefail
           go="$PWD/_gosmopolitan/bin/go"
-          mkdir -p "$GOBIN"
-          case "$RUNNER_OS" in Linux) goos=linux ;; macOS) goos=darwin ;; Windows) goos=windows ;; *) echo "unknown RUNNER_OS $RUNNER_OS" >&2; exit 1 ;; esac
-          case "$RUNNER_ARCH" in X64) goarch=amd64 ;; ARM64) goarch=arm64 ;; *) echo "unknown RUNNER_ARCH $RUNNER_ARCH" >&2; exit 1 ;; esac
-          # Every generator a dependency names, one pinned version each so every host generates the same bytes.
+          # No GOOS, GOARCH or GOBIN: the fork targets cosmo, so each generator comes out an APE every host runs, and cmd/go reads that as a cross-compile, which refuses GOBIN and lands in a per-target subdirectory of GOPATH/bin.
+          genbin="$("$go" env GOPATH)/bin/$("$go" env GOOS)_$("$go" env GOARCH)"
           for pkg in \
             golang.org/x/tools/cmd/stringer@v0.49.0 \
             golang.org/x/tools/cmd/goyacc@v0.49.0 \
@@ -269,7 +277,7 @@ jobs:
             github.com/mjibson/esc@v0.2.0 \
             google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
           ; do
-            GOOS="$goos" GOARCH="$goarch" "$go" install "$pkg"
+            "$go" install "$pkg"
           done
           # protoc is a C++ binary, so go install cannot reach it. The release is pinned.
           protoc_version=27.2
@@ -286,7 +294,7 @@ jobs:
           unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
           chmod +x "$RUNNER_TEMP/protoc/bin/protoc" || true
           echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
-          echo "$GOBIN" >> "$GITHUB_PATH"
+          echo "$genbin" >> "$GITHUB_PATH"
 
       - name: Build the bootstrap pipeline from the fork checkout
         run: |
@@ -336,28 +344,19 @@ jobs:
           name: host-go-toolchain
           path: build
 
-      # A generator is an ordinary host program, so a stock go builds it. The hand-off cannot: it carries a standard library for its own target alone. The version is pinned because the generators' own modules ask for a recent one, and a runner does not always carry it.
-      - uses: actions/setup-go@v5
+      # host-build built these, and each one is an APE, so this host runs them rather than compiling its own.
+      - name: Take the generators host-build built
+        uses: wow-look-at-my/actions@cache-download#latest
         with:
-          go-version: '1.26'
+          name: generator-apes
+          path: ${{ runner.temp }}/generators
 
-      - name: Install the generators
-        env:
-          GOBIN: ${{ runner.temp }}/genbin
+      - name: The generators answer here
         run: |
           set -euo pipefail
-          mkdir -p "$GOBIN"
-          # Every generator a dependency names, one pinned version each so every host generates the same bytes.
-          for pkg in \
-            golang.org/x/tools/cmd/stringer@v0.49.0 \
-            golang.org/x/tools/cmd/goyacc@v0.49.0 \
-            golang.org/x/text/cmd/gotext@v0.42.0 \
-            github.com/mjibson/esc@v0.2.0 \
-            google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
-          ; do
-            go install "$pkg"
-          done
-          echo "$GOBIN" >> "$GITHUB_PATH"
+          chmod +x "$RUNNER_TEMP/generators/"* || true
+          "$RUNNER_TEMP/generators/stringer" --help 2>&1 | head -1
+          echo "$RUNNER_TEMP/generators" >> "$GITHUB_PATH"
 
       # The go-toolchain action itself cache-uploads build/ under the per-job name `go-build-<job... see docs/CI.md
       - uses: ./
@@ -388,15 +387,20 @@ jobs:
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
+      # The org module proxy is gone. Modules come from their own source, and the sumdb goes with the proxy that mirrored it. These are the values src/goenv.go already falls back to with no proxy configured.
       - name: Configure Go proxy
         shell: bash
         run: |
-          if [ -n "$GO_PROXY_CONFIG" ]; then
-            proxy=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.proxy // empty')
-            if [ -n "$proxy" ]; then
-              echo "GOPROXY=${proxy}|direct" >> "$GITHUB_ENV"
-            fi
-          fi
+          {
+            echo "GOPROXY=direct"
+            echo "GONOSUMDB=*"
+            echo "GONOSUMCHECK=*"
+          } >> "$GITHUB_ENV"
+
+      - name: Configure git for private repos
+        if: env.PRIVATE_ORG_REPO_READ != ''
+        shell: bash
+        run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
       - name: Provision the sandbox backend (bubblewrap)
         if: runner.os == 'Linux'
@@ -420,36 +424,46 @@ jobs:
           cp dist/go-toolchain "$RUNNER_TEMP/${{ matrix.gt }}"
           chmod +x "$RUNNER_TEMP/${{ matrix.gt }}"
 
-      # A generator is an ordinary host program, so a stock go builds it. The hand-off cannot: it carries a standard library for its own target alone. The version is pinned because the generators' own modules ask for a recent one, and a runner does not always carry it.
-      - uses: actions/setup-go@v5
+      # host-build built these, and each one is an APE, so darwin and NT run them rather than compiling their own. Only a linux host's linked go can type-check against its embedded standard library, and an APE is exactly what spares the others from needing to.
+      - name: Take the generators host-build built
+        uses: wow-look-at-my/actions@cache-download#latest
         with:
-          go-version: '1.26'
+          name: generator-apes
+          path: ${{ runner.temp }}/generators
 
-      - name: Install the generators
+      - name: The generators answer here
         shell: bash
-        env:
-          GOBIN: ${{ runner.temp }}/genbin
         run: |
           set -euo pipefail
-          mkdir -p "$GOBIN"
-          # Every generator a dependency names, one pinned version each so every host generates the same bytes.
-          for pkg in \
-            golang.org/x/tools/cmd/stringer@v0.49.0 \
-            golang.org/x/tools/cmd/goyacc@v0.49.0 \
-            golang.org/x/text/cmd/gotext@v0.42.0 \
-            github.com/mjibson/esc@v0.2.0 \
-            google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
-          ; do
-            go install "$pkg"
-          done
-          echo "$GOBIN" >> "$GITHUB_PATH"
+          cd "$RUNNER_TEMP/generators"
+          chmod +x ./* || true
+          # NT looks a command up by its .exe name, and an APE carries the PE header that name promises.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            for f in *; do
+              case "$f" in *.exe | *.elf) continue ;; esac
+              cp -- "$f" "$f.exe"
+            done
+          fi
+          ./stringer --help 2>&1 | head -1
+          echo "$RUNNER_TEMP/generators" >> "$GITHUB_PATH"
+
+      # A dependency's generate directives run $GOROOT/bin/go, and this GOROOT is the fork checkout, where only a host that ran make.bash has one. The APE is that go command, so it goes there under that name.
+      - name: Put the go command where GOROOT looks for it
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _gosmopolitan/bin
+          cp "$RUNNER_TEMP/${{ matrix.gt }}" _gosmopolitan/bin/go
+          chmod +x _gosmopolitan/bin/go
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cp _gosmopolitan/bin/go _gosmopolitan/bin/go.exe
+          fi
 
       - name: Build this repo's APE here
         shell: bash
         env:
           # A build inside the checkout submits a dependency snapshot, and a missing token fails it.
           GITHUB_TOKEN: ${{ github.token }}
-          GODEBUG: gocachetest=1
         run: |
           set -euo pipefail
           "$RUNNER_TEMP/${{ matrix.gt }}" matrix --no-benchmark
