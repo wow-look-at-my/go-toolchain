@@ -34,9 +34,9 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.27
 )
 `,
-		"go.sum":              "github.com/pierrec/lz4/v4 v4.1.27 h1:abc=\n",
-		"vendor/modules.txt":  "# github.com/wow-look-at-my/dep v0.0.0\n## explicit; go 1.21\n",
-		".gitmodules":         "[submodule \"dep\"]\n\tpath = dep\n\turl = https://github.com/wow-look-at-my/dep.git\n\tbranch = master\n",
+		"go.sum":             "github.com/pierrec/lz4/v4 v4.1.27 h1:abc=\n",
+		"vendor/modules.txt": "# github.com/wow-look-at-my/dep v0.0.0\n## explicit; go 1.21\n",
+		".gitmodules":        "[submodule \"dep\"]\n\tpath = dep\n\turl = https://github.com/wow-look-at-my/dep.git\n\tbranch = master\n",
 		".github/workflows/ci.yml": `jobs:
   test:
     steps:
