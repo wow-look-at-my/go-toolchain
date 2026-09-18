@@ -154,10 +154,26 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 	// Both streams are read from the moment the child starts. A caller that
 	// reads a single stream to its end before the other, or reads neither
 	// until Wait, never leaves the child blocked on a full pipe.
-	p := &process{cmd: cmd, stdout: newSpool(), stderr: newSpool(), quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, stderrWriter: cfg.StderrWriter}
+	p := &process{cmd: cmd, stdout: newSpool(), stderr: newSpool(), quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter}
 	go p.stdout.fill(stdout)
-	go p.stderr.fill(stderr)
+	// The console still sees each stderr line as it arrives; the spool keeps a copy for Stderr.
+	if live := cfg.liveStderr(); live != nil {
+		go p.stderr.fill(io.TeeReader(stderr, &firstOutputWriter{target: live, hadOutput: &p.hadOutput, callback: cfg.OnFirstOutput}))
+	} else {
+		go p.stderr.fill(stderr)
+	}
 	return p, nil
+}
+
+// liveStderr names where stderr goes as it arrives, or nil to only hold it.
+func (c *Config) liveStderr() io.Writer {
+	switch {
+	case c.StderrWriter != nil:
+		return c.StderrWriter
+	case !c.Quiet:
+		return os.Stderr
+	}
+	return nil
 }
 
 // firstOutputWriter wraps a writer and calls a callback before any write.
@@ -188,7 +204,6 @@ type process struct {
 	hadOutput    atomic.Bool
 	onFirst      func()
 	stdoutWriter io.Writer
-	stderrWriter io.Writer
 }
 
 func (p *process) Wait() error {
@@ -196,36 +211,17 @@ func (p *process) Wait() error {
 		return p.err
 	}
 	if !p.quiet {
-		// Copy stdout/stderr concurrently so stderr (e.g. "go: downloading...") streams live instead of buffering.
+		// Stderr already went to its target as it arrived, so only stdout is left.
 		var stdoutTarget io.Writer = os.Stdout
 		if p.stdoutWriter != nil {
 			stdoutTarget = p.stdoutWriter
-		}
-		var stderrTarget io.Writer = os.Stderr
-		if p.stderrWriter != nil {
-			stderrTarget = p.stderrWriter
 		}
 		w := &firstOutputWriter{
 			target:    stdoutTarget,
 			hadOutput: &p.hadOutput,
 			callback:  p.onFirst,
 		}
-		wErr := &firstOutputWriter{
-			target:    stderrTarget,
-			hadOutput: &p.hadOutput,
-			callback:  p.onFirst,
-		}
-		var wg sync.WaitGroup
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			io.Copy(w, p.stdout)
-		}()
-		go func() {
-			defer wg.Done()
-			io.Copy(wErr, p.stderr)
-		}()
-		wg.Wait()
+		io.Copy(w, p.stdout)
 	}
 	// cmd.Wait closes the pipes, so both spools must have seen their end earliest.
 	p.stdout.drained()
