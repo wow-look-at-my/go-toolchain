@@ -329,12 +329,15 @@ jobs:
           name: host-go-toolchain
           path: build
 
+      # The fork's go refuses a CI build with no shared cache configured, so this job needs the secrets before it runs one.
+      - uses: wow-look-at-my/actions@secret-server#latest
+
       # The hand-off builds its own generators: it is an APE, its target is cosmo, and cosmo is what its embedded standard library carries. A stock go here would build each generator for this one host instead.
       - name: Install the generators
         env:
           # Building a generator must not complete the module that provides it: that fetch wants the generator, which is what this step is making.
           GOGENERATEDEPS: "off"
-          # This job has no proxy step, and the linked-go entry point skips the pipeline's own env setup, so the values it would have written go here.
+          # The linked-go entry point skips the pipeline's own env setup, so the values it would have written go here.
           GOPROXY: direct
           GONOSUMDB: "*"
           GONOSUMCHECK: "*"
@@ -428,13 +431,14 @@ jobs:
         env:
           # Building a generator must not complete the module that provides it: that fetch wants the generator, which is what this step is making.
           GOGENERATEDEPS: "off"
+        env:
+          GO_TOOLCHAIN_LINKED_GO: '1'
         run: |
           set -euo pipefail
-          go="$RUNNER_TEMP/gt-everywhere-go"
-          printf '#!/bin/sh\nGO_TOOLCHAIN_LINKED_GO=1 exec sh "%s" go "$@"\n' "$RUNNER_TEMP/${{ matrix.gt }}" > "$go"
-          chmod +x "$go"
+          # Called the way the matrix step below calls it: bare, in a bash step. macOS refuses to exec an APE, and bash is what falls back to its shell trampoline; `exec` from a plain sh does not.
+          gt="$RUNNER_TEMP/${{ matrix.gt }}"
           # A cosmo build reads as a cross-compile, because the host this APE runs on is not cosmo, and a cross-compile refuses GOBIN.
-          genbin="$("$go" env GOPATH)/bin/$("$go" env GOOS)_$("$go" env GOARCH)"
+          genbin="$("$gt" go env GOPATH)/bin/$("$gt" go env GOOS)_$("$gt" go env GOARCH)"
           for pkg in \
             golang.org/x/tools/cmd/stringer@v0.49.0 \
             golang.org/x/tools/cmd/goyacc@v0.49.0 \
@@ -442,7 +446,7 @@ jobs:
             github.com/mjibson/esc@v0.2.0 \
             google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
           ; do
-            "$go" install "$pkg"
+            "$gt" go install "$pkg"
           done
           echo "$genbin" >> "$GITHUB_PATH"
 
