@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -34,9 +35,28 @@ func missingGenerator(d generateDirective) string {
 	return ""
 }
 
+// missingTool names the program a directive invokes when PATH does not hold it,
+// or "" when it runs. A module names the generator its own maintainers install,
+// and a consumer of that module installs none of them.
+func missingTool(d generateDirective) string {
+	args, err := splitGenerateCommand(d.Command)
+	if err != nil || len(args) == 0 {
+		return ""
+	}
+	// `go run` needs no tool of its own, and its sources are missingGenerator's.
+	if args[0] == "go" {
+		return ""
+	}
+	if _, err := exec.LookPath(args[0]); err != nil {
+		return args[0]
+	}
+	return ""
+}
+
 // pendingDepDirectives keeps the dependency directives still owed their output.
-// A directive whose generator the module never shipped is dropped loudly: it
-// runs nowhere, so an approval for it only authorizes a command that fails.
+// A directive that cannot run here is dropped loudly rather than attempted: the
+// module builds from what its zip carried, and failing the whole resolve over a
+// generator this machine was never going to have stops every consumer instead.
 func pendingDepDirectives(all []generateDirective) []generateDirective {
 	var out []generateDirective
 	for _, d := range all {
@@ -45,6 +65,10 @@ func pendingDepDirectives(all []generateDirective) []generateDirective {
 		}
 		if miss := missingGenerator(d); miss != "" {
 			logger.Warn("⇒ Warning: %s:%d owes output, and %s is not in the module: %s", d.Label, d.Line, miss, d.Command)
+			continue
+		}
+		if miss := missingTool(d); miss != "" {
+			logger.Warn("⇒ Warning: %s:%d owes output, and %s is not installed here: %s", d.Label, d.Line, miss, d.Command)
 			continue
 		}
 		out = append(out, d)
