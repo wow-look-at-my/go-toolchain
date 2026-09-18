@@ -18,6 +18,7 @@ package cmd
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
@@ -25,13 +26,15 @@ import (
 
 // branchMatcher answers which ref a marker follows, asking each dependency
 // repository a single time. A run builds a matcher and passes it along, so the fast-exit
-// check and the rewrite cannot disagree about what a line resolves to.
+// check and the rewrite cannot disagree about what a line resolves to. It is safe
+// for concurrent use.
 type branchMatcher struct {
 	r runner.CommandRunner
 	// branch is this repository's checked-out branch, empty when there is none to match.
 	branch string
 	// asked keeps the branch lookup lazy: a go.mod with no bare marker pays nothing.
-	asked bool
+	asked sync.Once
+	mu    sync.Mutex
 	// seen maps a module path to the branch it matched, "" for the default branch.
 	seen map[string]string
 }
@@ -42,9 +45,7 @@ func newBranchMatcher(r runner.CommandRunner) *branchMatcher {
 
 // here is this repository's branch, looked up as soon as a line needs it.
 func (bm *branchMatcher) here() string {
-	if !bm.asked {
-		bm.branch, bm.asked = currentBranch(bm.r), true
-	}
+	bm.asked.Do(func() { bm.branch = currentBranch(bm.r) })
 	return bm.branch
 }
 
@@ -68,11 +69,16 @@ func (bm *branchMatcher) match(mod string) string {
 	if bm.here() == "" {
 		return ""
 	}
-	if branch, asked := bm.seen[mod]; asked {
+	bm.mu.Lock()
+	branch, asked := bm.seen[mod]
+	bm.mu.Unlock()
+	if asked {
 		return branch
 	}
-	branch := bm.probe(mod)
+	branch = bm.probe(mod)
+	bm.mu.Lock()
 	bm.seen[mod] = branch
+	bm.mu.Unlock()
 	return branch
 }
 

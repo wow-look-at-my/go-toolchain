@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
@@ -52,31 +54,55 @@ type repoResolution struct {
 }
 
 // repoResolver answers each repository a SINGLE time, so a multi-module repo cannot land on divergent commits.
+// It is safe for concurrent use.
 type repoResolver struct {
 	r        runner.CommandRunner
 	main     string
+	mu       sync.Mutex
 	resolved []*repoResolution
 	cleanups []func()
 }
 
-// at returns the resolution covering mod under anchor, fetching the repository
-// as soon as any of its modules asks, and reusing that answer afterward.
-func (rr *repoResolver) at(mod string, anchor commitAnchor) (*repoResolution, error) {
+// find returns the settled resolution covering mod under anchor, or nil. rr.mu must be held.
+func (rr *repoResolver) find(mod string, anchor commitAnchor) *repoResolution {
 	for _, res := range rr.resolved {
 		if res.anchor == anchor && inRepo(mod, res.commit.RepoRoot) {
-			return res, nil
+			return res
 		}
 	}
+	return nil
+}
+
+// at returns the resolution covering mod under anchor, fetching the repository
+// as soon as any of its modules asks, and reusing that answer afterward. Two
+// modules of one repository asked at once both fetch, and the first to settle
+// is the answer for both.
+func (rr *repoResolver) at(mod string, anchor commitAnchor) (*repoResolution, error) {
+	rr.mu.Lock()
+	res := rr.find(mod, anchor)
+	rr.mu.Unlock()
+	if res != nil {
+		return res, nil
+	}
+
 	c, cleanup, err := anchor.fetch(rr.r, mod)
 	if err != nil {
 		return nil, err
 	}
-	rr.cleanups = append(rr.cleanups, cleanup)
 	sibs, err := siblingRequires(rr.r, c, rr.main)
 	if err != nil {
+		cleanup()
 		return nil, err
 	}
-	res := &repoResolution{anchor: anchor, commit: c, siblings: sibs}
+
+	rr.mu.Lock()
+	defer rr.mu.Unlock()
+	if settled := rr.find(mod, anchor); settled != nil {
+		cleanup()
+		return settled, nil
+	}
+	rr.cleanups = append(rr.cleanups, cleanup)
+	res = &repoResolution{anchor: anchor, commit: c, siblings: sibs}
 	rr.resolved = append(rr.resolved, res)
 	return res, nil
 }
@@ -97,6 +123,43 @@ func siblingAnchor(req *modfile.Require, m marker, bm *branchMatcher) (commitAnc
 	}
 	mod := req.Mod.Path
 	return commitAnchor{ref: bm.ref(mod, m), branch: bm.branchFor(mod, m), desc: bm.describe(mod, m)}, true
+}
+
+// trackedLine is a tracked require's resolution and, for a named branch, what
+// its pull-request check found.
+type trackedLine struct {
+	req    *modfile.Require
+	m      marker
+	anchor commitAnchor
+	res    *repoResolution
+	err    error
+
+	temporary            temporaryBranch
+	isTemporary, checked bool
+}
+
+// resolveTrackedLines resolves every tracked require concurrently, since each
+// costs several network round trips, and returns them in go.mod order.
+func resolveTrackedLines(reqs []*modfile.Require, resolver *repoResolver, bm *branchMatcher) []*trackedLine {
+	var lines []*trackedLine
+	var wg sync.WaitGroup
+	for _, req := range reqs {
+		m := parseMarker(req.Syntax)
+		if !m.tracks {
+			continue
+		}
+		l := &trackedLine{req: req, m: m}
+		lines = append(lines, l)
+		wg.Go(func() {
+			l.anchor, _ = siblingAnchor(req, m, bm)
+			l.res, l.err = resolver.at(req.Mod.Path, l.anchor)
+			if l.err == nil && m.branch != "" {
+				l.temporary, l.isTemporary, l.checked = checkTemporaryBranch(req.Mod.Path, m.branch)
+			}
+		})
+	}
+	wg.Wait()
+	return lines
 }
 
 // UpdateTrackedBranchDeps re-resolves every require and replace carrying a
@@ -150,32 +213,24 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 	siblings := map[string]branchPin{}
 	var temporary []temporaryBranch
 	var unchecked []string
-	for _, req := range f.Require {
-		m := parseMarker(req.Syntax)
-		anchor, isAnchor := siblingAnchor(req, m, bm)
-		if !isAnchor {
-			continue
+	for _, l := range resolveTrackedLines(f.Require, resolver, bm) {
+		mod := l.req.Mod.Path
+		if l.err != nil {
+			return false, fmt.Errorf("failed to resolve %s at %s: %w", mod, l.anchor.describe(), l.err)
 		}
-		res, err := resolver.at(req.Mod.Path, anchor)
-		if err != nil {
-			return false, fmt.Errorf("failed to resolve %s at %s: %w", req.Mod.Path, anchor.describe(), err)
-		}
-		if m.tracks {
-			resolved[req.Mod.Path] = branchPin{pseudoVersionFor(req.Mod.Path, res.commit.Time, res.commit.ShortHash), m}
-		}
-		if m.branch != "" {
-			t, isTemporary, checked := checkTemporaryBranch(req.Mod.Path, m.branch)
+		resolved[mod] = branchPin{pseudoVersionFor(mod, l.res.commit.Time, l.res.commit.ShortHash), l.m}
+		if l.m.branch != "" {
 			switch {
-			case isTemporary:
-				t.module = req.Mod.Path
-				temporary = append(temporary, t)
-			case !checked:
-				unchecked = append(unchecked, req.Mod.Path+"@"+m.branch)
+			case l.isTemporary:
+				l.temporary.module = mod
+				temporary = append(temporary, l.temporary)
+			case !l.checked:
+				unchecked = append(unchecked, mod+"@"+l.m.branch)
 			}
 		}
 		// A sibling carries the marker of the line that brought it in; cohesion is the resolver's doing.
-		for mod, version := range res.siblings {
-			siblings[mod] = branchPin{version, m}
+		for sib, version := range l.res.siblings {
+			siblings[sib] = branchPin{version, l.m}
 		}
 	}
 
@@ -327,31 +382,29 @@ func trackedBranchDepsMoved(r runner.CommandRunner) bool {
 		return false
 	}
 	bm := newBranchMatcher(r)
+	var pinned []module.Version
+	var markers []marker
 	for _, req := range f.Require {
-		m := parseMarker(req.Syntax)
-		if !m.tracks {
-			continue
-		}
-		version, err := resolveVersionViaGit(r, req.Mod.Path, bm.ref(req.Mod.Path, m))
-		if err != nil {
-			continue
-		}
-		if version != req.Mod.Version {
-			return true
+		if m := parseMarker(req.Syntax); m.tracks {
+			pinned, markers = append(pinned, req.Mod), append(markers, m)
 		}
 	}
 	for _, rep := range f.Replace {
-		m := parseMarker(rep.Syntax)
-		if !m.tracks || isLocalReplacement(rep.New) {
-			continue
-		}
-		version, err := resolveVersionViaGit(r, rep.New.Path, bm.ref(rep.New.Path, m))
-		if err != nil {
-			continue
-		}
-		if version != rep.New.Version {
-			return true
+		if m := parseMarker(rep.Syntax); m.tracks && !isLocalReplacement(rep.New) {
+			pinned, markers = append(pinned, rep.New), append(markers, m)
 		}
 	}
-	return false
+
+	var moved atomic.Bool
+	var wg sync.WaitGroup
+	for i, pin := range pinned {
+		wg.Go(func() {
+			version, err := resolveVersionViaGit(r, pin.Path, bm.ref(pin.Path, markers[i]))
+			if err == nil && version != pin.Version {
+				moved.Store(true)
+			}
+		})
+	}
+	wg.Wait()
+	return moved.Load()
 }

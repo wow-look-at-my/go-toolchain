@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
@@ -30,9 +31,10 @@ func FixBogusDepsVersions(r runner.CommandRunner) error {
 		return nil // Let go mod tidy handle parse errors
 	}
 
+	// A tracked line is resolved by UpdateTrackedBranchDeps, against the branch its marker follows.
 	var toFix []string
 	for _, req := range f.Require {
-		if req.Mod.Version == "v0.0.0" {
+		if req.Mod.Version == "v0.0.0" && !parseMarker(req.Syntax).tracks {
 			toFix = append(toFix, req.Mod.Path)
 		}
 	}
@@ -41,19 +43,25 @@ func FixBogusDepsVersions(r runner.CommandRunner) error {
 		return nil
 	}
 
-	// Resolve each module to its actual latest version
-	for _, mod := range toFix {
-		if !jsonOutput {
+	if !jsonOutput {
+		for _, mod := range toFix {
 			logger.Info("⇒ Resolving %s (v0.0.0 is not a valid version)", mod)
 		}
+	}
 
-		version, err := resolveLatestVersionViaGit(r, mod)
-		if err != nil {
-			return fmt.Errorf("failed to resolve %s: %w", mod, err)
+	versions := make([]string, len(toFix))
+	errs := make([]error, len(toFix))
+	var wg sync.WaitGroup
+	for i, mod := range toFix {
+		wg.Go(func() { versions[i], errs[i] = resolveLatestVersionViaGit(r, mod) })
+	}
+	wg.Wait()
+
+	for i, mod := range toFix {
+		if errs[i] != nil {
+			return fmt.Errorf("failed to resolve %s: %w", mod, errs[i])
 		}
-
-		// Update the require in the parsed file
-		if err := f.AddRequire(mod, version); err != nil {
+		if err := f.AddRequire(mod, versions[i]); err != nil {
 			return fmt.Errorf("failed to update %s: %w", mod, err)
 		}
 	}

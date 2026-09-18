@@ -3,7 +3,9 @@ package cmd
 import (
 	"errors"
 	"os"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -240,6 +242,89 @@ require git.internal/foo v0.0.0
 
 	// This will fail but covers the non-jsonOutput branch
 	_ = FixBogusDepsVersions(mock)
+}
+
+func TestFixBogusDepsVersions_LeavesTrackedLinesToTheBranchPass(t *testing.T) {
+	t.Serial()
+	t.Chdir(t.TempDir())
+
+	gomod := `module test
+go 1.21
+
+require (
+	git.internal/tracked v0.0.0 // go-toolchain:auto-branch
+	git.internal/named v0.0.0 // indirect; go-toolchain:auto-branch=v1
+)
+`
+	require.NoError(t, os.WriteFile("go.mod", []byte(gomod), 0644))
+
+	mock := runner.NewMock()
+	require.NoError(t, FixBogusDepsVersions(mock))
+	assert.Empty(t, mock.Calls(), "UpdateTrackedBranchDeps resolves these; a second lookup here is pure latency")
+
+	data, err := os.ReadFile("go.mod")
+	require.NoError(t, err)
+	assert.Equal(t, gomod, string(data))
+}
+
+// Each module waits at ls-remote until every module has reached it, so a
+// resolution that asks one module at a time never gets past the first.
+func TestFixBogusDepsVersions_ResolvesModulesConcurrently(t *testing.T) {
+	t.Serial()
+	t.Chdir(t.TempDir())
+
+	gomod := `module test
+go 1.21
+
+require (
+	git.internal/a v0.0.0
+	git.internal/b v0.0.0
+	git.internal/c v0.0.0
+)
+`
+	require.NoError(t, os.WriteFile("go.mod", []byte(gomod), 0644))
+
+	const modules = 3
+	var arrived sync.WaitGroup
+	arrived.Add(modules)
+	allHere := make(chan struct{})
+	go func() {
+		arrived.Wait()
+		close(allHere)
+	}()
+
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		switch {
+		case cfg.IsCmd("git", "ls-remote"):
+			arrived.Done()
+			select {
+			case <-allHere:
+			case <-time.After(10 * time.Second):
+				return runner.MockProcess(nil, errors.New("modules were resolved one at a time")), nil
+			}
+			hash := strings.Repeat(string(lsRemoteURL(cfg)[len(lsRemoteURL(cfg))-1]), 40)
+			return runner.MockProcess([]byte(hash+"\tHEAD\n"), nil), nil
+		case slices.Contains(cfg.Args, "log"):
+			return runner.MockProcess([]byte("1700000000\n"), nil), nil
+		}
+		return runner.MockProcess(nil, nil), nil
+	}
+
+	jsonOutput = true
+	defer func() { jsonOutput = false }()
+
+	require.NoError(t, FixBogusDepsVersions(mock))
+
+	data, err := os.ReadFile("go.mod")
+	require.NoError(t, err)
+	for _, want := range []string{
+		"git.internal/a v0.0.0-20231114221320-aaaaaaaaaaaa",
+		"git.internal/b v0.0.0-20231114221320-bbbbbbbbbbbb",
+		"git.internal/c v0.0.0-20231114221320-cccccccccccc",
+	} {
+		assert.Contains(t, string(data), want)
+	}
 }
 
 func TestResolveLatestVersionViaGit_LsRemoteFails(t *testing.T) {
