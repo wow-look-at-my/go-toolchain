@@ -14,7 +14,7 @@ require (
 	github.com/wow-look-at-my/dats v0.0.0 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/go-containers v0.0.0 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/is-this-an-agent v0.0.0 // go-toolchain:auto-branch
-	github.com/wow-look-at-my/slopfix v0.0.0 // go-toolchain:auto-branch; go-toolchain:generate=2cc79e031ecc
+	github.com/wow-look-at-my/slopfix v0.0.0 // go-toolchain:auto-branch; go-toolchain:generate=c6095713f6ed
 	golang.org/x/mod v0.41.0
 	golang.org/x/sys v0.48.0
 	golang.org/x/tools v0.49.0
@@ -43,6 +43,7 @@ require (
 	github.com/pjbgf/sha1cd v0.6.0 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
+	github.com/wow-look-at-my/go-regex-compiler v0.0.0 // indirect; go-toolchain:auto-branch
 	github.com/wow-look-at-my/go-tree-sitter v0.0.0 // indirect; go-toolchain:auto-branch; go-toolchain:generate=a0022f830ef0
 	github.com/wow-look-at-my/yaml-fixed v0.0.0 // indirect; go-toolchain:auto-branch
 	github.com/xanzy/ssh-agent v0.3.3 // indirect

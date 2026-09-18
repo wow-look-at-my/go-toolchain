@@ -95,6 +95,8 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		}
 	}
 
+	waitForCommentScan()
+
 	var vetStep *step
 	if !quiet {
 		vetStep = logStep("go vet ./...")
