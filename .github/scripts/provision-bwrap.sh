@@ -1,21 +1,17 @@
 #!/usr/bin/env bash
-# Provisions bubblewrap on a Linux runner whose module has dats suites. The
-# dats phase sandboxes every suite command, and without bwrap it falls back to
+# Provisions bubblewrap on every Linux runner. Two phases need it. The dats
+# phase sandboxes every suite command, and without bwrap it falls back to
 # docker, which runs them in a container with no host Go for the bootstrap.
+# `go mod tidy` also confines a dependency's generate directives in bwrap, and
+# it refuses the directive outright when bwrap is missing. That path belongs to
+# every module, so a module with no dats/ directory still needs the backend.
 #
-# A module with no dats/ directory pays nothing. A host where bwrap already
-# works pays a probe. A host where it cannot work fails here, with its own
-# error, instead of degrading to the fallback unnoticed.
+# A host where bwrap already works pays a probe. A host where it cannot work
+# fails here, with its own error, instead of degrading to the fallback
+# unnoticed.
 #
-# usage: provision-bwrap.sh <working-directory>
+# usage: provision-bwrap.sh
 set -euo pipefail
-
-readonly workdir="${1:-.}"
-
-if [ ! -d "$workdir/dats" ]; then
-	echo "no dats suites under $workdir; nothing to provision"
-	exit 0
-fi
 
 as_root() {
 	if [ "$(id -u)" -eq 0 ]; then
@@ -42,11 +38,11 @@ fi
 
 if ! command -v bwrap > /dev/null 2>&1; then
 	if ! command -v apt-get > /dev/null 2>&1; then
-		echo "::error::bubblewrap is not installed and there is no apt-get to install it. The dats suites need a sandbox backend; install bwrap on this host."
+		echo "::error::bubblewrap is not installed and there is no apt-get to install it. Tidy and the dats suites need a sandbox backend; install bwrap on this host."
 		exit 1
 	fi
 	if ! as_root apt-get update > /dev/null || ! as_root apt-get install -y bubblewrap > /dev/null; then
-		echo "::error::could not install bubblewrap. The dats suites need a sandbox backend."
+		echo "::error::could not install bubblewrap. Tidy and the dats suites need a sandbox backend."
 		exit 1
 	fi
 fi
@@ -55,7 +51,7 @@ fi
 as_root sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 > /dev/null 2>&1 || true
 
 if ! probe; then
-	echo "::error::bubblewrap is installed but cannot build a sandbox on this host. The dats suites need one; see the bwrap error above."
+	echo "::error::bubblewrap is installed but cannot build a sandbox on this host. Tidy and the dats suites need a sandbox; see the bwrap error above."
 	exit 1
 fi
 echo "bubblewrap is usable"
