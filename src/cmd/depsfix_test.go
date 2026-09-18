@@ -267,8 +267,8 @@ require (
 	assert.Equal(t, gomod, string(data))
 }
 
-// Each module waits at ls-remote until every module has reached it, so a
-// resolution that asks one module at a time never gets past the first.
+// Each module waits at ls-remote until every module has reached it, so
+// resolving the modules sequentially never gets past ls-remote.
 func TestFixBogusDepsVersions_ResolvesModulesConcurrently(t *testing.T) {
 	t.Serial()
 	t.Chdir(t.TempDir())

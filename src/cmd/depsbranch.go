@@ -74,9 +74,9 @@ func (rr *repoResolver) find(mod string, anchor commitAnchor) *repoResolution {
 }
 
 // at returns the resolution covering mod under anchor, fetching the repository
-// as soon as any of its modules asks, and reusing that answer afterward. Two
-// modules of one repository asked at once both fetch, and the first to settle
-// is the answer for both.
+// as soon as any of its modules asks, and reusing that answer afterward.
+// Concurrent callers for the same repository each fetch, and whichever settles
+// sooner answers for all of them.
 func (rr *repoResolver) at(mod string, anchor commitAnchor) (*repoResolution, error) {
 	rr.mu.Lock()
 	res := rr.find(mod, anchor)
