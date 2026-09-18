@@ -110,7 +110,7 @@ go-toolchain
 # A single fat APE covering Linux x64, macOS ARM64 and Windows x64 (the default)
 go-toolchain matrix
 
-# Pick the platforms the a single binary covers
+# Pick the platforms this binary covers
 go-toolchain matrix --cosmo-platforms linux/amd64,linux/arm64
 
 # WebAssembly builds (browser/Node.js and WASI) alongside the APE

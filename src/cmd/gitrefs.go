@@ -10,7 +10,7 @@ import (
 )
 
 // Reading refs off a remote, and running git for its output. syncForkSource
-// asks a repository which branches it has, and it is the a single caller left.
+// asks a repository which branches it has. No other caller is left.
 
 // gitOutput runs a command and returns its stdout.
 func gitOutput(r runner.CommandRunner, name string, args ...string) ([]byte, error) {

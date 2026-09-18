@@ -111,7 +111,7 @@ func pinsInFile(name, text string) []orgPin {
 }
 
 // orgPrefixIn returns the org module prefix the line mentions, or "" for a line
-// that names no org path. OrgModulePrefixes is the a single list of them.
+// that names no org path. OrgModulePrefixes holds them.
 func orgPrefixIn(text string) string {
 	// The owner segment alone, because an action step names the owner without the
 	// host and a git remote spells the host with a colon.
