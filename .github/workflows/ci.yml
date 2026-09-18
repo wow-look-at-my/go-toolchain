@@ -76,14 +76,14 @@ jobs:
             --ro-bind-try /lib64 /lib64 --ro-bind-try /etc /etc \
             --dev /dev --proc /proc --tmpfs /tmp --chdir / --unshare-pid --die-with-parent true
 
+      # The org module proxy is gone. Modules come from their own source, and the sumdb goes with the proxy that mirrored it. These are the values src/goenv.go already falls back to with no proxy configured.
       - name: Configure Go proxy
         run: |
-          if [ -n "$GO_PROXY_CONFIG" ]; then
-            proxy=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.proxy // empty')
-            if [ -n "$proxy" ]; then
-              echo "GOPROXY=${proxy}|direct" >> "$GITHUB_ENV"
-            fi
-          fi
+          {
+            echo "GOPROXY=direct"
+            echo "GONOSUMDB=*"
+            echo "GONOSUMCHECK=*"
+          } >> "$GITHUB_ENV"
 
       # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
       - name: Install the generators
@@ -239,14 +239,14 @@ jobs:
           sudo apt-get update && sudo apt-get install -y bubblewrap
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
 
+      # The org module proxy is gone. Modules come from their own source, and the sumdb goes with the proxy that mirrored it. These are the values src/goenv.go already falls back to with no proxy configured.
       - name: Configure Go proxy
         run: |
-          if [ -n "$GO_PROXY_CONFIG" ]; then
-            proxy=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.proxy // empty')
-            if [ -n "$proxy" ]; then
-              echo "GOPROXY=${proxy}|direct" >> "$GITHUB_ENV"
-            fi
-          fi
+          {
+            echo "GOPROXY=direct"
+            echo "GONOSUMDB=*"
+            echo "GONOSUMCHECK=*"
+          } >> "$GITHUB_ENV"
 
       # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
       - name: Install the generators
@@ -387,15 +387,20 @@ jobs:
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
+      # The org module proxy is gone. Modules come from their own source, and the sumdb goes with the proxy that mirrored it. These are the values src/goenv.go already falls back to with no proxy configured.
       - name: Configure Go proxy
         shell: bash
         run: |
-          if [ -n "$GO_PROXY_CONFIG" ]; then
-            proxy=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.proxy // empty')
-            if [ -n "$proxy" ]; then
-              echo "GOPROXY=${proxy}|direct" >> "$GITHUB_ENV"
-            fi
-          fi
+          {
+            echo "GOPROXY=direct"
+            echo "GONOSUMDB=*"
+            echo "GONOSUMCHECK=*"
+          } >> "$GITHUB_ENV"
+
+      - name: Configure git for private repos
+        if: env.PRIVATE_ORG_REPO_READ != ''
+        shell: bash
+        run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
       - name: Provision the sandbox backend (bubblewrap)
         if: runner.os == 'Linux'
