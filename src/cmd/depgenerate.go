@@ -297,17 +297,6 @@ func owesOutput(d generateDirective) bool {
 	return os.IsNotExist(err)
 }
 
-// pendingDepDirectives keeps the dependency directives still owed their output.
-func pendingDepDirectives(all []generateDirective) []generateDirective {
-	var out []generateDirective
-	for _, d := range all {
-		if owesOutput(d) {
-			out = append(out, d)
-		}
-	}
-	return out
-}
-
 // generateForDeps runs the directives the dependencies still owe, ahead of go
 // mod tidy and every phase that reads what they produce. Depth: docs/PIPELINE.md
 func generateForDeps(expectedHash string) error {
