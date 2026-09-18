@@ -168,9 +168,14 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 	// until Wait, never leaves the child blocked on a full pipe.
 	outR, outW := io.Pipe()
 	errR, errW := io.Pipe()
-	p := &process{cmd: cmd, stdout: newSpool(), stderr: newSpool(), quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, stderrWriter: cfg.StderrWriter, exited: make(chan struct{})}
+	p := &process{cmd: cmd, stdout: newSpool(), stderr: newSpool(), quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, exited: make(chan struct{})}
 	go p.stdout.fill(outR)
-	go p.stderr.fill(errR)
+	// The console still sees each stderr line as it arrives; the spool keeps a copy for Stderr.
+	if live := cfg.liveStderr(); live != nil {
+		go p.stderr.fill(io.TeeReader(errR, &firstOutputWriter{target: live, hadOutput: &p.hadOutput, callback: cfg.OnFirstOutput}))
+	} else {
+		go p.stderr.fill(errR)
+	}
 	go relay(stdoutR, outW)
 	go relay(stderrR, errW)
 	go p.reap(outW, errW)
@@ -198,6 +203,17 @@ func (p *process) reap(writers ...*io.PipeWriter) {
 	for _, w := range writers {
 		w.Close()
 	}
+}
+
+// liveStderr names where stderr goes as it arrives, or nil to only hold it.
+func (c *Config) liveStderr() io.Writer {
+	switch {
+	case c.StderrWriter != nil:
+		return c.StderrWriter
+	case !c.Quiet:
+		return os.Stderr
+	}
+	return nil
 }
 
 // firstOutputWriter wraps a writer and calls a callback before any write.
@@ -228,7 +244,6 @@ type process struct {
 	hadOutput    atomic.Bool
 	onFirst      func()
 	stdoutWriter io.Writer
-	stderrWriter io.Writer
 	exited       chan struct{} // closed when reap has the exit status
 	waitErr      error         // read only after exited is closed
 }
@@ -238,36 +253,17 @@ func (p *process) Wait() error {
 		return p.err
 	}
 	if !p.quiet {
-		// Copy stdout/stderr concurrently so stderr (e.g. "go: downloading...") streams live instead of buffering.
+		// Stderr already went to its target as it arrived, so only stdout is left.
 		var stdoutTarget io.Writer = os.Stdout
 		if p.stdoutWriter != nil {
 			stdoutTarget = p.stdoutWriter
-		}
-		var stderrTarget io.Writer = os.Stderr
-		if p.stderrWriter != nil {
-			stderrTarget = p.stderrWriter
 		}
 		w := &firstOutputWriter{
 			target:    stdoutTarget,
 			hadOutput: &p.hadOutput,
 			callback:  p.onFirst,
 		}
-		wErr := &firstOutputWriter{
-			target:    stderrTarget,
-			hadOutput: &p.hadOutput,
-			callback:  p.onFirst,
-		}
-		var wg sync.WaitGroup
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			io.Copy(w, p.stdout)
-		}()
-		go func() {
-			defer wg.Done()
-			io.Copy(wErr, p.stderr)
-		}()
-		wg.Wait()
+		io.Copy(w, p.stdout)
 	}
 	// Wait reports only once both spools have seen their end: reap closes the
 	// relays after the grace, releasing a stream a grandchild still holds open.
