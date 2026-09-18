@@ -354,7 +354,9 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x "$RUNNER_TEMP/generators/"* || true
-          "$RUNNER_TEMP/generators/stringer" --help 2>&1 | head -1
+          # head reads a file here: on a pipe it closes early, stringer dies of SIGPIPE, and pipefail reads that as a failed probe.
+          "$RUNNER_TEMP/generators/stringer" --help > "$RUNNER_TEMP/stringer-probe.txt" 2>&1
+          head -1 "$RUNNER_TEMP/stringer-probe.txt"
           echo "$RUNNER_TEMP/generators" >> "$GITHUB_PATH"
 
       # The go-toolchain action itself cache-uploads build/ under the per-job name `go-build-<job... see docs/CI.md
