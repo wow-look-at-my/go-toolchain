@@ -11,17 +11,13 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// forkSubmoduleDir is the gosmopolitan checkout inside this repository, the
-// standard library and toolchain source a build of this module compiles in.
-// The underscore keeps the go tool's "./..." out of the fork's own trees,
-// whose test corpus has Go files under no go.mod of their own.
+// forkSubmoduleDir is the gosmopolitan checkout a build compiles against.
 const forkSubmoduleDir = "_gosmopolitan"
 
 // forkModulePath names the fork's repository for the branch lookup.
 const forkModulePath = "github.com/wow-look-at-my/gosmopolitan"
 
-// forkCommit is the gosmopolitan commit whose toolchain and standard library
-// this binary links, stamped by the link that built it.
+// forkCommit is the gosmopolitan commit this binary links, stamped at link time.
 var forkCommit string
 
 // forkCommitVar is the linker's name for forkCommit.
@@ -82,8 +78,7 @@ func syncForkSource(r runner.CommandRunner) (string, error) {
 	return want, refreshWasmExec()
 }
 
-// forkHeaders are the assembly headers cmd/dist puts under pkg/include, which
-// the assembler reads through -I and a pristine checkout does not have.
+// forkHeaders are the assembly headers cmd/dist puts under pkg/include.
 var forkHeaders = []string{"textflag.h", "funcdata.h", "asm_ppc64x.h", "asm_amd64.h", "asm_riscv64.h"}
 
 // installForkHeaders copies the runtime's headers into the checkout's
@@ -105,8 +100,7 @@ func installForkHeaders() error {
 	return nil
 }
 
-// wasmExecCopy is where this module keeps the fork's wasm_exec.js, for the
-// binary to carry.
+// wasmExecCopy is this module's copy of the fork's wasm_exec.js.
 const wasmExecCopy = "src/wasmexec/wasm_exec.js"
 
 // wasmExecHeader opens the copy, so every comment fixer leaves it alone.

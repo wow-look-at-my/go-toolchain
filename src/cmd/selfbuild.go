@@ -13,8 +13,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// apeAppendEnv names the file the fork's linker appends past an APE's load
-// span, which is how a go binary carries its standard library.
+// apeAppendEnv names the file the fork's linker appends past an APE's load span.
 const apeAppendEnv = "GOCOSMOAPPEND"
 
 // selfBuildPasses is the most passes a self-build makes.

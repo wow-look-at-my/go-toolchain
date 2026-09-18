@@ -13,8 +13,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// activeGoCmd starts the go command this pipeline builds with: this
-// executable, under its go subcommand.
+// activeGoCmd starts the go command this pipeline builds with.
 var activeGoCmd []string
 
 // activeGoroot is the GOROOT every go command of this run reads: the fork

@@ -26,8 +26,7 @@ var datsRunFunc = dats.Run
 // datsBuildDirEnv names the env var pointing suite commands at the staged binaries dir.
 const datsBuildDirEnv = "GO_TOOLCHAIN_DATS_BUILD_DIR"
 
-// datsForkCommitEnv names the env var carrying the gosmopolitan commit the
-// run's build linked, empty outside this module.
+// datsForkCommitEnv carries the gosmopolitan commit the build linked.
 const datsForkCommitEnv = "GO_TOOLCHAIN_DATS_GOSMOPOLITAN"
 
 // datsArtifact names a built binary to hand to dats suites.
