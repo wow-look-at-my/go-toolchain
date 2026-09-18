@@ -79,9 +79,16 @@ jobs:
       - name: Configure Go proxy
         run: |
           if [ -n "$GO_PROXY_CONFIG" ]; then
-            proxy=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.proxy // empty')
+            cfg=$(echo "$GO_PROXY_CONFIG" | base64 -d)
+            proxy=$(echo "$cfg" | jq -r '.proxy // empty')
+            key=$(echo "$cfg" | jq -r '.sumdb_key // empty')
             if [ -n "$proxy" ]; then
               echo "GOPROXY=${proxy}|direct" >> "$GITHUB_ENV"
+              # The same proxy serves the sumdb, and configureGoEnv sets both.
+              name=${key%%+*}
+              if [ -n "$key" ] && [ "$name" != "$key" ]; then
+                echo "GOSUMDB=${key} ${proxy%/}/sumdb/${name}" >> "$GITHUB_ENV"
+              fi
             fi
           fi
 
@@ -242,9 +249,16 @@ jobs:
       - name: Configure Go proxy
         run: |
           if [ -n "$GO_PROXY_CONFIG" ]; then
-            proxy=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.proxy // empty')
+            cfg=$(echo "$GO_PROXY_CONFIG" | base64 -d)
+            proxy=$(echo "$cfg" | jq -r '.proxy // empty')
+            key=$(echo "$cfg" | jq -r '.sumdb_key // empty')
             if [ -n "$proxy" ]; then
               echo "GOPROXY=${proxy}|direct" >> "$GITHUB_ENV"
+              # The same proxy serves the sumdb, and configureGoEnv sets both.
+              name=${key%%+*}
+              if [ -n "$key" ] && [ "$name" != "$key" ]; then
+                echo "GOSUMDB=${key} ${proxy%/}/sumdb/${name}" >> "$GITHUB_ENV"
+              fi
             fi
           fi
 
@@ -391,9 +405,16 @@ jobs:
         shell: bash
         run: |
           if [ -n "$GO_PROXY_CONFIG" ]; then
-            proxy=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.proxy // empty')
+            cfg=$(echo "$GO_PROXY_CONFIG" | base64 -d)
+            proxy=$(echo "$cfg" | jq -r '.proxy // empty')
+            key=$(echo "$cfg" | jq -r '.sumdb_key // empty')
             if [ -n "$proxy" ]; then
               echo "GOPROXY=${proxy}|direct" >> "$GITHUB_ENV"
+              # The same proxy serves the sumdb, and configureGoEnv sets both.
+              name=${key%%+*}
+              if [ -n "$key" ] && [ "$name" != "$key" ]; then
+                echo "GOSUMDB=${key} ${proxy%/}/sumdb/${name}" >> "$GITHUB_ENV"
+              fi
             fi
           fi
 
