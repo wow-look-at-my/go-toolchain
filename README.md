@@ -4,7 +4,7 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 
 ## Features
 
-- **Coverage enforcement** — the build fails below 80% coverage, and the failure is annotated in the GitHub Actions run UI.
+- **Coverage enforcement** — the build fails below 80% coverage. And the failure is annotated in the GitHub Actions run UI.
 - **Coverage watermarking** — optionally locks in a coverage floor (with a 2.5% grace period) so it can only go up.
 - **Warnings budget** — more than 15 distinct warnings in a run fails the build, with a numbered recap. A repeated warning counts once. See [docs/WARNINGS-GATE.md](docs/WARNINGS-GATE.md).
 - **One binary, every platform** — `matrix` builds a single fat APE that runs natively on Linux x64, macOS ARM64 and Windows x64. It is the org's only native output. See [docs/MATRIX.md](docs/MATRIX.md).
@@ -16,9 +16,9 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 - **Auto-fix, or CI check** — locally the linter fixes violations in place. On CI the same checks run read-only, and a non-canonical tree fails the build with a diff of the fix.
 - **testify migration** — rewrites fork and `gotest.tools` imports to upstream `stretchr/testify`, adding the type conversions upstream's strict comparisons need. See [docs/VET.md](docs/VET.md).
 - **Custom vet analyzers** — `mapset` and `sliceset` (a `map[K]bool` or a slice used as a set, rewritten in place to `go-containers/set`), `writeruns` (a document written one string at a time), `jsoninterp` (JSON built by formatting, concatenation or a template). See [docs/VET.md](docs/VET.md).
-- **Comment scan** — the first phase reports a number written in any comment, in any language, before a compiler starts. A warning, so the warnings budget is what fails the build. See [docs/COMMENT-SCAN.md](docs/COMMENT-SCAN.md).
+- **Comment scan** — the first phase reports a number written in any comment, in any language, before a compiler starts. A warning. So the warnings budget is what fails the build. See [docs/COMMENT-SCAN.md](docs/COMMENT-SCAN.md).
 - **Go generate** — detects and runs `//go:generate` directives with hash-based approval.
-- **Dependency handling** — auto-updates same-org deps. Every `github.com/wow-look-at-my/` dependency tracks a branch via a `// go-toolchain:auto-branch` marker. See [docs/DEPS.md](docs/DEPS.md).
+- **Dependency handling** — reports outdated dependencies, and submits a dependency snapshot. A `github.com/wow-look-at-my/` dependency carries no version this repo records: gosmopolitan's `cmd/go` resolves it to the head of a branch, so the token on its go.mod line is a placeholder. A frozen one fails the run ([docs/ORG-PINS.md](docs/ORG-PINS.md)).
 - **Dependency graph submission** — submits a dependency snapshot to GitHub in CI, feeding the repo's dependency graph. No opt-out. A failed submission fails the build.
 - **Automatic GOMEMLIMIT** — the compiler's runtime caps every binary's Go heap at the container's cgroup limit instead of being OOM-killed. `GOMEMLIMIT=off` opts out at run time.
 - **Revision stamping** — declare `var gitHash string` in a main package and the build fills it, covering the container builds where Go's own `vcs.revision` finds no `.git`. A `-ldflags` set in `GOFLAGS` is honored rather than replaced. See [docs/VCS-STAMP.md](docs/VCS-STAMP.md).
@@ -28,7 +28,7 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 - **Coverage impact metrics** — each package, file and function shows how many percentage points it costs the total. So it is obvious what to test next.
 - **Colorized output** — coverage percentages on a red-to-green gradient.
 - **CI summary** — writes a GitHub Step Summary with test results, source links, coverage, benchmark deltas and a Gantt chart of the pipeline.
-- **One toolchain, one output shape** — every phase compiles with the gosmopolitan fork, and the only outputs are the fat APE and wasm. See [docs/MATRIX.md](docs/MATRIX.md).
+- **One toolchain, one output shape** — every phase compiles with the gosmopolitan fork. And the only outputs are the fat APE and wasm. See [docs/MATRIX.md](docs/MATRIX.md).
 - **The toolchain is built in** — the binary links the fork's go command, compiler, linker and standard library at one commit. Nothing is downloaded or extracted. See [docs/CI.md](docs/CI.md).
 - **Web-backed build cache** — the gosmopolitan fork's `cmd/go` shares a build cache across CI runs on its own. See [docs/CACHE.md](docs/CACHE.md).
 - **Build profile** — per-action timings: what the build spent its time on. See [docs/PROFILE.md](docs/PROFILE.md).
@@ -43,7 +43,7 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 
 ## GitHub Action Usage
 
-Use the composite action in any `wow-look-at-my` org repo. Secrets come from [secret-server](https://github.com/wow-look-at-my/actions/tree/secret-server) over OIDC, so nothing is passed in:
+Use the composite action in any `wow-look-at-my` org repo. Secrets come from [secret-server](https://github.com/wow-look-at-my/actions/tree/secret-server) over OIDC. So nothing is passed in:
 
 ```yaml
 permissions:
@@ -63,11 +63,11 @@ jobs:
       - uses: wow-look-at-my/go-toolchain@master
 ```
 
-The action fetches secrets, configures the Go proxy and private repo access, and wires up the web build cache. It then runs `go-toolchain matrix`, with a CodeQL `security-and-quality` analysis around the build. Every permission above is required, and the build fails without it — [docs/ACTION.md](docs/ACTION.md) says what each one is for.
+The action fetches secrets, configures the Go proxy and private repo access, and wires up the web build cache. It then runs `go-toolchain matrix`, with a CodeQL `security-and-quality` analysis around the build. Every permission above is required. And the build fails without it — [docs/ACTION.md](docs/ACTION.md) says what each one is for.
 
 **CodeQL** needs `security-events: write`. And the repo must have GitHub's *default* CodeQL setup disabled (*Settings → Code security → Code scanning → CodeQL → Default setup*). Opt out with `codeql: 'false'`.
 
-**APE binfmt.** On a Linux runner the action registers a `binfmt_misc` entry, so the kernel starts a fat APE through `/bin/sh`. That is what makes a bare exec of one work. A runner that will not allow it gets a warning and builds as before — see [docs/ACTION.md](docs/ACTION.md).
+**APE binfmt.** On a Linux runner the action registers a `binfmt_misc` entry. So the kernel starts a fat APE through `/bin/sh`. That is what makes a bare exec of one work. A runner that will not allow it gets a warning and builds as before — see [docs/ACTION.md](docs/ACTION.md).
 
 ### Inputs
 
@@ -107,10 +107,10 @@ go install github.com/wow-look-at-my/go-toolchain@latest
 # Run tests and build (default workflow)
 go-toolchain
 
-# One fat APE covering Linux x64, macOS ARM64 and Windows x64 (the default)
+# A single fat APE covering Linux x64, macOS ARM64 and Windows x64 (the default)
 go-toolchain matrix
 
-# Pick the platforms the one binary covers
+# Pick the platforms this binary covers
 go-toolchain matrix --cosmo-platforms linux/amd64,linux/arm64
 
 # WebAssembly builds (browser/Node.js and WASI) alongside the APE
@@ -144,7 +144,7 @@ go-toolchain version raw
 go-toolchain version json
 
 
-# Fail unless every named file is byte-identical to the first (CI's cross-host APE identity check)
+# Fail unless every named file is byte-identical to the earliest (CI's cross-host APE identity check)
 go-toolchain verify-identical linux=ape/linux/go-toolchain darwin=ape/darwin/go-toolchain
 
 # Create a GitHub release with checksums
@@ -200,7 +200,6 @@ Debug output goes to stderr and info to stdout. Warnings and errors become `::wa
 - [docs/WASM.md](docs/WASM.md) — the `wasm/js` and `wasm/wasip1` targets
 - [docs/CACHE.md](docs/CACHE.md) — build caching (now in gosmopolitan's cmd/go), and what this repo still checks
 - [docs/PROFILE.md](docs/PROFILE.md) — the per-action build profile
-- [docs/DEPS.md](docs/DEPS.md) — dependency updates and branch tracking
 - [docs/VET.md](docs/VET.md) — the custom vet analyzers
 - [docs/DATS-PHASE.md](docs/DATS-PHASE.md) — CLI test suites
 - [docs/VCS-STAMP.md](docs/VCS-STAMP.md) — the revision stamp, and the `GOFLAGS` `-ldflags` a build used to discard
