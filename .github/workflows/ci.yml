@@ -431,7 +431,6 @@ jobs:
         env:
           # Building a generator must not complete the module that provides it: that fetch wants the generator, which is what this step is making.
           GOGENERATEDEPS: "off"
-        env:
           GO_TOOLCHAIN_LINKED_GO: '1'
         run: |
           set -euo pipefail
