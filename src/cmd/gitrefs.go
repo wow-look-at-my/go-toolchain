@@ -10,7 +10,7 @@ import (
 )
 
 // Reading refs off a remote, and running git for its output. syncForkSource
-// asks a repository which branches it has, and it is the one caller left.
+// asks a repository which branches it has, and it is the a single caller left.
 
 // gitOutput runs a command and returns its stdout.
 func gitOutput(r runner.CommandRunner, name string, args ...string) ([]byte, error) {
@@ -59,8 +59,8 @@ func currentBranch(r runner.CommandRunner) string {
 // Backoff triggers on a git-level failure, not on an empty but reachable
 // ls-remote result. A question that asks for HEAD adds --symref, which also
 // reports the branch HEAD points at. Every ref is asked in the same question,
-// so one round trip answers both which branches exist and what the default is.
-// On total failure, the earliest error, from the full module path, is reported.
+// so a single round trip answers both which branches exist and what the default
+// is. On total failure, the earliest error, from the full module path, is reported.
 func resolveGitURLAndRef(r runner.CommandRunner, mod string, refs ...string) (gitURL string, output []byte, err error) {
 	parts := strings.Split(mod, "/")
 	var firstErr error

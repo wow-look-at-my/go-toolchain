@@ -8,18 +8,9 @@ import (
 	"strings"
 )
 
-// An org dependency has no version of its own. The go command resolves it to
-// the head of a branch: the branch this repository is on when the dependency has
-// one of that name, and the dependency's default branch otherwise. A version
-// file therefore records a placeholder, `vN.0.0` for the path's major, and a
-// submodule or an action step names a branch.
-//
-// A frozen version defeats that. It names one commit of another repository and
-// nothing moves it, so a consumer builds month-old code and reads the result as
-// current. The rule holds for every repository in the org, and every repository
-// in the org runs this pipeline, so this is where it is checked.
+// An org dependency has no version of its own.
 
-// orgPin is one place a file freezes an org dependency.
+// orgPin is a single place a file freezes an org dependency.
 type orgPin struct {
 	File string
 	Line int
@@ -95,8 +86,8 @@ func findOrgPins(root string) ([]orgPin, error) {
 	return pins, nil
 }
 
-// pinsInFile reports the pins in one file's text. A submodule section is read
-// as a whole, since the url and the branch sit on different lines.
+// pinsInFile reports the pins in a single file's text. A submodule section is
+// read as a whole, since the url and the branch sit on different lines.
 func pinsInFile(name, text string) []orgPin {
 	var pins []orgPin
 	lines := strings.Split(text, "\n")
@@ -120,7 +111,7 @@ func pinsInFile(name, text string) []orgPin {
 }
 
 // orgPrefixIn returns the org module prefix the line mentions, or "" for a line
-// that names no org path. OrgModulePrefixes is the one list of them.
+// that names no org path. OrgModulePrefixes is the a single list of them.
 func orgPrefixIn(text string) string {
 	// The owner segment alone, because an action step names the owner without the
 	// host and a git remote spells the host with a colon.
@@ -210,8 +201,8 @@ func pinnedActionRef(text string) (string, bool) {
 	return "", false
 }
 
-// pinnedVersion reports the first version token on the line that is not the
-// placeholder. A token is a version when it opens with v and a digit.
+// pinnedVersion reports the earliest version token on the line that is not
+// the placeholder. A token is a version when it opens with v and a digit.
 func pinnedVersion(text string) (string, bool) {
 	for _, word := range strings.Fields(text) {
 		word = strings.TrimSuffix(word, ",")
@@ -228,9 +219,6 @@ func looksLikeVersionToken(word string) bool {
 	return len(word) > 1 && word[0] == 'v' && word[1] >= '0' && word[1] <= '9'
 }
 
-// isOrgPlaceholder reports whether version is the token a version file records
-// for an org module: vN.0.0 for the path's major, and the `/go.mod` spelling
-// go.sum writes beside it.
 func isOrgPlaceholder(version string) bool {
 	version = strings.TrimSuffix(version, "/go.mod")
 	major, rest, ok := strings.Cut(strings.TrimPrefix(version, "v"), ".")
