@@ -2,7 +2,6 @@
 # build has its sandbox backend. The script's contract: every Linux run gets
 # either a usable bwrap or an error a caller can act on. Nothing here installs
 # anything; the sandbox grants no root and no apt.
->>>>>>> origin/master
 
 sandbox:
 	image: golang:1.25
