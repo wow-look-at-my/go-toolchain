@@ -9,9 +9,8 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// The git helpers forksource.go asks the fork's repository with. They lived in
-// the branch-tracking layer, which cmd/go now owns, so they moved here with the
-// one caller that still needs them.
+// The git helpers forksource.go asks the fork's repository with, kept here
+// after the branch-tracking layer that held them went away.
 
 // withGitStderr attaches what git said to a failure. WithQuiet() sends stderr
 // nowhere, so a bare exit status was the whole report.
@@ -52,10 +51,10 @@ func currentBranch(r runner.CommandRunner) string {
 	return ""
 }
 
-// resolveGitURLAndRef asks a module's repository about refs, walking the path
-// shorter until one answers. Asking for HEAD adds --symref, which also reports
-// the branch it points at. Every ref rides one question. On total failure the
-// EARLIEST error, naming the full module path, is the one reported.
+// resolveGitURLAndRef asks a module's repository about refs, shortening the
+// path until a repository answers. HEAD adds --symref, so the answer also names
+// the branch it points at, and every ref rides the same question. On total
+// failure the EARLIEST error, naming the full module path, is what it reports.
 func resolveGitURLAndRef(r runner.CommandRunner, mod string, refs ...string) (gitURL string, output []byte, err error) {
 	parts := strings.Split(mod, "/")
 	var firstErr error
