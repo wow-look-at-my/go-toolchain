@@ -354,7 +354,9 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x "$RUNNER_TEMP/generators/"* || true
-          "$RUNNER_TEMP/generators/stringer" --help 2>&1 | head -1
+          # No pipe into head: it closes early, stringer dies of SIGPIPE, and pipefail reads that as the generator being broken.
+          usage="$("$RUNNER_TEMP/generators/stringer" --help 2>&1 || true)"
+          printf '%s\n' "${usage%%$'\n'*}"
           echo "$RUNNER_TEMP/generators" >> "$GITHUB_PATH"
 
       # The go-toolchain action itself cache-uploads build/ under the per-job name `go-build-<job... see docs/CI.md
