@@ -202,21 +202,6 @@ jobs:
           name: generator-apes
           path: ${{ runner.temp }}/generators
 
-      # socketharness reproduces a coding agent's own tool-execution plumbing (a socketpair for a... see docs/CI.md
-      - name: Build socketharness
-        # A fixture of this workflow, not a shipped output, so the workflow itself reaches the linked go command the way a pipeline run does. see docs/CI.md
-        env:
-          GO_TOOLCHAIN_LINKED_GO: "1"
-        run: |
-          mkdir -p harness
-          go-toolchain go build -o harness/socketharness .github/dats-fixtures/socketharness.go
-
-      - name: Upload socketharness binaries
-        uses: wow-look-at-my/actions@cache-upload#latest
-        with:
-          name: socketharness-build
-          path: harness
-
   # The same build with no go-toolchain release involved: the fork's release runs the fork's make.bash, that go command builds the pipeline, and the pipeline builds itself; identical holds its APE to host-build's bytes. see docs/CI.md
   bootstrap-scratch:
     runs-on: ubuntu-latest
@@ -571,13 +556,6 @@ jobs:
         with:
           name: go-build-build.broot
           path: dist
-
-      # socketharness reproduces a coding agent's own tool-execution plumbing (a socketpair for a... see docs/CI.md
-      - name: Download socketharness hand-off
-        uses: wow-look-at-my/actions@cache-download#latest
-        with:
-          name: socketharness-build
-          path: harness
 
       # The smoke's nested pipeline is a CI run, and the fork refuses one with no build cache to write to. see docs/CI.md
       - uses: wow-look-at-my/actions@secret-server#latest
