@@ -115,7 +115,6 @@ var rootCmd = &cobra.Command{
 		// After cobra parses, so --help and a mistyped flag set up no toolchain.
 		if !skipToolchain(cmd) {
 			if err := EnsureGoVersion(); err != nil {
-				// Drop the previous run's binaries so a failed run cannot pass for a good run (see staleoutputs.go).
 				discardBuildOutputsFromCWD()
 				return fmt.Errorf("go bootstrap: %w", err)
 			}
@@ -352,7 +351,7 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 	quiet := jsonOutput
 
 	// Ahead of the unchanged-tree exit below: a tree that has not changed since
-	// the last green run can still be one that predates this rule.
+	// the last green run can still predate this rule.
 	if err := checkOrgPins(moduleRoot()); err != nil {
 		return err
 	}
