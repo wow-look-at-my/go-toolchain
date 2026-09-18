@@ -354,9 +354,18 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x "$RUNNER_TEMP/generators/"* || true
+<<<<<<< HEAD
           # head reads a file here: on a pipe it closes early, stringer dies of SIGPIPE, and pipefail reads that as a failed probe.
           "$RUNNER_TEMP/generators/stringer" --help > "$RUNNER_TEMP/stringer-probe.txt" 2>&1
           head -1 "$RUNNER_TEMP/stringer-probe.txt"
+=======
+          # Read it all, then print a line: a pipe into head kills the APE with SIGPIPE, which pipefail reads as a failure.
+          said="$("$RUNNER_TEMP/generators/stringer" --help 2>&1 || true)"
+          printf '%s\n' "$said" | head -1
+          # No pipe into head: it closes early, stringer dies of SIGPIPE, and pipefail reads that as the generator being broken.
+          usage="$("$RUNNER_TEMP/generators/stringer" --help 2>&1 || true)"
+          printf '%s\n' "${usage%%$'\n'*}"
+>>>>>>> origin/master
           echo "$RUNNER_TEMP/generators" >> "$GITHUB_PATH"
 
       # The go-toolchain action itself cache-uploads build/ under the per-job name `go-build-<job... see docs/CI.md
@@ -445,7 +454,9 @@ jobs:
               cp -- "$f" "$f.exe"
             done
           fi
-          ./stringer --help 2>&1 | head -1
+          # Read it all, then print a line: a pipe into head kills the APE with SIGPIPE, which pipefail reads as a failure.
+          said="$(./stringer --help 2>&1 || true)"
+          printf '%s\n' "$said" | head -1
           echo "$RUNNER_TEMP/generators" >> "$GITHUB_PATH"
 
       # A dependency's generate directives run $GOROOT/bin/go, and this GOROOT is the fork checkout, where only a host that ran make.bash has one. The APE is that go command, so it goes there under that name.

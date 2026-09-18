@@ -58,11 +58,21 @@ Registering is idempotent. An entry that is already present and enabled is left 
 
 ## 1b4. The sandbox backend
 
+<<<<<<< HEAD
 `.github/scripts/provision-bwrap.sh` runs on a Linux runner before the build. The dats phase sandboxes every suite command. Without bubblewrap it falls back to docker, which runs the suites in a container with no host Go for the bootstrap. `go mod tidy` confines a dependency's generate directives in bubblewrap too. It refuses such a directive outright when bwrap is missing.
 
 That tidy path belongs to every module. The script therefore runs for every module. A module with no `dats/` directory needs the backend as much as one with suites. A host where `bwrap` already builds a sandbox pays one probe. Otherwise the script installs bubblewrap with apt, turns off Ubuntu 24.04's `apparmor_restrict_unprivileged_userns`, and probes again. A host where the probe still fails fails the job here, with its own error. It never degrades to the docker fallback unnoticed. The step is skipped on macOS and Windows, which have other backends or none.
 
 A consumer therefore drops its own bubblewrap step. `dats/bwrap.dats` covers the contract.
+=======
+`.github/scripts/provision-bwrap.sh` runs on a Linux runner before the build. The dats phase sandboxes every suite command. Without bubblewrap it falls back to docker, which runs the suites in a container with no host Go for the bootstrap.
+
+The go command also confines a dependency's generate directive. It stops the build when it cannot. So a module needs `bwrap` for what its dependencies generate, whether or not it has suites of its own.
+
+The script therefore provisions on every Linux run. A module's own tree says nothing about what its dependencies generate. The resolution that answers this runs after the step. A host where `bwrap` already builds a sandbox pays one probe. Otherwise the script installs bubblewrap with apt, turns off Ubuntu 24.04's `apparmor_restrict_unprivileged_userns`, and probes again. A host where the probe still fails fails the job here, with its own error. It never degrades unnoticed. The step is skipped on macOS and Windows, which have other backends or none.
+
+A consumer therefore drops its own bubblewrap step. `dats/bwrap.dats` covers the contract: a usable backend, or an error a caller can act on.
+>>>>>>> origin/master
 
 ## 1c. Installing the binary
 
