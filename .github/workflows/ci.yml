@@ -5,8 +5,9 @@ on:
     branches:
       - '**'
 
+# A master run publishes, so each commit there gets its own group and runs to completion.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/master' && github.sha || 'branch' }}
   cancel-in-progress: true
 
 permissions:
