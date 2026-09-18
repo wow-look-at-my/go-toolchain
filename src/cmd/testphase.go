@@ -32,6 +32,10 @@ var vetRunFunc = vet.RunWithProgress
 // and the matrix command.
 // Returns (filesChanged, testResult, error) where filesChanged indicates if vet applied any fixes.
 func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.TestResult, error) {
+	if err := checkOrgPins(moduleRoot()); err != nil {
+		return false, nil, err
+	}
+
 	// Handle vanity-URL modules: inject replace directives for unreachable hosts
 	vanity, vanityErr := injectVanityReplaces()
 	if vanityErr != nil {

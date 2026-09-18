@@ -351,6 +351,12 @@ func runWithRunner(r runner.CommandRunner, sd *summary.SummaryData) error {
 func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.SummaryData) error {
 	quiet := jsonOutput
 
+	// Ahead of the unchanged-tree exit below: a tree that has not changed since
+	// the last green run can still be one that predates this rule.
+	if err := checkOrgPins(moduleRoot()); err != nil {
+		return err
+	}
+
 	// Check for dep updates before tests so we don't run the full
 	// test suite again when a dependency is outdated.
 	if !quiet && !isRetry {
