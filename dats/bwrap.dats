@@ -1,10 +1,3 @@
-<<<<<<< HEAD
-# Tests for .github/scripts/provision-bwrap.sh, the step action.yml runs so
-# tidy and the dats phase have their sandbox backend. The script's contract:
-# every module gets either a usable bwrap or an error a caller can act on,
-# whether or not it has suites. Nothing here installs anything; the sandbox
-# grants no root and no apt.
-=======
 # Tests for .github/scripts/provision-bwrap.sh, the step action.yml runs so the
 # build has its sandbox backend. The script's contract: every Linux run gets
 # either a usable bwrap or an error a caller can act on. Nothing here installs
@@ -15,16 +8,6 @@ sandbox:
 	image: golang:1.25
 
 tests:
-<<<<<<< HEAD
-	# The run happens in a directory with no dats/ suites. Tidy needs the
-	# backend there. A script that skips that case fails this test.
-	- desc: a module with no dats directory still gets an answer a caller can act on
-	  cmd: |
-		set -u
-		root="$PWD"
-		dir="$(mktemp -d)"
-		out="$(cd "$dir" && bash "$root/.github/scripts/provision-bwrap.sh" 2>&1)"
-=======
 	# A module's own tree says nothing about what its dependencies generate, and
 	# the go command confines each of those directives.
 	- desc: a module with no dats directory still gets a backend
@@ -51,7 +34,6 @@ tests:
 	  cmd: |
 		set -u
 		out="$(bash .github/scripts/provision-bwrap.sh 2>&1)"
->>>>>>> origin/master
 		status=$?
 		echo "$out"
 		case "$status:$out" in

@@ -92,11 +92,7 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
       run: bash "$ACTION_PATH/.github/scripts/register-ape-binfmt.sh"
 
-<<<<<<< HEAD
-    # Tidy and the dats phase both need a sandbox backend. see docs/ACTION.md
-=======
     # A dependency's generate directive and the dats phase both run confined. see docs/ACTION.md
->>>>>>> origin/master
     - name: Provision the sandbox backend (bubblewrap)
       if: runner.os == 'Linux'
       shell: bash
