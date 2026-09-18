@@ -251,12 +251,10 @@ func embeddedFiles(r runner.CommandRunner) ([]string, error) {
 	return embeds, nil
 }
 
-// inputsUnchanged reports whether every input the pipeline reads still matches
-// the last run that went green. It says nothing about the outputs.
-//
-// Vet and the tests answer a question about the INPUTS, so their verdict still
-// stands whenever this holds. A caller that has lost its outputs has to build
-// again, and does not have to ask that question again.
+// inputsUnchanged reports whether every input still matches the last green run,
+// and says nothing about the outputs. Vet and the tests judge the INPUTS, so
+// their verdict stands while this holds: a caller missing outputs rebuilds
+// without re-asking it.
 func inputsUnchanged(r runner.CommandRunner) bool {
 	stored, err := os.ReadFile(fingerprintFile())
 	if err != nil {

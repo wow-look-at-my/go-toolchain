@@ -44,9 +44,8 @@ func RunLinkedGo(argv []string) (int, bool) {
 	return gocmd.RunAs(goArgs, selfGoCommand(exe)), true
 }
 
-// selfGoCommand is the command line the go command starts itself again
-// under: exe alone when exe is the go link, since that name is the go
-// command, and exe under its go subcommand otherwise.
+// selfGoCommand is how the go command starts itself again: exe alone when that
+// name is already the go link, and exe under its go subcommand otherwise.
 func selfGoCommand(exe string) []string {
 	if isGoName(exe) {
 		return []string{exe}
@@ -54,9 +53,8 @@ func selfGoCommand(exe string) []string {
 	return []string{exe, "go"}
 }
 
-// isGoName reports that path names a program called go, under either
-// separator: this binary is a single program on every host, and its
-// own filepath knows only the slash.
+// isGoName reports that path names a program called go, under either separator:
+// this binary runs on every host, and its own filepath knows only the slash.
 func isGoName(path string) bool {
 	base := path[strings.LastIndexAny(path, `/\`)+1:]
 	return strings.TrimSuffix(base, ".exe") == "go"

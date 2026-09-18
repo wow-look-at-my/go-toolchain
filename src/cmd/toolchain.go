@@ -13,17 +13,13 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// activeGoCmd starts the go command this pipeline builds with: this
-// executable, under its go subcommand.
+// activeGoCmd starts the go command this pipeline builds with.
 var activeGoCmd []string
 
-// activeGoroot is the GOROOT every go command of this run reads: the fork
-// checkout in this module, and this executable, which carries the standard
-// library, anywhere else.
+// activeGoroot is the GOROOT every go command of this run reads.
 var activeGoroot string
 
-// goLinkDir holds the go link that puts this executable on PATH, for a child
-// process that starts go by name.
+// goLinkDir holds the go link that puts this executable on PATH.
 var goLinkDir string
 
 // selfExecutableFunc is os.Executable, as a seam.
