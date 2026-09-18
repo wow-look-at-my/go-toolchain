@@ -13,10 +13,10 @@ import (
 
 // resolveGitURLAndRef finds the repository a module path lives in and asks it
 // about refs. A module path can carry a subdirectory, so each shorter prefix is
-// tried until one answers. The output is the raw ls-remote answer, which names
-// each ref's commit and the branch a symbolic HEAD points at. Every ref is
-// asked in the same question, so a caller pays for one round trip. On total
-// failure, the EARLIEST error (the full module path) is reported.
+// tried until a single answers. The output is the raw ls-remote answer, which
+// names each ref's commit and the branch a symbolic HEAD points at. Every ref
+// is asked in the same question, so a caller pays for a single round trip. On
+// total failure, the EARLIEST error (the full module path) is reported.
 func resolveGitURLAndRef(r runner.CommandRunner, mod string, refs ...string) (gitURL string, output []byte, err error) {
 	parts := strings.Split(mod, "/")
 	var firstErr error
