@@ -156,6 +156,7 @@ func TestADirectiveWithNoGeneratorInTheModuleIsDropped(t *testing.T) {
 	assert.Len(t, pendingDepDirectives([]generateDirective{absent}), 1, "a runnable directive stays pending")
 
 	assert.Empty(t, missingGenerator(at("stringer -type=Kind")), "only a go run command names its sources")
+	assert.Empty(t, missingGenerator(at("go run equal_fold_asm.go -stubs never_written.go")), "a name after a flag is an output, not a source")
 }
 
 // A run is grouped per module, because the clone is per repository.

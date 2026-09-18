@@ -308,6 +308,11 @@ func missingGenerator(d generateDirective) string {
 	}
 	dir := filepath.Dir(d.File)
 	for _, a := range args[2:] {
+		// The operands end at the program's own first flag, and a .go name
+		// after that is an output the program writes, such as -stubs.
+		if strings.HasPrefix(a, "-") {
+			break
+		}
 		if !strings.HasSuffix(a, ".go") {
 			continue
 		}
