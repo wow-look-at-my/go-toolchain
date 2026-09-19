@@ -5,7 +5,6 @@ go 1.27
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/go-git/go-git/v5 v5.19.2
-	github.com/mattn/go-isatty v0.0.24
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
@@ -13,7 +12,6 @@ require (
 	github.com/wow-look-at-my/ansi-writer v0.0.0
 	github.com/wow-look-at-my/dats v0.0.0
 	github.com/wow-look-at-my/go-containers v0.0.0
-	github.com/wow-look-at-my/is-this-an-agent v0.0.0
 	github.com/wow-look-at-my/slopfix v0.0.0 // go-toolchain:generate=c6095713f6ed
 	golang.org/x/mod v0.41.0
 	golang.org/x/sys v0.48.0
@@ -40,6 +38,7 @@ require (
 	github.com/klauspost/compress v1.20.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
+	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/pjbgf/sha1cd v0.6.0 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
