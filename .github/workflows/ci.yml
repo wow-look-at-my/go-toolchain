@@ -575,7 +575,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
-      contents: write
+      contents: read
       actions: write
       deployments: write
       artifact-metadata: write
@@ -592,22 +592,6 @@ jobs:
       - uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
         with:
           path: build
-
-      # Consumers pin @lkgb, so the tag IS the release channel for the action tree; reaching this job is what "known good" means, since identical and smoke gate it.
-      - name: Move lkgb to this commit
-        if: github.ref == 'refs/heads/master'
-        uses: wow-look-at-my/actions@typescript#latest
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const ref = "tags/lkgb";
-            try {
-              await octokit.rest.git.updateRef({ owner, repo, ref, sha: context.sha, force: true });
-            } catch (e: unknown) {
-              if ((e as { status?: number }).status !== 422) throw e;
-              await octokit.rest.git.createRef({ owner, repo, ref: `refs/${ref}`, sha: context.sha });
-            }
-            core.info(`lkgb -> ${context.sha}`);
 
       - uses: wow-look-at-my/actions@cache-cleanup#latest
         if: always()

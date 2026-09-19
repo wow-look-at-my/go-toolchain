@@ -89,20 +89,3 @@ func currentBranch(r runner.CommandRunner) string {
 	return ""
 }
 
-// gitOutput runs a command and returns its stdout. A failure carries the
-// command's stderr, which a bare exit status leaves nowhere.
-func gitOutput(r runner.CommandRunner, name string, args ...string) ([]byte, error) {
-	proc, err := runner.Cmd(name, args...).WithQuiet().Run(r)
-	if err != nil {
-		return nil, err
-	}
-	out, _ := io.ReadAll(proc.Stdout())
-	stderr, _ := io.ReadAll(proc.Stderr())
-	if waitErr := proc.Wait(); waitErr != nil {
-		if msg := strings.TrimSpace(string(stderr)); msg != "" {
-			return nil, fmt.Errorf("%w: %s", waitErr, msg)
-		}
-		return nil, waitErr
-	}
-	return out, nil
-}
