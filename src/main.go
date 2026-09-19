@@ -17,9 +17,7 @@ func init() {
 		if cmd.PipelineStartedGo() {
 			return
 		}
-		// One started by hand has nobody to inherit from. It gets the proxy
-		// the pipeline uses, and it fetches no other toolchain: this
-		// executable is the only one, so a stock Go must not answer instead.
+		// A single started by hand has nobody to inherit from.
 		os.Setenv("GOTOOLCHAIN", "local")
 		configureGoEnv()
 		return

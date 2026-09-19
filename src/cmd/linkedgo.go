@@ -11,11 +11,7 @@ import (
 // for a single at all: a program named go is the go command, "go-toolchain go
 // ..." is the go command, and "go-toolchain tool <name> ..." is a linked
 // build tool. Anything else is the pipeline.
-//
-// The two argv forms name the go command outright, so they hold whoever
-// starts them. Only the program NAME needs the marker: a host carries its own
-// go, and this binary answers as the go command for the link the pipeline
-// put on PATH, never for that one.
+// Only the NAME needs the marker: a host carries its own go too.
 func LinkedGoArgs(argv []string) ([]string, bool) {
 	if len(argv) == 0 {
 		return nil, false
@@ -32,8 +28,7 @@ func LinkedGoArgs(argv []string) ([]string, bool) {
 	return nil, false
 }
 
-// PipelineStartedGo reports that the pipeline started this process. Such a
-// process takes the environment as it is: the pipeline configured it.
+// PipelineStartedGo reports that the pipeline started this process.
 func PipelineStartedGo() bool { return os.Getenv(linkedGoEnv) != "" }
 
 // linkedGoEnv marks a process the pipeline started.
