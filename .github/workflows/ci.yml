@@ -31,6 +31,10 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
+      # make.bash and the generator install read the fork checkout, so it follows the branch before either runs rather than staying on the gitlink.
+      - name: Put the fork on its branch
+        run: bash .github/scripts/checkout-fork-branch.sh
+
       - uses: wow-look-at-my/actions@secret-server#latest
 
       # The last release a green master run published is the bootstrap, as it is for every consumer; a release without the linked go command hands the job to the from-scratch steps below. see docs/CI.md
@@ -88,9 +92,6 @@ jobs:
 
       # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
       - name: Install the generators
-        env:
-          # Building a generator must not complete the module that provides it: that fetch wants the generator, which is what this step is making.
-          GOGENERATEDEPS: "off"
         run: |
           set -euo pipefail
           if [ "${{ steps.release.outputs.linked }}" = "true" ]; then
@@ -213,6 +214,10 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
+      # make.bash reads the fork checkout, so it follows the branch before that runs rather than staying on the gitlink.
+      - name: Put the fork on its branch
+        run: bash .github/scripts/checkout-fork-branch.sh
+
       - uses: wow-look-at-my/actions@secret-server#latest
 
       - name: Install the fork's release as the bootstrap compiler
@@ -247,9 +252,6 @@ jobs:
 
       # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
       - name: Install the generators
-        env:
-          # Building a generator must not complete the module that provides it: that fetch wants the generator, which is what this step is making.
-          GOGENERATEDEPS: "off"
         run: |
           set -euo pipefail
           go="$PWD/_gosmopolitan/bin/go"
