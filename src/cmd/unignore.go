@@ -31,7 +31,7 @@ func unignorePreRun(cmd *cobra.Command, args []string) error {
 
 // confirmUnignore prompts for interactive confirmation on stdin. Split from
 // unignorePreRun so tests can exercise the prompt without triggering the
-// root hook's side effects (output guard, cacheprog).
+// root hook's side effects (cacheprog).
 func confirmUnignore() error {
 	// Prompt awaits input mid-line (no trailing newline), so it bypasses the logger via rawStdout.
 	fmt.Fprint(rawStdout, "Remove exemption — are you sure? [y/N] ")
