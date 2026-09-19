@@ -33,7 +33,7 @@ jobs:
 
       # make.bash and the generator install read the fork checkout, so it follows the branch before either runs rather than staying on the gitlink.
       - name: Put the fork on its branch
-        run: bash .github/scripts/checkout-fork-branch.sh
+        run: bash .github/scripts/checkout-fork-branch.sh "$GITHUB_REF_NAME"
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
@@ -216,7 +216,7 @@ jobs:
 
       # make.bash reads the fork checkout, so it follows the branch before that runs rather than staying on the gitlink.
       - name: Put the fork on its branch
-        run: bash .github/scripts/checkout-fork-branch.sh
+        run: bash .github/scripts/checkout-fork-branch.sh "$GITHUB_REF_NAME"
 
       - uses: wow-look-at-my/actions@secret-server#latest
 

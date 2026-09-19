@@ -1,30 +1,43 @@
 #!/usr/bin/env bash
-# Put _gosmopolitan on the fork branch named like this one, or on the fork's
-# default branch. This is what syncForkSource does mid-build (src/cmd/forksource.go),
-# done here because make.bash and the generator install read the checkout first.
-# The gitlink only decides where a fresh clone starts.
+# Put each org submodule on its branch head, as gosmopolitan's own
+# src/submodulebranch.bash does: name the branch for git, then let
+# `git submodule update --remote` read it. make.bash and the generator
+# install read the checkout, so this runs before either.
+# CI passes the branch in, because a checkout there is detached.
 set -euo pipefail
 
-remote=https://github.com/wow-look-at-my/gosmopolitan
-branch="${GITHUB_REF_NAME:-}"
+cd "$(dirname "$0")/../.."
+[[ -f .gitmodules ]] || exit 0
 
-want=""
-if [ -n "$branch" ]; then
-	want="$(git ls-remote "$remote" "refs/heads/$branch" | awk '{print $1}')"
-	if [ -n "$want" ]; then
-		echo "gosmopolitan: following the branch named like this checkout, $branch, at $want"
+here=${1:-}
+if [[ -z "$here" ]]; then
+	here=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
+	[[ "$here" == HEAD ]] && here=""
+fi
+
+while read -r key _; do
+	name=${key#submodule.}
+	name=${name%.path}
+
+	path=$(git config -f .gitmodules --get "submodule.$name.path")
+	url=$(git config -f .gitmodules --get "submodule.$name.url")
+	case "$url" in
+	*/github.com/wow-look-at-my/*) ;;
+	*) continue ;;
+	esac
+
+	# `.` means "the branch named like this one", which git resolves but
+	# cannot fall back from. master is that fallback.
+	branch=$(git config -f .gitmodules --get "submodule.$name.branch" || true)
+	[[ "$branch" == "." || -z "$branch" ]] && branch=master
+	if [[ -n "$here" ]] && git ls-remote --exit-code --heads "$url" "refs/heads/$here" >/dev/null 2>&1; then
+		branch=$here
 	fi
-fi
-if [ -z "$want" ]; then
-	want="$(git ls-remote "$remote" HEAD | awk '{print $1}')"
-	echo "gosmopolitan: no branch named $branch there; following the default branch at $want"
-fi
-if [ -z "$want" ]; then
-	echo "::error::$remote answered no commit for refs/heads/$branch or HEAD"
-	exit 1
-fi
 
-git -C _gosmopolitan fetch --quiet --depth 1 origin "$want"
-git -C _gosmopolitan checkout --quiet --detach "$want"
-git -C _gosmopolitan submodule update --init --recursive
-git -C _gosmopolitan rev-parse HEAD
+	git config "submodule.$name.branch" "$branch"
+	if git submodule update --init --remote -- "$path"; then
+		echo "fork: $path at $branch $(git -C "$path" rev-parse --short=12 HEAD)" >&2
+	else
+		echo "fork: $path stays where it is: cannot reach $url" >&2
+	fi
+done < <(git config -f .gitmodules --get-regexp '^submodule\..*\.path$' || true)
