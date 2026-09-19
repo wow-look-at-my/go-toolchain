@@ -9,21 +9,8 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// The git helpers forksource.go runs the fork submodule with. They lived in
-// depsfix.go and depsmatch.go, which the branch-tracking layer took with it.
-// The submodule sync outlived that layer, so they live here now.
-
-// withGitStderr attaches what git said to a failure. WithQuiet() sends stderr
-// nowhere, so a bare exit status was the whole report.
-func withGitStderr(err error, stderr []byte) error {
-	if err == nil {
-		return nil
-	}
-	if msg := strings.TrimSpace(string(stderr)); msg != "" {
-		return fmt.Errorf("%w: %s", err, msg)
-	}
-	return err
-}
+// Reading refs off a remote, and running git for its output. syncForkSource
+// asks a repository which branches it has. No other caller is left.
 
 // gitOutput runs a command and returns its stdout.
 func gitOutput(r runner.CommandRunner, name string, args ...string) ([]byte, error) {
@@ -39,6 +26,18 @@ func gitOutput(r runner.CommandRunner, name string, args ...string) ([]byte, err
 	return out, nil
 }
 
+// withGitStderr attaches what git said to a failure. WithQuiet() sends stderr
+// nowhere, so a bare exit status was the whole report.
+func withGitStderr(err error, stderr []byte) error {
+	if err == nil {
+		return nil
+	}
+	if msg := strings.TrimSpace(string(stderr)); msg != "" {
+		return fmt.Errorf("%w: %s", err, msg)
+	}
+	return err
+}
+
 // currentBranch is the branch this repository is on, empty when there is none:
 // a detached HEAD, or no repository at all.
 func currentBranch(r runner.CommandRunner) string {
@@ -52,14 +51,16 @@ func currentBranch(r runner.CommandRunner) string {
 	return ""
 }
 
-// resolveGitURLAndRef asks a module's repository for refs and returns the URL
-// that answered with its output, in a single pass. It tries the full module
-// path as the git URL, then backs off a path segment at a time, which handles
-// a module in a subdirectory of its repository for any host with no hardcoded
-// table. Backoff triggers only on a git-level failure, not on an empty but
-// reachable ls-remote result. Asking for HEAD adds --symref, which also
-// reports the branch it points at. On total failure the earliest error, from
-// the full module path, is reported.
+// resolveGitURLAndRef discovers mod's git repository and the refs' ls-remote
+// output in a single pass. It tries the full module path as the git URL, then
+// backs off a path segment at a time. This handles a module in a subdirectory
+// of its repository, for any host, with no hardcoded table.
+//
+// Backoff triggers on a git-level failure, not on an empty but reachable
+// ls-remote result. A question that asks for HEAD adds --symref, which also
+// reports the branch HEAD points at. Every ref is asked in the same question,
+// so a single round trip answers both which branches exist and what the default
+// is. On total failure, the earliest error, from the full module path, is reported.
 func resolveGitURLAndRef(r runner.CommandRunner, mod string, refs ...string) (gitURL string, output []byte, err error) {
 	parts := strings.Split(mod, "/")
 	var firstErr error
@@ -90,8 +91,8 @@ func resolveGitURLAndRef(r runner.CommandRunner, mod string, refs ...string) (gi
 	return "", nil, firstErr
 }
 
-// parseLsRemoteRefs reads an answer covering several refs: each ref's commit
-// by its full name, and the branch a symbolic HEAD resolves to.
+// parseLsRemoteRefs reads an answer covering several refs: each ref's commit by
+// its full name, and the branch a symbolic HEAD resolves to.
 func parseLsRemoteRefs(out []byte) (refs map[string]string, branch string) {
 	refs = map[string]string{}
 	branch = eachLsRemoteRef(out, func(h, ref string) { refs[ref] = h })

@@ -9,8 +9,7 @@ import (
 	"golang.org/x/mod/modfile"
 )
 
-// generateMarker records the approved hash of a module's go:generate
-// directives, on its require line or its module line.
+// generateMarker records the approved go:generate hash of a module.
 const generateMarker = "go-toolchain:generate="
 
 // parseGenerateMarker reads the approved generate hash off a go.mod line, or ""
