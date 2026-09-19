@@ -103,6 +103,8 @@ jobs:
           fi
           # No GOOS, GOARCH or GOBIN: this go is an APE targeting cosmo, which is what it embeds, and cmd/go reads a cosmo build as a cross-compile because the host it RUNS on is not cosmo. A cross-compile refuses GOBIN and lands in a per-target subdirectory of GOPATH/bin.
           genbin="$("$go" env GOPATH)/bin/$("$go" env GOOS)_$("$go" env GOARCH)"
+          # GITHUB_PATH reaches the NEXT step, and stringer is wanted by this one: golang.org/x/text names it in a directive the fetch runs, so it has to be found the iteration after it is built.
+          export PATH="$genbin:$PATH"
           for pkg in \
             golang.org/x/tools/cmd/stringer@v0.49.0 \
             golang.org/x/tools/cmd/goyacc@v0.49.0 \
@@ -257,6 +259,8 @@ jobs:
           go="$PWD/_gosmopolitan/bin/go"
           # No GOOS, GOARCH or GOBIN: the fork targets cosmo, so each generator comes out an APE every host runs, and cmd/go reads that as a cross-compile, which refuses GOBIN and lands in a per-target subdirectory of GOPATH/bin.
           genbin="$("$go" env GOPATH)/bin/$("$go" env GOOS)_$("$go" env GOARCH)"
+          # GITHUB_PATH reaches the NEXT step, and stringer is wanted by this one: golang.org/x/text names it in a directive the fetch runs, so it has to be found the iteration after it is built.
+          export PATH="$genbin:$PATH"
           for pkg in \
             golang.org/x/tools/cmd/stringer@v0.49.0 \
             golang.org/x/tools/cmd/goyacc@v0.49.0 \
