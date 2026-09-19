@@ -32,6 +32,10 @@ var vetRunFunc = vet.RunWithProgress
 // and the matrix command.
 // Returns (filesChanged, testResult, error) where filesChanged indicates if vet applied any fixes.
 func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.TestResult, error) {
+	if err := checkOrgPins(moduleRoot()); err != nil {
+		return false, nil, err
+	}
+
 	// Handle vanity-URL modules: inject replace directives for unreachable hosts
 	vanity, vanityErr := injectVanityReplaces()
 	if vanityErr != nil {
@@ -58,7 +62,6 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			genStep.noteOutput() // generate always prints directives
 			genStep.done()
 		}
-		// Run tidy again after generate in case new imports were added
 		var tidyStep2 *step
 		if !quiet {
 			tidyStep2 = logStep("go mod tidy (post-generate)")
@@ -78,6 +81,8 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			tidyStep2.done()
 		}
 	}
+
+	waitForCommentScan()
 
 	var vetStep *step
 	if !quiet {
