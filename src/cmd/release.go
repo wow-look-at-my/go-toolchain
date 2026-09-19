@@ -137,7 +137,7 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor, noCosign bool) error
 	// Optional: run the matrix build before releasing
 	if releaseBuild {
 		r := runner.New()
-		if err := runReleaseWithRunner(r); err != nil {
+		if err := runMatrixModules(r); err != nil {
 			return fmt.Errorf("build failed: %w", err)
 		}
 	}
