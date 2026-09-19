@@ -15,9 +15,8 @@ import (
 const corruptIndexMarker = "corrupt index"
 
 // missingGeneratorMarker is cmd/go's error for a generate directive whose
-// program is absent. The full line reads:
-//
-//	cmd/x/y.go:7: running "stringer": exec: "stringer": executable file not found in $PATH
+// program is absent. The line names that program between quotes, after the
+// word running.
 const missingGeneratorMarker = `: executable file not found in $PATH`
 
 // missingGeneratorTool reads the program name out of that line, or answers ""
@@ -96,10 +95,10 @@ func runModTidy(r runner.CommandRunner, quiet bool) error {
 
 	stderrTail, err := tidyOnce()
 	// A tidy that completes a dependency runs that dependency's generate
-	// directives, and it stops at the first generator the host does not have.
-	// Installing the pinned one and asking again is the whole repair. Each
-	// round has to name a generator this loop has not built yet, so a tool
-	// that fails to appear on PATH ends the loop rather than repeating it.
+	// directives, and it stops at the earliest generator the host does not
+	// have. Installing the pinned package and asking again is the whole
+	// repair. Each round has to name a generator this loop has not built yet,
+	// so a tool that fails to appear on PATH ends the loop rather than repeating it.
 	built := set.New[string]()
 	for err != nil {
 		tool := missingGeneratorTool(stderrTail)
@@ -107,7 +106,7 @@ func runModTidy(r runner.CommandRunner, quiet bool) error {
 			break
 		}
 		built.Add(tool)
-		logger.Warn("go mod tidy needs the generator %q to complete a dependency; installing the pinned one and retrying", tool)
+		logger.Warn("go mod tidy needs the generator %q to complete a dependency; installing the pinned package and retrying", tool)
 		if instErr := installGeneratorNamed(r, tool); instErr != nil {
 			return instErr
 		}

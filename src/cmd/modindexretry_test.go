@@ -107,8 +107,8 @@ func TestMissingGeneratorToolReadsTheProgramName(t *testing.T) {
 	require.Empty(t, missingGeneratorTool("exec: \"cc\": executable file not found in $PATH\n"))
 }
 
-// A tidy that stops on an absent generator installs the pinned one and asks
-// again, because the dependency owes committed output either way.
+// A tidy that stops on an absent generator installs the pinned package and
+// asks again, because the dependency owes committed output either way.
 func TestRunModTidyInstallsAMissingGenerator(t *testing.T) {
 	t.Serial()
 	t.Setenv("GODEBUG", "")
