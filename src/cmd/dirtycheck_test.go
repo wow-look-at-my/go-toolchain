@@ -66,7 +66,7 @@ func TestCheckDirtyInCISkipsOutsideCI(t *testing.T) {
 
 // The fork gitlink moves on every run that follows a moved fork, so the CI
 // dirty gate has to let it past. Everything else on the line stays caught:
-// this is one path, not a general amnesty for submodules.
+// this is a single path, not a general amnesty for submodules.
 func TestDropForkGitlink(t *testing.T) {
 	t.Serial()
 	assert.Empty(t, dropForkGitlink(" M _gosmopolitan"), "the fork gitlink alone leaves a clean tree")

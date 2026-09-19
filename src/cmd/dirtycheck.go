@@ -33,10 +33,10 @@ func checkDirtyInCI() error {
 }
 
 // dropForkGitlink removes the fork submodule's own status line. syncForkSource
-// puts the checkout on the fork branch named like this one, or on its default
+// puts the checkout on the fork branch named like this, or on its default
 // branch, so the gitlink moves whenever the fork does. That is the build
 // following the fork, never an uncommitted change, and the recorded commit is
-// only a starting point for the first clone. Every other dirty path survives.
+// only a starting point for the earliest clone. Every other dirty path survives.
 func dropForkGitlink(files string) string {
 	var kept []string
 	for line := range strings.SplitSeq(files, "\n") {
