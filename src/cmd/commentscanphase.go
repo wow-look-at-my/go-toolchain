@@ -1,44 +1,21 @@
 package cmd
 
 import (
-	"io/fs"
-	"os"
-	"path/filepath"
-	"strings"
+	"time"
 
-	"github.com/wow-look-at-my/go-containers/set"
-	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/slopfix/commentfix"
 )
 
-// commentScanSkipDirs hold text nobody here authored.
-var commentScanSkipDirs = set.Of("vendor", "node_modules", "testdata")
-
-// commentScanMaxFileBytes is where a file stops being prose and becomes a blob.
-const commentScanMaxFileBytes = 1 << 20
-
-// runCommentScanPhase REPAIRS every number stated in a comment, anywhere in the
-// tree, ahead of any compiler, and reports a sentence the repair had to cut.
-// Depth: docs/COMMENT-SCAN.md
-func runCommentScanPhase(root string) {
-	st := logStep("comment scan")
-	repaired := 0
-	for _, path := range commentScanFiles(root) {
-		src, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		if repairCommentNumbers(path, string(src)) {
-			repaired++
-		}
-	}
-	if repaired > 0 {
-		st.noteOutput()
-	}
-	st.done()
+// commentScan is the comment repair, running beside phases that do not
+// read it. Depth: docs/COMMENT-SCAN.md
+type commentScan struct {
+	done   chan struct{}
+	result commentfix.TreeResult
+	took   time.Duration
 }
 
+<<<<<<< HEAD
 // repairCommentNumbers rewrites a single file's comments in place and reports
 // whether it changed. A cut sentence is named, because the repair threw prose
 // away and the author is the only a single who can put the meaning back.
@@ -78,10 +55,38 @@ func commentNumberFindings(path, src string) []commentfix.Hit {
 		}
 		seen.Add(hit.Line)
 		out = append(out, hit)
-	}
-	return out
+=======
+// activeCommentScan is the sweep this run started, if it reached a module.
+var activeCommentScan *commentScan
+
+// startCommentScan sweeps root on a goroutine and answers a handle. The
+// caller must have found a go.mod: a repair is a write. The sweep is safe
+// beside tidy and generate, but NOT beside vet.
+func startCommentScan(root string) *commentScan {
+	scan := &commentScan{done: make(chan struct{})}
+	start := time.Now()
+	go func() {
+		defer close(scan.done)
+		scan.result = commentfix.FixTree(root)
+		scan.took = time.Since(start)
+	}()
+	return scan
 }
 
+// waitForCommentScan joins the sweep this run started and reports what it did.
+// With no sweep running it returns straight away.
+func waitForCommentScan() {
+	scan := activeCommentScan
+	activeCommentScan = nil
+	if scan == nil {
+		return
+>>>>>>> origin/claude/module-path-comment
+	}
+	<-scan.done
+	scan.report()
+}
+
+<<<<<<< HEAD
 // commentScanFiles returns every file under root the rule reads.
 func commentScanFiles(root string) []string {
 	// Where the root is not a module, the modules below it are the whole tree.
@@ -122,4 +127,28 @@ func commentScanSkipDir(root, path, name string, rootIsModule bool) bool {
 		return true
 	}
 	return rootIsModule && gomod.IsNestedModule(path)
+=======
+// report prints what the sweep did after the fact. The phase ran beside other
+// output and cannot narrate itself while it works.
+func (c *commentScan) report() {
+	result := c.result
+	if len(result.Repaired) > 0 {
+		logger.Output("⇒ comment scan: repaired %d of %d files %s",
+			len(result.Repaired), result.Read, fmtDuration(c.took))
+	}
+	// A cut sentence is gone from the tree, so this is the only record of it.
+	for _, removal := range result.Removed {
+		logger.Output("   %s: the comment repair cut %q", removal.Path, removal.Text)
+	}
+	// slopfix repairs every finding it reports, so this loop is a guard: a
+	// warning here says the rule and its repair have come apart.
+	for _, finding := range result.Findings {
+		logger.WarnFile(finding.Path, "%s:%d:%d: %q is a number in a comment: %s",
+			finding.Path, finding.Line, finding.Col, finding.Number, commentfix.Remedy)
+	}
+	if tl := GetTimeline(); tl != nil {
+		end := time.Now()
+		tl.Record("comment scan", "comment-scan", end.Add(-c.took), end, false)
+	}
+>>>>>>> origin/claude/module-path-comment
 }
