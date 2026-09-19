@@ -15,47 +15,6 @@ type commentScan struct {
 	took   time.Duration
 }
 
-<<<<<<< HEAD
-// repairCommentNumbers rewrites a single file's comments in place and reports
-// whether it changed. A cut sentence is named, because the repair threw prose
-// away and the author is the only a single who can put the meaning back.
-func repairCommentNumbers(path, src string) bool {
-	fixed := commentfix.Fix(path, src)
-	if !fixed.Changed {
-		// Nothing swapped. A finding here is a single the repair does not cover.
-		for _, hit := range commentNumberFindings(path, src) {
-			logger.WarnFile(path, "%s:%d:%d: %q is a number in a comment: %s",
-				path, hit.Line, hit.Col, hit.Number, commentfix.Remedy)
-		}
-		return false
-	}
-	info, err := os.Stat(path)
-	mode := os.FileMode(0o644)
-	if err == nil {
-		mode = info.Mode().Perm()
-	}
-	if err := os.WriteFile(path, []byte(fixed.Text), mode); err != nil {
-		logger.Warn("⇒ Warning: could not write the comment repair for %s: %v", path, err)
-		return false
-	}
-	for _, cut := range fixed.Removed {
-		logger.WarnFile(path, "%s: the comment repair cut a sentence no rewrite covers: %q", path, cut)
-	}
-	return true
-}
-
-// commentNumberFindings keeps a finding per line rather than per number,
-// because the repair is a rewrite of the line whatever it counts.
-func commentNumberFindings(path, src string) []commentfix.Hit {
-	seen := set.New[int]()
-	var out []commentfix.Hit
-	for _, hit := range commentfix.Check(path, src) {
-		if seen.Contains(hit.Line) {
-			continue
-		}
-		seen.Add(hit.Line)
-		out = append(out, hit)
-=======
 // activeCommentScan is the sweep this run started, if it reached a module.
 var activeCommentScan *commentScan
 
@@ -80,54 +39,11 @@ func waitForCommentScan() {
 	activeCommentScan = nil
 	if scan == nil {
 		return
->>>>>>> origin/claude/module-path-comment
 	}
 	<-scan.done
 	scan.report()
 }
 
-<<<<<<< HEAD
-// commentScanFiles returns every file under root the rule reads.
-func commentScanFiles(root string) []string {
-	// Where the root is not a module, the modules below it are the whole tree.
-	_, err := os.Stat(filepath.Join(root, "go.mod"))
-	rootIsModule := err == nil
-	var out []string
-	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if commentScanSkipDir(root, path, d.Name(), rootIsModule) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !commentfix.Supported(path) {
-			return nil
-		}
-		if info, err := d.Info(); err == nil && info.Size() > commentScanMaxFileBytes {
-			return nil
-		}
-		out = append(out, path)
-		return nil
-	})
-	return out
-}
-
-// commentScanSkipDir reports whether the walk stops at this directory.
-func commentScanSkipDir(root, path, name string, rootIsModule bool) bool {
-	if path == root {
-		return false
-	}
-	if strings.HasPrefix(name, ".") || name == outputDir || commentScanSkipDirs.Contains(name) {
-		return true
-	}
-	if gomod.IsGitSubmodule(path) {
-		return true
-	}
-	return rootIsModule && gomod.IsNestedModule(path)
-=======
 // report prints what the sweep did after the fact. The phase ran beside other
 // output and cannot narrate itself while it works.
 func (c *commentScan) report() {
@@ -150,5 +66,4 @@ func (c *commentScan) report() {
 		end := time.Now()
 		tl.Record("comment scan", "comment-scan", end.Add(-c.took), end, false)
 	}
->>>>>>> origin/claude/module-path-comment
 }

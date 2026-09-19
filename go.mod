@@ -43,11 +43,7 @@ require (
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
 	github.com/wow-look-at-my/go-regex-compiler v0.0.0 // indirect
-<<<<<<< HEAD
-	github.com/wow-look-at-my/go-tree-sitter v0.0.0 // indirect; go-toolchain:generate=23178fc06411
-=======
 	github.com/wow-look-at-my/go-tree-sitter v0.0.0 // indirect; go-toolchain:generate=a0022f830ef0
->>>>>>> origin/claude/module-path-comment
 	github.com/wow-look-at-my/yaml-fixed v0.0.0 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect

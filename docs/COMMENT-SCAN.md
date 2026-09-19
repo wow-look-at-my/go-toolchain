@@ -17,15 +17,21 @@ A number in a comment is a count of what exists on the day it was written. The e
 
 The rule was a vet analyzer, `src/vet/commentnumbers.go`. An analyzer runs on `*ast.File` values. `go/packages` produces those only after it resolves every import, reads every dependency's export data and type-checks the module. That is minutes of work before the first comment is read. None of it answers the question. A comment is bytes.
 
-<<<<<<< HEAD
-The rule now lives in [`slopfix/commentfix`](https://github.com/wow-look-at-my/slopfix/tree/master/commentfix) and runs as the first phase of the pipeline, ahead of the dependency check, `go mod tidy` and vet. Two things follow.
-=======
 The rule now lives in [`slopfix/commentfix`](https://github.com/wow-look-at-my/slopfix/tree/master/commentfix) and runs beside the dependency check, `go mod tidy` and `go generate`, ahead of vet. Two things follow.
->>>>>>> origin/claude/module-path-comment
 
 It answers on a tree that does not build. A missing import, an unresolvable module, a syntax error in another package: none of them stop the report, because nothing here parses the language.
 
 It answers for every language. `commentfix` reads a comment by its delimiters rather than by a grammar. So a shell script, a workflow, a Dockerfile, a Rust file and a TypeScript file are all scanned. The analyzer only ever saw Go, and the stale prose in a `run:` script was never anybody's finding.
+
+## Where it runs, and when
+
+The phase is `src/cmd/commentscanphase.go`. It is a start and a join around `commentfix.FixTree`. Nothing about comments is decided here.
+
+It starts only once `findGoModules` has answered. A repair is a write. A run begun in a directory that is not a module has no business rewriting whatever prose it finds there. A tree carrying `dats/` suites and no `go.mod` therefore gets no sweep at all.
+
+It runs on its own goroutine, beside the dependency resolution, `go mod tidy` and `go generate`. Each repaired file is renamed into place, so a reader beside the sweep sees a whole file either way. The test phase joins the sweep before vet, which rewrites the same files. The up-to-date path joins it before the build.
+
+A finding it cannot repair is a defect in slopfix rather than a message for the author. The repair covers every number the rule reports. So the phase warns only when the rule and its repair have come apart.
 
 ## Where it runs, and when
 
