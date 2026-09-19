@@ -64,6 +64,19 @@ func TestCheckDirtyInCISkipsOutsideCI(t *testing.T) {
 	assert.NoError(t, checkDirtyInCI())
 }
 
+// The fork gitlink moves on every run that follows a moved fork, so the CI
+// dirty gate has to let it past. Everything else on the line stays caught:
+// this is one path, not a general amnesty for submodules.
+func TestDropForkGitlink(t *testing.T) {
+	t.Serial()
+	assert.Empty(t, dropForkGitlink(" M _gosmopolitan"), "the fork gitlink alone leaves a clean tree")
+	assert.Empty(t, dropForkGitlink("M  _gosmopolitan"), "staged reads the same as unstaged")
+	assert.Equal(t, " M go.mod", dropForkGitlink(" M _gosmopolitan\n M go.mod"), "a real change beside it still fails")
+	assert.Equal(t, " M _gosmopolitan/src/run.bash", dropForkGitlink(" M _gosmopolitan/src/run.bash"),
+		"a file INSIDE the fork is not the gitlink")
+	assert.Empty(t, dropForkGitlink(""))
+}
+
 // The message tells the reader to review the diff, so a CI-only failure has to
 // carry it: the runner's tree is gone by the time anyone reads the log.
 func TestDirtyDiffPaths(t *testing.T) {
