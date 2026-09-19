@@ -17,13 +17,21 @@ func TestSelfGoCommand(t *testing.T) {
 }
 
 // Outside a pipeline run this binary is never the go command, whatever argv
-// says.
+// says. The pipeline is all or nothing: dats/cli.dats pins the shell case.
 func TestLinkedGoArgs(t *testing.T) {
 	t.Setenv(linkedGoEnv, "")
-	_, linked := LinkedGoArgs([]string{"go", "build"})
-	assert.False(t, linked)
+	assert.False(t, PipelineStartedGo())
+	for _, argv := range [][]string{
+		{"go", "build"},
+		{"go-toolchain", "go", "install", "example.com/x@v1"},
+		{"go-toolchain", "tool", "compile", "-V=full"},
+	} {
+		_, linked := LinkedGoArgs(argv)
+		assert.False(t, linked, argv)
+	}
 
 	t.Setenv(linkedGoEnv, "1")
+	assert.True(t, PipelineStartedGo())
 	args, linked := LinkedGoArgs([]string{"/tmp/link/go", "build", "."})
 	assert.True(t, linked)
 	assert.Equal(t, []string{"/tmp/link/go", "build", "."}, args)
