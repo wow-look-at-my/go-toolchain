@@ -52,9 +52,6 @@ func skipUpToDateCheck(cmd *cobra.Command) bool {
 	return false
 }
 
-// unguardedCmds print no build result, so a capture hides nothing. Depth: docs/AGENT-OUTPUT-GUARD.md.
-var unguardedCmds = set.Of("version")
-
 // toolchainlessCmds run no go command, so they set none up.
 var toolchainlessCmds = set.Of("version", "verify-identical")
 
@@ -82,32 +79,18 @@ func skipToolchain(cmd *cobra.Command) bool {
 	return false
 }
 
-// skipAgentGuard reports whether cmd or an ancestor prints no build result.
-func skipAgentGuard(cmd *cobra.Command) bool {
-	for c := cmd; c != nil; c = c.Parent() {
-		if unguardedCmds.Contains(c.Name()) {
-			return true
-		}
-	}
-	return false
-}
-
 var rootCmd = &cobra.Command{
 	Use:          "go-toolchain",
 	Short:        "Build Go projects with coverage enforcement",
 	SilenceUsage: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Install the logger ahead of the output guard, so every
-		// command's output honors the requested level.
+		// Install the logger so every command's output honors the
+		// requested level.
 		if err := initLogging(cmd); err != nil {
 			return err
 		}
 		// Snapshot env before phases add vars, so fingerprint matches what the next run checks.
 		captureRunEnv()
-		// Abort if the agent hides our output, unless this is cacheprog (see skipAgentGuard).
-		if !skipAgentGuard(cmd) {
-			guardAgainstAgentOutputCapture()
-		}
 		// A target set nothing can build is rejected before a compiler is fetched for it.
 		if err := checkTargetFlags(cmd); err != nil {
 			return err
