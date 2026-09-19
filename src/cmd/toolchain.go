@@ -90,9 +90,7 @@ func linkGoToSelf(exe string) (string, error) {
 		sum := sha256.Sum256([]byte(exe))
 		name = hex.EncodeToString(sum[:8])
 	}
-	// bin/, so the directory above is GOROOT-shaped: a dependency's generator
-	// derives GOROOT from go's own path and runs $GOROOT/bin/go. Directly in
-	// dir that is <dir>/go/bin/go, and <dir>/go IS the link -- ENOTDIR.
+	// bin/, so the tree above is GOROOT-shaped for a dependency's generator.
 	dir := filepath.Join(base, "go-toolchain-go-"+name)
 	binDir := filepath.Join(dir, "bin")
 	if err := os.MkdirAll(binDir, 0o777); err != nil {
@@ -150,12 +148,7 @@ func useSelfAsPipelineToolchain(exe, linkDir, goroot string) {
 	activeGoroot = goroot
 	goLinkDir = linkDir
 	os.Setenv("PATH", pathWithFirst(linkDir, os.Getenv("PATH"), hostos.GOOS()))
-	// A child that resolves the toolchain as $GOROOT/bin/go needs GOROOT to
-	// be a directory. Outside this module goroot is this executable, which
-	// carries the standard library inside itself, so the env var gets the
-	// link tree instead: its bin/go is this same binary, and nothing reads a
-	// src/ or pkg/ out of it. activeGoroot keeps the real value for the
-	// self-build, which does compile against a checkout.
+	// $GOROOT/bin/go has to resolve for a child, and goroot is this executable.
 	os.Setenv("GOROOT", gorootForChildren(goroot, linkDir))
 	os.Setenv("GOTOOLCHAIN", "local")
 	os.Setenv(linkedGoEnv, "1")
