@@ -212,7 +212,7 @@ build/ in THIS job is the fat APE, because the fork is the only compiler and eve
 
 The second build re-invokes go-toolchain, which also submits the dependency snapshot. Give it the same token so it succeeds rather than warning. Same job + correlator as the first submission, so it replaces it (idempotent) rather than duplicating.
 
-#Then
+### if [ "$elapsed" -gt 60 ]. Then
 
 Caching moved into gosmopolitan's `cmd/go` (docs/CACHE.md), so this job can no longer read a cache-satisfied percentage or the poison tripwires to tell a slow runner. The budget lives in `ci.yml`, which is where to read it. The repository owner sets it. It sits at the bottom of the range an unchanged second build measures rather than above it. A slow runner can therefore fail this step with a healthy cache. Before raising it, confirm the second build is doing nothing new. No source may change between the two builds in this job. Re-measure over several runs. The step times wall clock, and a run's own `build/profile.json` says where that time went. The heaviest actions there are the test runs for `src/cmd` and `src/vet`. Each one dwarfs every compile and link in the same run. A build cache does not shorten a test run. A suite that grows therefore pushes this step up whatever the cache does.
 
