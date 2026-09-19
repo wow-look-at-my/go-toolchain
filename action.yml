@@ -178,6 +178,20 @@ runs:
         build-mode: manual
         queries: security-and-quality
 
+    # A dependency's //go:generate directives run when it is fetched, and a missing generator fails the build. The runner's go installs these: the pipeline's own go answers only a process a pipeline run started.
+    - name: Install the generators a dependency's directives need
+      shell: bash
+      run: |
+        set -euo pipefail
+        for pkg in \
+          golang.org/x/tools/cmd/stringer@v0.49.0 \
+          golang.org/x/tools/cmd/goyacc@v0.49.0 \
+          golang.org/x/text/cmd/gotext@v0.42.0 \
+        ; do
+          go install "$pkg"
+        done
+        echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
     - name: Run go-toolchain
       shell: bash
       working-directory: ${{ inputs.working-directory }}
