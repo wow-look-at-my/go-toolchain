@@ -9,11 +9,7 @@ import (
 	"golang.org/x/mod/modfile"
 )
 
-<<<<<<< HEAD
-// generateMarker records a module's approved go:generate hash in go.mod.
-=======
 // generateMarker records the approved go:generate hash of a module.
->>>>>>> origin/master
 const generateMarker = "go-toolchain:generate="
 
 // parseGenerateMarker reads the approved generate hash off a go.mod line, or ""
