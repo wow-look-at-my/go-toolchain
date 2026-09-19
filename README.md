@@ -16,7 +16,7 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 - **Auto-fix, or CI check** — locally the linter fixes violations in place. On CI the same checks run read-only, and a non-canonical tree fails the build with a diff of the fix.
 - **testify migration** — rewrites fork and `gotest.tools` imports to upstream `stretchr/testify`, adding the type conversions upstream's strict comparisons need. See [docs/VET.md](docs/VET.md).
 - **Custom vet analyzers** — `mapset` and `sliceset` (a `map[K]bool` or a slice used as a set, rewritten in place to `go-containers/set`), `writeruns` (a document written one string at a time), `jsoninterp` (JSON built by formatting, concatenation or a template). See [docs/VET.md](docs/VET.md).
-- **Comment scan** — the first phase reports a number written in any comment, in any language, before a compiler starts. A warning. So the warnings budget is what fails the build. See [docs/COMMENT-SCAN.md](docs/COMMENT-SCAN.md).
+- **Comment scan** — repairs a number written in any comment, in any language. It runs beside the dependency work and lands ahead of vet. slopfix owns the rule and the walk, and repairs every finding it reports. See [docs/COMMENT-SCAN.md](docs/COMMENT-SCAN.md).
 - **Go generate** — detects and runs `//go:generate` directives with hash-based approval.
 - **Dependency handling** — reports outdated dependencies, and submits a dependency snapshot. A `github.com/wow-look-at-my/` dependency carries no version this repo records: gosmopolitan's `cmd/go` resolves it to the head of a branch, so the token on its go.mod line is a placeholder. A frozen one fails the run ([docs/ORG-PINS.md](docs/ORG-PINS.md)).
 - **Dependency graph submission** — submits a dependency snapshot to GitHub in CI, feeding the repo's dependency graph. No opt-out. A failed submission fails the build.
@@ -39,7 +39,6 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 - **Buildhost publishing** — CI publishes binaries to [buildhost](https://pazer.build) over OIDC, downloadable as raw binary, tar.gz, deb, Homebrew, npm or OCI.
 - **Background update check** — a non-blocking check warns once when this binary is behind the latest published release. It never updates itself.
 - **Build outputs only survive a green run** — `build/<target>` is deleted before the run, and again if it fails. See [docs/BUILD-OUTPUTS.md](docs/BUILD-OUTPUTS.md).
-- **Agent output guard** — under an AI coding agent, go-toolchain refuses to run when its output is hidden by a pipe, redirect or capture. See [docs/AGENT-OUTPUT-GUARD.md](docs/AGENT-OUTPUT-GUARD.md).
 
 ## GitHub Action Usage
 
@@ -206,7 +205,7 @@ Debug output goes to stderr and info to stdout. Warnings and errors become `::wa
 - [docs/BUILD-OUTPUTS.md](docs/BUILD-OUTPUTS.md) — when `build/` artifacts are deleted
 - [docs/ACTION.md](docs/ACTION.md) — the composite GitHub Action
 - [docs/CI.md](docs/CI.md) — this repo's own CI workflow
-- [docs/AGENT-OUTPUT-GUARD.md](docs/AGENT-OUTPUT-GUARD.md), [docs/WARNINGS-GATE.md](docs/WARNINGS-GATE.md), [docs/BUILDHOST-MANIFEST.md](docs/BUILDHOST-MANIFEST.md)
+- [docs/WARNINGS-GATE.md](docs/WARNINGS-GATE.md), [docs/BUILDHOST-MANIFEST.md](docs/BUILDHOST-MANIFEST.md)
 
 ## Development
 
