@@ -31,6 +31,10 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
+      # make.bash and the generator install read the fork checkout, so it follows the branch before either runs rather than staying on the gitlink.
+      - name: Put the fork on its branch
+        run: bash .github/scripts/checkout-fork-branch.sh "$GITHUB_REF_NAME"
+
       - uses: wow-look-at-my/actions@secret-server#latest
 
       # The last release a green master run published is the bootstrap, as it is for every consumer; a release without the linked go command hands the job to the from-scratch steps below. see docs/CI.md
@@ -88,9 +92,6 @@ jobs:
 
       # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
       - name: Install the generators
-        env:
-          # Building a generator must not complete the module that provides it: that fetch wants the generator, which is what this step is making.
-          GOGENERATEDEPS: "off"
         run: |
           set -euo pipefail
           if [ "${{ steps.release.outputs.linked }}" = "true" ]; then
@@ -102,9 +103,15 @@ jobs:
           fi
           # No GOOS, GOARCH or GOBIN: this go is an APE targeting cosmo, which is what it embeds, and cmd/go reads a cosmo build as a cross-compile because the host it RUNS on is not cosmo. A cross-compile refuses GOBIN and lands in a per-target subdirectory of GOPATH/bin.
           genbin="$("$go" env GOPATH)/bin/$("$go" env GOOS)_$("$go" env GOARCH)"
+          # GITHUB_PATH reaches the NEXT step, and stringer is wanted by this one: golang.org/x/text names it in a directive the fetch runs, so it has to be found the iteration after it is built.
+          mkdir -p "$genbin"
+          export PATH="$genbin:$PATH"
+          # The org's own x/tools, which is what gopls and the analyzers here already build against. It keeps the upstream module path, and `go install pkg@version` honors no replacement, so a checkout is how this fork's copy gets built rather than upstream's. Building from a directory also asks the module cache for nothing, so the generator that lives in the module needing it never has to complete that module first.
+          git clone --quiet --depth 1 https://github.com/wow-look-at-my/gosmopolitan_tools "$RUNNER_TEMP/orgtools"
+          for gen in stringer goyacc; do
+            (cd "$RUNNER_TEMP/orgtools" && "$go" build -o "$genbin/$gen" "./cmd/$gen")
+          done
           for pkg in \
-            golang.org/x/tools/cmd/stringer@v0.49.0 \
-            golang.org/x/tools/cmd/goyacc@v0.49.0 \
             golang.org/x/text/cmd/gotext@v0.42.0 \
             github.com/mjibson/esc@v0.2.0 \
             google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
@@ -213,6 +220,10 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
+      # make.bash reads the fork checkout, so it follows the branch before that runs rather than staying on the gitlink.
+      - name: Put the fork on its branch
+        run: bash .github/scripts/checkout-fork-branch.sh "$GITHUB_REF_NAME"
+
       - uses: wow-look-at-my/actions@secret-server#latest
 
       - name: Install the fork's release as the bootstrap compiler
@@ -247,17 +258,20 @@ jobs:
 
       # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
       - name: Install the generators
-        env:
-          # Building a generator must not complete the module that provides it: that fetch wants the generator, which is what this step is making.
-          GOGENERATEDEPS: "off"
         run: |
           set -euo pipefail
           go="$PWD/_gosmopolitan/bin/go"
           # No GOOS, GOARCH or GOBIN: the fork targets cosmo, so each generator comes out an APE every host runs, and cmd/go reads that as a cross-compile, which refuses GOBIN and lands in a per-target subdirectory of GOPATH/bin.
           genbin="$("$go" env GOPATH)/bin/$("$go" env GOOS)_$("$go" env GOARCH)"
+          # GITHUB_PATH reaches the NEXT step, and stringer is wanted by this one: golang.org/x/text names it in a directive the fetch runs, so it has to be found the iteration after it is built.
+          mkdir -p "$genbin"
+          export PATH="$genbin:$PATH"
+          # The org's own x/tools, which is what gopls and the analyzers here already build against. It keeps the upstream module path, and `go install pkg@version` honors no replacement, so a checkout is how this fork's copy gets built rather than upstream's. Building from a directory also asks the module cache for nothing, so the generator that lives in the module needing it never has to complete that module first.
+          git clone --quiet --depth 1 https://github.com/wow-look-at-my/gosmopolitan_tools "$RUNNER_TEMP/orgtools"
+          for gen in stringer goyacc; do
+            (cd "$RUNNER_TEMP/orgtools" && "$go" build -o "$genbin/$gen" "./cmd/$gen")
+          done
           for pkg in \
-            golang.org/x/tools/cmd/stringer@v0.49.0 \
-            golang.org/x/tools/cmd/goyacc@v0.49.0 \
             golang.org/x/text/cmd/gotext@v0.42.0 \
             github.com/mjibson/esc@v0.2.0 \
             google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
