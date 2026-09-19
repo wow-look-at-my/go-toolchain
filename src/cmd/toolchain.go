@@ -90,15 +90,22 @@ func linkGoToSelf(exe string) (string, error) {
 		sum := sha256.Sum256([]byte(exe))
 		name = hex.EncodeToString(sum[:8])
 	}
+	// The link sits in a bin subdirectory so the directory above it is a
+	// GOROOT-shaped tree. A generator that a dependency owns starts go by
+	// name and lets the go command derive GOROOT from its own path, then
+	// runs $GOROOT/bin/go. With the link directly in dir that path is
+	// <dir>/go/bin/go, and <dir>/go is the link itself, so the exec fails
+	// with ENOTDIR and takes the whole generate step with it.
 	dir := filepath.Join(base, "go-toolchain-go-"+name)
-	if err := os.MkdirAll(dir, 0o777); err != nil {
+	binDir := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(binDir, 0o777); err != nil {
 		return "", err
 	}
-	link := filepath.Join(dir, "go"+hostExeSuffix())
+	link := filepath.Join(binDir, "go"+hostExeSuffix())
 	if linksTo(link, exe) {
-		return dir, nil
+		return binDir, nil
 	}
-	fresh := filepath.Join(dir, fmt.Sprintf(".go-%d%s", os.Getpid(), hostExeSuffix()))
+	fresh := filepath.Join(binDir, fmt.Sprintf(".go-%d%s", os.Getpid(), hostExeSuffix()))
 	if err := placeLink(exe, fresh); err != nil {
 		return "", err
 	}
@@ -106,7 +113,7 @@ func linkGoToSelf(exe string) (string, error) {
 		os.Remove(fresh)
 		return "", fmt.Errorf("installing the go link at %s: %w", link, err)
 	}
-	return dir, nil
+	return binDir, nil
 }
 
 // linksTo reports whether name resolves to the file at exe.
@@ -169,8 +176,13 @@ func removeGoLink() {
 	if goLinkDir == "" {
 		return
 	}
-	if err := os.RemoveAll(goLinkDir); err != nil {
-		logger.Debug("go link: leaving %s behind: %v", goLinkDir, err)
+	// goLinkDir is the bin subdirectory, so the tree to drop is its parent.
+	root := goLinkDir
+	if filepath.Base(root) == "bin" {
+		root = filepath.Dir(root)
+	}
+	if err := os.RemoveAll(root); err != nil {
+		logger.Debug("go link: leaving %s behind: %v", root, err)
 	}
 	goLinkDir = ""
 }
