@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
 func TestParseLsRemoteRefs(t *testing.T) {
@@ -31,13 +33,39 @@ func TestParseLsRemoteRefsOfNothing(t *testing.T) {
 	assert.Empty(t, refs)
 }
 
-func TestWithGitStderr(t *testing.T) {
-	assert.NoError(t, withGitStderr(nil, []byte("noise")))
+// WithQuiet() sends git's stderr nowhere, so a bare exit status is the whole
+// report until gitOutput attaches what git said.
+func TestGitOutputCarriesWhatGitSaid(t *testing.T) {
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		return runner.MockProcessWithStderr(nil, []byte("  fatal: repository not found  "), assert.AnError), nil
+	}
 
-	err := withGitStderr(assert.AnError, []byte("  fatal: repository not found  "))
+	_, err := gitOutput(mock, "git", "ls-remote", "https://example.com/absent")
+	require.Error(t, err)
 	assert.ErrorIs(t, err, assert.AnError)
 	assert.Contains(t, err.Error(), "fatal: repository not found")
+}
 
-	bare := withGitStderr(assert.AnError, nil)
-	assert.Equal(t, assert.AnError.Error(), bare.Error())
+// A failure git says nothing about reads as the exit status alone.
+func TestGitOutputWithoutStderrIsTheBareError(t *testing.T) {
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		return runner.MockProcessWithStderr(nil, nil, assert.AnError), nil
+	}
+
+	_, err := gitOutput(mock, "git", "rev-parse", "HEAD")
+	require.Error(t, err)
+	assert.Equal(t, assert.AnError.Error(), err.Error())
+}
+
+func TestGitOutputReturnsStdout(t *testing.T) {
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		return runner.MockProcess([]byte("5bf638fdce71aa0d6a3b2a8bdb9a4a7f3c2d1e0f\n"), nil), nil
+	}
+
+	out, err := gitOutput(mock, "git", "rev-parse", "HEAD")
+	require.NoError(t, err)
+	assert.Equal(t, "5bf638fdce71aa0d6a3b2a8bdb9a4a7f3c2d1e0f\n", string(out))
 }
