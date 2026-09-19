@@ -82,16 +82,29 @@ func installGeneratorNamed(r runner.CommandRunner, tool string) error {
 	}
 	logger.Info("\t%s from %s", tool, pkg)
 	// Building a generator must not complete the module that provides it:
-	// that fetch wants the generator this call is making.
-	proc, err := runner.Cmd("go", "install", pkg).WithQuiet().WithEnv("GOGENERATEDEPS", "off").Run(r)
+	// that fetch wants the generator this call is making. The build's own
+	// stderr is kept and reported, because "exit status 1" alone leaves the
+	// reader with no way to tell a network failure from a broken pin.
+	var why tailBuffer
+	proc, err := runner.Cmd("go", "install", pkg).WithStderrWriter(&why).WithEnv("GOGENERATEDEPS", "off").Run(r)
 	if err != nil {
-		return fmt.Errorf("installing the generator %s: %w", pkg, err)
+		return fmt.Errorf("installing the generator %s: %w%s", pkg, err, installDetail(why.String()))
 	}
 	if err := proc.Wait(); err != nil {
-		return fmt.Errorf("installing the generator %s: %w", pkg, err)
+		return fmt.Errorf("installing the generator %s: %w%s", pkg, err, installDetail(why.String()))
 	}
 	os.Setenv("PATH", pathWithFirst(binDir, os.Getenv("PATH"), hostos.GOOS()))
 	return nil
+}
+
+// installDetail formats the build's stderr for an error message, or answers
+// "" when the build said nothing.
+func installDetail(stderr string) string {
+	stderr = strings.TrimSpace(stderr)
+	if stderr == "" {
+		return ""
+	}
+	return "\n" + stderr
 }
 
 // generatorBinDir answers where go install leaves a generator. This go command
