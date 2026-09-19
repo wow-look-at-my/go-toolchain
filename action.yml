@@ -178,26 +178,6 @@ runs:
         build-mode: manual
         queries: security-and-quality
 
-    # A dependency's //go:generate directives run when it is fetched, and a missing generator is a hard failure rather than a skip.
-    - name: Install the generators a dependency's directives need
-      shell: bash
-      env:
-        # Building a generator must not complete the module that provides it.
-        GOGENERATEDEPS: "off"
-      run: |
-        set -euo pipefail
-        # The go-toolchain just installed, so every host generates the same bytes and the shared cache keeps hitting.
-        go() { go-toolchain go "$@"; }
-        for pkg in \
-          golang.org/x/tools/cmd/stringer@v0.49.0 \
-          golang.org/x/tools/cmd/goyacc@v0.49.0 \
-          golang.org/x/text/cmd/gotext@v0.42.0 \
-        ; do
-          go install "$pkg"
-        done
-        # This go is an APE targeting cosmo, which cmd/go reads as a cross-compile, so the binaries land in a per-target subdirectory of GOPATH/bin rather than in GOBIN.
-        echo "$(go env GOPATH)/bin/$(go env GOOS)_$(go env GOARCH)" >> "$GITHUB_PATH"
-
     - name: Run go-toolchain
       shell: bash
       working-directory: ${{ inputs.working-directory }}

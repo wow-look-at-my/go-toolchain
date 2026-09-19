@@ -11,13 +11,12 @@ import (
 // for a single at all: a program named go is the go command, "go-toolchain go
 // ..." is the go command, and "go-toolchain tool <name> ..." is a linked
 // build tool. Anything else is the pipeline.
-// Only the NAME needs the marker: a host carries its own go too.
 func LinkedGoArgs(argv []string) ([]string, bool) {
-	if len(argv) == 0 {
+	if len(argv) == 0 || !PipelineStartedGo() {
 		return nil, false
 	}
 	if isGoName(argv[0]) {
-		return argv, PipelineStartedGo()
+		return argv, true
 	}
 	if len(argv) >= 2 && argv[1] == "go" {
 		return append([]string{"go"}, argv[2:]...), true

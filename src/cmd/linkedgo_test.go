@@ -16,25 +16,23 @@ func TestSelfGoCommand(t *testing.T) {
 	assert.Equal(t, []string{`D:\dist\go-toolchain.exe`, "go"}, selfGoCommand(`D:\dist\go-toolchain.exe`))
 }
 
-// Outside a pipeline run the NAME go is the host's own go command, never this
-// binary. The go subcommand names this binary's go command outright, so it
-// answers whoever asks.
+// Outside a pipeline run this binary is never the go command, whatever argv
+// says. The pipeline is all or nothing: dats/cli.dats pins the shell case.
 func TestLinkedGoArgs(t *testing.T) {
 	t.Setenv(linkedGoEnv, "")
-	_, linked := LinkedGoArgs([]string{"go", "build"})
-	assert.False(t, linked)
 	assert.False(t, PipelineStartedGo())
-
-	args, linked := LinkedGoArgs([]string{"go-toolchain", "go", "install", "example.com/x@v1"})
-	assert.True(t, linked, "a hand-started go subcommand is the go command")
-	assert.Equal(t, []string{"go", "install", "example.com/x@v1"}, args)
-
-	_, linked = LinkedGoArgs([]string{"go-toolchain", "tool", "compile", "-V=full"})
-	assert.True(t, linked, "a hand-started build tool is the linked tool")
+	for _, argv := range [][]string{
+		{"go", "build"},
+		{"go-toolchain", "go", "install", "example.com/x@v1"},
+		{"go-toolchain", "tool", "compile", "-V=full"},
+	} {
+		_, linked := LinkedGoArgs(argv)
+		assert.False(t, linked, argv)
+	}
 
 	t.Setenv(linkedGoEnv, "1")
 	assert.True(t, PipelineStartedGo())
-	args, linked = LinkedGoArgs([]string{"/tmp/link/go", "build", "."})
+	args, linked := LinkedGoArgs([]string{"/tmp/link/go", "build", "."})
 	assert.True(t, linked)
 	assert.Equal(t, []string{"/tmp/link/go", "build", "."}, args)
 
