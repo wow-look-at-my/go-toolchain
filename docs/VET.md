@@ -195,4 +195,4 @@ The remedy is the standard library. So it costs a consumer no dependency. The se
 
 ## commentnumbers: moved out of vet
 
-The comment-number rule is no longer an analyzer. It reads bytes rather than a type-checked package. So it runs as the pipeline's first phase and covers every language. See [COMMENT-SCAN.md](COMMENT-SCAN.md).
+The comment-number rule is not an analyzer. It reads a syntax tree of its own rather than a type-checked package, so it covers every language and runs beside the dependency work. See [COMMENT-SCAN.md](COMMENT-SCAN.md).

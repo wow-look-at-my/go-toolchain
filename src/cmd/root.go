@@ -196,9 +196,6 @@ func run(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 
-	// Leads the phases: it reads bytes, not a type-checked package.
-	runCommentScanPhase(".")
-
 	modules := findGoModules()
 	if len(modules) == 0 {
 		// A repo can own dats suites with no go.mod (the tested CLI need not
@@ -211,6 +208,10 @@ func run(cmd *cobra.Command, args []string) (err error) {
 
 	r := runner.New()
 	startDir, _ := os.Getwd()
+
+	// Only now, and at an absolute root: the loop below chdirs as it sweeps.
+	activeCommentScan = startCommentScan(startDir)
+	defer waitForCommentScan()
 
 	// Create global trace for fine-grained events.
 	activeTrace = gotrace.NewTrace()
@@ -353,6 +354,7 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 	// asking that question again only re-runs a suite whose answer is on file.
 	// It is also the path that reaches the build with no coverage to report.
 	if treeUnchanged && !isRetry {
+		waitForCommentScan() // This path reaches no vet, so the sweep lands here.
 		logger.Output("⇒ Tests and vet skipped: the tree has not changed since the last green run")
 		br, builtArtifacts, err := runBuildPhase(r, quiet)
 		if err != nil {
