@@ -23,7 +23,7 @@ func TestDirectiveToolNamesTheProgramToInstall(t *testing.T) {
 }
 
 // Every generator a dependency names carries a pinned version, so a run that
-// meets a new name says which one to add rather than skipping the directive.
+// meets a new name says which pin to add rather than skipping the directive.
 func TestAnUnpinnedGeneratorIsReportedRatherThanSkipped(t *testing.T) {
 	t.Serial()
 	mock := runner.NewMock()
