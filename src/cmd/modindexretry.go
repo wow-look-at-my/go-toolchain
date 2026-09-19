@@ -6,12 +6,37 @@ import (
 	"os"
 	"strings"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
 // corruptIndexMarker is cmd/go's error for an unparseable cached module index; it has no build id to gate on.
 const corruptIndexMarker = "corrupt index"
+
+// missingGeneratorMarker is cmd/go's error for a generate directive whose
+// program is absent. The full line reads:
+//
+//	cmd/x/y.go:7: running "stringer": exec: "stringer": executable file not found in $PATH
+const missingGeneratorMarker = `: executable file not found in $PATH`
+
+// missingGeneratorTool reads the program name out of that line, or answers ""
+// when the failure is about something else.
+func missingGeneratorTool(stderr string) string {
+	for _, line := range strings.Split(stderr, "\n") {
+		if !strings.Contains(line, missingGeneratorMarker) {
+			continue
+		}
+		_, after, found := strings.Cut(line, `running "`)
+		if !found {
+			continue
+		}
+		if name, _, ok := strings.Cut(after, `"`); ok && name != "" {
+			return name
+		}
+	}
+	return ""
+}
 
 // tailBufferCap bounds how much subprocess stderr tailBuffer retains.
 const tailBufferCap = 64 << 10
@@ -70,6 +95,24 @@ func runModTidy(r runner.CommandRunner, quiet bool) error {
 	}
 
 	stderrTail, err := tidyOnce()
+	// A tidy that completes a dependency runs that dependency's generate
+	// directives, and it stops at the first generator the host does not have.
+	// Installing the pinned one and asking again is the whole repair. Each
+	// round has to name a generator this loop has not built yet, so a tool
+	// that fails to appear on PATH ends the loop rather than repeating it.
+	built := set.New[string]()
+	for err != nil {
+		tool := missingGeneratorTool(stderrTail)
+		if tool == "" || built.Contains(tool) {
+			break
+		}
+		built.Add(tool)
+		logger.Warn("go mod tidy needs the generator %q to complete a dependency; installing the pinned one and retrying", tool)
+		if instErr := installGeneratorNamed(r, tool); instErr != nil {
+			return instErr
+		}
+		stderrTail, err = tidyOnce()
+	}
 	if err != nil && strings.Contains(stderrTail, corruptIndexMarker) {
 		logger.Warn("go mod tidy reported a corrupt Go module index (a damaged build-cache entry); disabling the module index (GODEBUG=goindex=0) for the rest of this run and retrying")
 		disableGoModuleIndex()

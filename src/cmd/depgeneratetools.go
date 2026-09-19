@@ -56,24 +56,39 @@ func installGenerators(r runner.CommandRunner, pending []generateDirective) erro
 	if len(want) == 0 {
 		return nil
 	}
+	st := logStep("go install (dependency generators)")
+	defer st.done()
+	for tool := range want {
+		st.noteOutput()
+		if err := installGeneratorNamed(r, tool); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// installGeneratorNamed builds the pinned package for a single generator and
+// puts its directory at the front of PATH. An unpinned name is an error: a
+// generator picked up from wherever the host happens to have it writes
+// different bytes than every other host.
+func installGeneratorNamed(r runner.CommandRunner, tool string) error {
+	pkg, known := generatorPackages[tool]
+	if !known {
+		return fmt.Errorf("the generator %q is not on PATH and has no pinned package: add it to generatorPackages", tool)
+	}
 	binDir, err := generatorBinDir()
 	if err != nil {
 		return err
 	}
-	st := logStep("go install (dependency generators)")
-	defer st.done()
-	for tool, pkg := range want {
-		st.noteOutput()
-		logger.Info("\t%s from %s", tool, pkg)
-		// Building a generator must not complete the module that provides it:
-		// that fetch wants the generator this call is making.
-		proc, err := runner.Cmd("go", "install", pkg).WithQuiet().WithEnv("GOGENERATEDEPS", "off").Run(r)
-		if err != nil {
-			return fmt.Errorf("installing the generator %s: %w", pkg, err)
-		}
-		if err := proc.Wait(); err != nil {
-			return fmt.Errorf("installing the generator %s: %w", pkg, err)
-		}
+	logger.Info("\t%s from %s", tool, pkg)
+	// Building a generator must not complete the module that provides it:
+	// that fetch wants the generator this call is making.
+	proc, err := runner.Cmd("go", "install", pkg).WithQuiet().WithEnv("GOGENERATEDEPS", "off").Run(r)
+	if err != nil {
+		return fmt.Errorf("installing the generator %s: %w", pkg, err)
+	}
+	if err := proc.Wait(); err != nil {
+		return fmt.Errorf("installing the generator %s: %w", pkg, err)
 	}
 	os.Setenv("PATH", pathWithFirst(binDir, os.Getenv("PATH"), hostos.GOOS()))
 	return nil
