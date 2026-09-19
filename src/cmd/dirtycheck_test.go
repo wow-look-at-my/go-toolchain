@@ -10,22 +10,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// gitIn runs git in dir. The working directory is what cosmo spells for the
+// host, where an argument is handed over as written.
+func gitIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	require.NoError(t, cmd.Run(), "git %v failed", args)
+}
+
 // newGoModRepo builds a repository whose only committed file is go.mod, and
 // returns the repository and that file.
 func newGoModRepo(t *testing.T, goLine string) (dir, mod string) {
 	t.Helper()
 	dir = t.TempDir()
-	for _, args := range [][]string{
-		{"init", "-q"},
-		{"config", "user.email", "t@example.com"},
-		{"config", "user.name", "t"},
-	} {
-		require.NoError(t, exec.Command("git", append([]string{"-C", dir}, args...)...).Run())
-	}
+	gitIn(t, dir, "init", "-q")
+	gitIn(t, dir, "config", "user.email", "t@example.com")
+	gitIn(t, dir, "config", "user.name", "t")
 	mod = filepath.Join(dir, "go.mod")
 	require.NoError(t, os.WriteFile(mod, []byte("module example.com/x\n\n"+goLine+"\n"), 0644))
-	require.NoError(t, exec.Command("git", "-C", dir, "add", "go.mod").Run())
-	require.NoError(t, exec.Command("git", "-C", dir, "commit", "-qm", "init").Run())
+	gitIn(t, dir, "add", "go.mod")
+	gitIn(t, dir, "commit", "-qm", "init")
 	return dir, mod
 }
 
@@ -59,19 +64,6 @@ func TestCheckDirtyInCISkipsOutsideCI(t *testing.T) {
 	assert.NoError(t, checkDirtyInCI())
 }
 
-func TestDirtyFilesExcludingToolchainWrites(t *testing.T) {
-	t.Serial()
-	// Nothing this run wrote on its own authority, so every line is a real change.
-	status := " M .gitignore\n M src/main.go\n"
-	got := dirtyFilesExcludingToolchainWrites(status)
-	assert.Equal(t, " M .gitignore\n M src/main.go", got)
-}
-
-func TestDirtyFilesExcludingToolchainWritesEmpty(t *testing.T) {
-	t.Serial()
-	assert.Equal(t, "", dirtyFilesExcludingToolchainWrites(""))
-}
-
 // The message tells the reader to review the diff, so a CI-only failure has to
 // carry it: the runner's tree is gone by the time anyone reads the log.
 func TestDirtyDiffPaths(t *testing.T) {
@@ -94,7 +86,7 @@ func TestDirtyDiffShowsTheChange(t *testing.T) {
 	assert.Contains(t, got, "+go 1.28")
 
 	// Staged is not the same as absent, and the reader is told which.
-	require.NoError(t, exec.Command("git", "-C", dir, "add", "go.mod").Run())
+	gitIn(t, dir, "add", "go.mod")
 	assert.Contains(t, dirtyDiffIn(dir, " M go.mod"), "(staged)")
 }
 
@@ -104,23 +96,4 @@ func TestDirtyDiffReportsWhenGitCannotAnswer(t *testing.T) {
 	t.Serial()
 	assert.Contains(t, dirtyDiffIn(t.TempDir(), " M go.mod"), "git diff failed")
 	assert.Empty(t, dirtyDiffIn(t.TempDir(), ""))
-}
-
-func TestStatusLineIsToolchainWrite(t *testing.T) {
-	t.Serial()
-	// With no pins, nothing in a status line is this run's own write.
-	cases := map[string]bool{
-		" M .gitignore":     false,
-		" M src/main.go":    false,
-		"R  old.go -> a.go": false,
-		"":                  false,
-	}
-	for line, want := range cases {
-		assert.Equalf(t, want, statusLineIsToolchainWrite(line, nil), "line %q", line)
-	}
-
-	// A tracked pin's own go.mod is this run's write; another module's is not.
-	pins := map[string][]string{".": {"example.com/dep"}}
-	assert.True(t, statusLineIsToolchainWrite(" M go.mod", pins))
-	assert.False(t, statusLineIsToolchainWrite(" M sub/go.mod", pins))
 }

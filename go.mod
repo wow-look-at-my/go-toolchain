@@ -10,12 +10,12 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.12.1
-	github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174 // go-toolchain:auto-branch
-	github.com/wow-look-at-my/dats v0.0.0-20260910122754-5dfcc0b24b09 // go-toolchain:auto-branch
-	github.com/wow-look-at-my/go-containers v0.0.0-20260913115023-d3bbbdd0286d // go-toolchain:auto-branch
-	github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260914102027-682082034b2d // go-toolchain:auto-branch
-	github.com/wow-look-at-my/slopfix v0.0.0-20260913231024-e18c837df222 // go-toolchain:auto-branch; go-toolchain:generate=2cc79e031ecc
-	github.com/wow-look-at-my/slopfmt v0.0.0-20260906221556-2da857240d94 // go-toolchain:auto-branch
+	github.com/wow-look-at-my/ansi-writer v0.0.0
+	github.com/wow-look-at-my/dats v0.0.0
+	github.com/wow-look-at-my/go-containers v0.0.0
+	github.com/wow-look-at-my/is-this-an-agent v0.0.0
+	github.com/wow-look-at-my/slopfix v0.0.0 // go-toolchain:generate=c6095713f6ed
+	github.com/wow-look-at-my/slopfmt v0.0.0
 	go.opentelemetry.io/otel v1.45.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.45.0
 	go.opentelemetry.io/otel/sdk v1.45.0
@@ -54,8 +54,9 @@ require (
 	github.com/pjbgf/sha1cd v0.6.0 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
-	github.com/wow-look-at-my/go-tree-sitter v0.0.0-20260914060416-7b7005e17078 // indirect; go-toolchain:auto-branch; go-toolchain:generate=a0022f830ef0
-	github.com/wow-look-at-my/yaml-fixed v0.0.0-20260806231905-d99b869b77a1 // indirect; go-toolchain:auto-branch
+	github.com/wow-look-at-my/go-regex-compiler v0.0.0 // indirect
+	github.com/wow-look-at-my/go-tree-sitter v0.0.0 // indirect; go-toolchain:generate=a0022f830ef0
+	github.com/wow-look-at-my/yaml-fixed v0.0.0 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.45.0 // indirect
@@ -109,4 +110,4 @@ replace dario.cat/mergo v1.0.0 => github.com/imdario/mergo v1.0.0
 // The analyzers type-check the fork's stdlib. Stock x/tools reads a parameter
 // default as a syntax error and cannot decode the fork's export data, so both
 // the export-data path and the source fallback die on every package.
-replace golang.org/x/tools => github.com/wow-look-at-my/gosmopolitan_tools v0.0.0-20260912193235-5a3c03065002 // go-toolchain:auto-branch
+replace golang.org/x/tools => github.com/wow-look-at-my/gosmopolitan_tools v0.0.0

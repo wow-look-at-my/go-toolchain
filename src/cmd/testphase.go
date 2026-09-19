@@ -32,19 +32,7 @@ var vetRunFunc = vet.RunWithProgress
 // and the matrix command.
 // Returns (filesChanged, testResult, error) where filesChanged indicates if vet applied any fixes.
 func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.TestResult, error) {
-	// Fix any placeholder-version dependencies before go mod tidy
-	if err := FixBogusDepsVersions(r); err != nil {
-		return false, nil, err
-	}
-
-	// An org dependency carrying a plain version pin gets the branch marker
-	// added up front, so the re-resolution below owns it from this run on.
-	if _, err := EnforceOrgBranchTracking(r); err != nil {
-		return false, nil, err
-	}
-
-	// Re-resolve any dependency pinned to follow a branch (see depsbranch.go)
-	if _, err := UpdateTrackedBranchDeps(r); err != nil {
+	if err := checkOrgPins(moduleRoot()); err != nil {
 		return false, nil, err
 	}
 
@@ -74,7 +62,6 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			genStep.noteOutput() // generate always prints directives
 			genStep.done()
 		}
-		// Run tidy again after generate in case new imports were added
 		var tidyStep2 *step
 		if !quiet {
 			tidyStep2 = logStep("go mod tidy (post-generate)")
@@ -94,6 +81,8 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			tidyStep2.done()
 		}
 	}
+
+	waitForCommentScan()
 
 	var vetStep *step
 	if !quiet {

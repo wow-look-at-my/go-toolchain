@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,17 +13,13 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// activeGoCmd starts the go command this pipeline builds with: this
-// executable, under its go subcommand.
+// activeGoCmd starts the go command this pipeline builds with: this executable, under its go subcommand.
 var activeGoCmd []string
 
-// activeGoroot is the GOROOT every go command of this run reads: the fork
-// checkout in this module, and this executable, which carries the standard
-// library, anywhere else.
+// activeGoroot is this run's GOROOT: the fork checkout here, this executable anywhere else.
 var activeGoroot string
 
-// goLinkDir holds the go link that puts this executable on PATH, for a child
-// process that starts go by name.
+// goLinkDir holds the go link that puts this executable on PATH, for a child that starts go by name.
 var goLinkDir string
 
 // selfExecutableFunc is os.Executable, as a seam.
@@ -75,28 +73,70 @@ func EnsureGoVersion() error {
 	return nil
 }
 
-// linkGoToSelf answers a fresh directory holding go, a link to exe. NT runs no
-// symlink as a program, so there it is a hard link, or a copy when the
-// volumes differ.
+// linkGoToSelf answers the directory holding go, a link to exe. The directory
+// is named after exe, so every run of a single executable puts the same PATH
+// in front of the programs it starts: a test that resolves a program records
+// PATH as an input, and a name that changed per run kept every such test from
+// replaying. A link left by an earlier run of the same file is reused; a
+// single pointing elsewhere is replaced in a single rename. NT runs no
+// symlink as a program, so there it is a hard link, or a copy when the volumes differ.
 func linkGoToSelf(exe string) (string, error) {
-	dir, err := os.MkdirTemp(scratchBase(hostos.GOOS()), "go-toolchain-go-")
-	if err != nil {
+	base := scratchBase(hostos.GOOS())
+	if base == "" {
+		base = os.TempDir()
+	}
+	name := resolvedCommit()
+	if name == "unknown" {
+		sum := sha256.Sum256([]byte(exe))
+		name = hex.EncodeToString(sum[:8])
+	}
+	dir := filepath.Join(base, "go-toolchain-go-"+name)
+	if err := os.MkdirAll(dir, 0o777); err != nil {
 		return "", err
 	}
 	link := filepath.Join(dir, "go"+hostExeSuffix())
-	if hostos.GOOS() != "windows" {
-		if err := os.Symlink(exe, link); err != nil {
-			return "", fmt.Errorf("linking %s to this executable: %w", link, err)
-		}
+	if linksTo(link, exe) {
 		return dir, nil
 	}
-	if err := os.Link(exe, link); err == nil {
-		return dir, nil
+	fresh := filepath.Join(dir, fmt.Sprintf(".go-%d%s", os.Getpid(), hostExeSuffix()))
+	if err := placeLink(exe, fresh); err != nil {
+		return "", err
 	}
-	if err := copyFile(exe, link); err != nil {
-		return "", fmt.Errorf("copying this executable to %s: %w", link, err)
+	if err := os.Rename(fresh, link); err != nil {
+		os.Remove(fresh)
+		return "", fmt.Errorf("installing the go link at %s: %w", link, err)
 	}
 	return dir, nil
+}
+
+// linksTo reports whether name resolves to the file at exe.
+func linksTo(name, exe string) bool {
+	got, err := os.Stat(name)
+	if err != nil {
+		return false
+	}
+	want, err := os.Stat(exe)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(got, want)
+}
+
+// placeLink creates name as a way to run exe.
+func placeLink(exe, name string) error {
+	if hostos.GOOS() != "windows" {
+		if err := os.Symlink(exe, name); err != nil {
+			return fmt.Errorf("linking %s to this executable: %w", name, err)
+		}
+		return nil
+	}
+	if err := os.Link(exe, name); err == nil {
+		return nil
+	}
+	if err := copyFile(exe, name); err != nil {
+		return fmt.Errorf("copying this executable to %s: %w", name, err)
+	}
+	return nil
 }
 
 // useSelfAsPipelineToolchain points this process and its children at the go

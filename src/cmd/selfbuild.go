@@ -17,8 +17,11 @@ import (
 // span, which is how a go binary carries its standard library.
 const apeAppendEnv = "GOCOSMOAPPEND"
 
-// selfBuildPasses is how many times the pipeline builds itself.
+// selfBuildPasses is the most passes a self-build makes.
 const selfBuildPasses = 3
+
+// fixedPointSelf is the binary this run proved reproduces itself, or empty.
+var fixedPointSelf string
 
 // buildSelf builds this pipeline's own binary: the fork checkout is the
 // GOROOT, the standard library it compiles is embedded in the result, and
@@ -30,20 +33,11 @@ func buildSelf(r runner.CommandRunner, job buildJob, onFirstOutput func()) error
 	}
 	defer os.RemoveAll(work)
 
-	goCmd := job.goCmd
-	var outputs []string
-	for pass := 1; pass <= selfBuildPasses; pass++ {
-		out, err := buildSelfPass(r, job, goCmd, work, pass, onFirstOutput)
-		if err != nil {
-			return fmt.Errorf("pass %d of the self-hosted build: %w", pass, err)
+	last := fixedPointSelf
+	if last == "" {
+		if last, err = buildSelfPasses(r, job, work, onFirstOutput); err != nil {
+			return err
 		}
-		outputs = append(outputs, out)
-		goCmd = []string{out, "go"}
-		onFirstOutput = nil
-	}
-	last := outputs[len(outputs)-1]
-	if err := sameBytes(outputs[len(outputs)-2], last); err != nil {
-		return fmt.Errorf("the self-hosted build reached no fixed point: %w", err)
 	}
 	if err := copyFile(last, build.TempOutputPath(job.outputPath)); err != nil {
 		return err
@@ -52,6 +46,41 @@ func buildSelf(r runner.CommandRunner, job buildJob, onFirstOutput func()) error
 		return err
 	}
 	return build.CommitOutput(job.outputPath)
+}
+
+// buildSelfPasses runs passes under work, each with the binary the last
+// pass built, and answers the pass output that matches its own builder.
+func buildSelfPasses(r runner.CommandRunner, job buildJob, work string, onFirstOutput func()) (string, error) {
+	goCmd := job.goCmd
+	for pass := 1; pass <= selfBuildPasses; pass++ {
+		out, err := buildSelfPass(r, job, goCmd, work, pass, onFirstOutput)
+		if err != nil {
+			return "", fmt.Errorf("pass %d of the self-hosted build: %w", pass, err)
+		}
+		same, err := sameFile(goCmd[0], out)
+		if err != nil {
+			return "", err
+		}
+		if same {
+			return out, nil
+		}
+		goCmd = []string{out, "go"}
+		onFirstOutput = nil
+	}
+	return "", fmt.Errorf("the self-hosted build reached no fixed point in %d passes", selfBuildPasses)
+}
+
+// sameFile reports whether the files hold the same bytes.
+func sameFile(first, second string) (bool, error) {
+	sumFirst, err := fileHash(first)
+	if err != nil {
+		return false, err
+	}
+	sumSecond, err := fileHash(second)
+	if err != nil {
+		return false, err
+	}
+	return sumFirst == sumSecond, nil
 }
 
 // buildSelfPass writes the standard library blob with goCmd, then builds
@@ -101,22 +130,6 @@ func writeStdBlob(r runner.CommandRunner, goCmd []string, goroot, blob string) e
 	}
 	if _, err := os.Stat(blob); err != nil {
 		return fmt.Errorf("embedstd reported success and wrote no blob at %s", blob)
-	}
-	return nil
-}
-
-// sameBytes fails when files differ, naming both digests.
-func sameBytes(first, second string) error {
-	sumFirst, err := fileHash(first)
-	if err != nil {
-		return err
-	}
-	sumSecond, err := fileHash(second)
-	if err != nil {
-		return err
-	}
-	if sumFirst != sumSecond {
-		return fmt.Errorf("%s is %s and %s is %s", first, sumFirst, second, sumSecond)
 	}
 	return nil
 }
