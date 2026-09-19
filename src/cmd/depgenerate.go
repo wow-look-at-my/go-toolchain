@@ -13,6 +13,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
 // Go has no build step for a dependency, so a package whose data a generate
@@ -328,6 +329,9 @@ func satisfyDepGenerate(expectedHash string) (bool, error) {
 		return false, nil
 	}
 	if err := checkDepApprovals(deps, pending); err != nil {
+		return false, err
+	}
+	if err := installGenerators(runner.New(), pending); err != nil {
 		return false, err
 	}
 	if err := satisfyDepDirectives(pending); err != nil {
