@@ -12,8 +12,16 @@ func init() {
 	if isCacheProgInvocation() {
 		return
 	}
-	// The go command and its tools take the environment as it is.
 	if _, linked := cmd.LinkedGoArgs(os.Args); linked {
+		// A go command the pipeline started takes the environment as it is.
+		if cmd.PipelineStartedGo() {
+			return
+		}
+		// One started by hand has nobody to inherit from. It gets the proxy
+		// the pipeline uses, and it fetches no other toolchain: this
+		// executable is the only one, so a stock Go must not answer instead.
+		os.Setenv("GOTOOLCHAIN", "local")
+		configureGoEnv()
 		return
 	}
 

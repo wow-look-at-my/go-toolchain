@@ -187,7 +187,7 @@ runs:
       run: |
         set -euo pipefail
         # The go-toolchain just installed, so every host generates the same bytes and the shared cache keeps hitting.
-        go() { GO_TOOLCHAIN_LINKED_GO=1 go-toolchain go "$@"; }
+        go() { go-toolchain go "$@"; }
         for pkg in \
           golang.org/x/tools/cmd/stringer@v0.49.0 \
           golang.org/x/tools/cmd/goyacc@v0.49.0 \
