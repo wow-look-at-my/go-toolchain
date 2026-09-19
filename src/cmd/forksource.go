@@ -11,13 +11,13 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// The gosmopolitan checkout this module builds against. The underscore hides it from the go tool's ./... walk.
+// forkSubmoduleDir holds the toolchain source. The underscore hides the fork's corpus from "./...".
 const forkSubmoduleDir = "_gosmopolitan"
 
 // forkModulePath names the fork's repository for the branch lookup.
 const forkModulePath = "github.com/wow-look-at-my/gosmopolitan"
 
-// forkCommit is the gosmopolitan commit this binary links, stamped by the link that built it.
+// forkCommit is the gosmopolitan commit this binary links, stamped at link time.
 var forkCommit string
 
 // forkCommitVar is the linker's name for forkCommit.
@@ -78,7 +78,7 @@ func syncForkSource(r runner.CommandRunner) (string, error) {
 	return want, refreshWasmExec()
 }
 
-// forkHeaders are the assembly headers cmd/dist installs under pkg/include, which a pristine checkout lacks.
+// forkHeaders are the assembler's -I headers that cmd/dist, not the checkout, provides.
 var forkHeaders = []string{"textflag.h", "funcdata.h", "asm_ppc64x.h", "asm_amd64.h", "asm_riscv64.h"}
 
 // installForkHeaders copies the runtime's headers into the checkout's
