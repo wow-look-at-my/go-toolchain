@@ -90,12 +90,9 @@ func linkGoToSelf(exe string) (string, error) {
 		sum := sha256.Sum256([]byte(exe))
 		name = hex.EncodeToString(sum[:8])
 	}
-	// The link sits in a bin subdirectory so the directory above it is a
-	// GOROOT-shaped tree. A generator that a dependency owns starts go by
-	// name and lets the go command derive GOROOT from its own path, then
-	// runs $GOROOT/bin/go. With the link directly in dir that path is
-	// <dir>/go/bin/go, and <dir>/go is the link itself, so the exec fails
-	// with ENOTDIR and takes the whole generate step with it.
+	// bin/, so the directory above is GOROOT-shaped: a dependency's generator
+	// derives GOROOT from go's own path and runs $GOROOT/bin/go. Directly in
+	// dir that is <dir>/go/bin/go, and <dir>/go IS the link -- ENOTDIR.
 	dir := filepath.Join(base, "go-toolchain-go-"+name)
 	binDir := filepath.Join(dir, "bin")
 	if err := os.MkdirAll(binDir, 0o777); err != nil {

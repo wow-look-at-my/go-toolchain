@@ -172,10 +172,7 @@ func TestEnsureGoVersionLinksItselfAsGoAndPinsGOTOOLCHAIN(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, exe, link)
 
-	// A dependency's generator starts go by name and lets the go command
-	// derive GOROOT from its own path, then runs $GOROOT/bin/go. That path
-	// has to be the link, so the directory holding it must be named bin and
-	// the tree above it must be GOROOT-shaped.
+	// A generator derives GOROOT from go's own path and runs $GOROOT/bin/go.
 	assert.Equal(t, "bin", filepath.Base(goLinkDir), "the link directory is a GOROOT's bin")
 	derived := filepath.Dir(goLinkDir)
 	info, err := os.Stat(filepath.Join(derived, "bin", "go"))
