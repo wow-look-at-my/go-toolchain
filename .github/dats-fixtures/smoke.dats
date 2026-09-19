@@ -8,13 +8,10 @@
 # command prints the APE's answer and `uname -s` on one line, and the pattern
 # matches only the combinations that agree.
 #
-# Every leg runs it SANDBOXED, like every other suite. The pipeline test drives
-# go-toolchain, whose own dats phase sandboxes the agent-output-guard fixture it
-# stages, so that phase resolves a backend inside this one -- a nested sandbox,
-# not an opt-out. Turning isolation off to dodge the nesting is not available
-# here and must not be reintroduced: the run-starter owns that decision, and the
-# suites exist to prove the shipped artifact behaves under the isolation a
-# consumer gets.
+# Every leg runs it SANDBOXED, like every other suite. Turning isolation off is
+# not available here and must not be reintroduced: the run-starter owns that
+# decision, and the suites exist to prove the shipped artifact behaves under the
+# isolation a consumer gets.
 #
 # The APE is copied under an .exe name on every host. NT needs the suffix, a
 # posix host does not care, and one name is what keeps this file host-agnostic.
@@ -57,7 +54,7 @@ tests:
 			- "Usage:"
 
 	# What the APE detects decides every host-specific choice it makes: the
-	# buildhost slot, the fork's bin/go suffix, the guard's classifier. GUESSED
+	# buildhost slot and the fork's bin/go suffix among them. GUESSED
 	# means the measurement failed and the fallback answered, which reads
 	# identically until something breaks. The pattern accepts only an answer
 	# that agrees with the shell's own name for this host.
@@ -75,12 +72,9 @@ tests:
 
 	# The whole pipeline, driven by the APE, in a synthetic consumer module:
 	# tidy resolves testify, vet type-checks, the test runs, the build writes a
-	# binary. The module also carries the agent-output-guard fixture, which
-	# go-toolchain's own dats phase then runs sandboxed against the copies
-	# staged beside it. The harness is an APE too, so one copy serves linux
-	# and darwin.
+	# binary.
 	- desc: the full pipeline runs in a tiny module on this host
-	  cmd: 'mkdir -p "$HOME"; cd "$(dirname {inputs.go.mod})"; chmod +x ./gt-under-test.exe ./socketharness; {shared.gt-ape.exe}'
+	  cmd: 'mkdir -p "$HOME"; cd "$(dirname {inputs.go.mod})"; chmod +x ./gt-under-test.exe; {shared.gt-ape.exe}'
 	  timeout: 20m
 	  inputs:
 		env:
@@ -98,8 +92,6 @@ tests:
 			CI: ""
 		copy:
 			gt-under-test.exe: ../../dist/go-toolchain
-			socketharness: ../../harness/socketharness
-			dats/agent-output-guard.dats: agent-output-guard.dats
 		files:
 			go.mod: |
 				module example.com/apesmoke
@@ -138,20 +130,15 @@ tests:
 		stdout:
 			- "Build successful"
 
-	# The guard on the HOST, where the answer differs by host and each answer
-	# is correct: a host whose descriptors it can classify refuses a captured
-	# run, and a host it cannot see on says so instead of allowing silently.
-	# Darwin is the second kind under dats: naming a pipe's reader there costs
-	# an lsof and a ps on other pids, which seatbelt denies, so the BLIND
-	# banner is the answer that stands in for the refusal. Pairing with uname
-	# is what keeps this a single test: an INOPERATIVE banner on Linux, or a
-	# silent allow anywhere, fails.
-	- desc: the agent output guard answers for the host it detects
-	  cmd: 'mkdir -p {outputs.rundir}; cd {outputs.rundir}; out=$(env CLAUDECODE=1 {shared.gt-ape.exe} 2>&1); printf "%s|%s\n" "$(uname -s)" "$(printf "%s" "$out" | tr "\n" " ")"'
+	# A directory that is neither a module nor a suite tree is the shipped
+	# artifact's own refusal, and it has to arrive before any toolchain is
+	# fetched for it. Pairing with uname keeps this one test on every host.
+	- desc: the APE names both halves where there is nothing to build
+	  cmd: 'mkdir -p {outputs.rundir}; cd {outputs.rundir}; out=$({shared.gt-ape.exe} 2>&1); printf "%s|%s\n" "$(uname -s)" "$(printf "%s" "$out" | tr "\n" " ")"'
 	  timeout: 5m
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
 		stdout:
-			0: "^(Linux\\|.*refused to run|Darwin\\|.*(refused to run|guard is BLIND)|(MINGW|MSYS|CYGWIN).*\\|.*INOPERATIVE on this windows host)"
+			0: "^(Linux|Darwin|MINGW|MSYS|CYGWIN).*\\|.*no go.mod and no dats/ suites found"
