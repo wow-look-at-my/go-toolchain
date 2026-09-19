@@ -31,14 +31,6 @@ There is deliberately no flag that bypasses the check. A skip that fires when so
 
 Still untracked: a file a test reads at run time that lives outside `testdata` and under no `//go:embed` directive.
 
-## The agent output guard
-
-`claudeguard.go` (+ `claudeguard_proc.go` / `claudeguard_tty_*.go` / `claudeguard_other.go`): the root `PersistentPreRunE` aborts with exit 1 (deleting the module's build outputs) when go-toolchain runs under an AI coding agent AND its stdout is hidden.
-
-WHICH agents, and how to spot one, is `github.com/wow-look-at-my/is-this-an-agent`, not this repo. Add an agent there.
-
-Unconditional, no opt-out. `cacheprog` and `version` are exempt because neither prints a build result. `install`/`release` skip only the build cache. See `docs/AGENT-OUTPUT-GUARD.md` for the roster, the stdout classifier and the `linux||cosmo` build-tag requirement.
-
 ## cacheprog installs its logger first
 
 `runCacheProg` (`cacheprog.go`) installs the stderr-only logger (`logger.InitSubprocess`) as its FIRST action, BEFORE config parsing, because the subprocess's stdout is the GOCACHEPROG protocol channel cmd/go parses.
