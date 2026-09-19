@@ -39,7 +39,6 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 - **Buildhost publishing** — CI publishes binaries to [buildhost](https://pazer.build) over OIDC, downloadable as raw binary, tar.gz, deb, Homebrew, npm or OCI.
 - **Background update check** — a non-blocking check warns once when this binary is behind the latest published release. It never updates itself.
 - **Build outputs only survive a green run** — `build/<target>` is deleted before the run, and again if it fails. See [docs/BUILD-OUTPUTS.md](docs/BUILD-OUTPUTS.md).
-- **Agent output guard** — under an AI coding agent, go-toolchain refuses to run when its output is hidden by a pipe, redirect or capture. See [docs/AGENT-OUTPUT-GUARD.md](docs/AGENT-OUTPUT-GUARD.md).
 
 ## GitHub Action Usage
 
@@ -206,7 +205,7 @@ Debug output goes to stderr and info to stdout. Warnings and errors become `::wa
 - [docs/BUILD-OUTPUTS.md](docs/BUILD-OUTPUTS.md) — when `build/` artifacts are deleted
 - [docs/ACTION.md](docs/ACTION.md) — the composite GitHub Action
 - [docs/CI.md](docs/CI.md) — this repo's own CI workflow
-- [docs/AGENT-OUTPUT-GUARD.md](docs/AGENT-OUTPUT-GUARD.md), [docs/WARNINGS-GATE.md](docs/WARNINGS-GATE.md), [docs/BUILDHOST-MANIFEST.md](docs/BUILDHOST-MANIFEST.md)
+- [docs/WARNINGS-GATE.md](docs/WARNINGS-GATE.md), [docs/BUILDHOST-MANIFEST.md](docs/BUILDHOST-MANIFEST.md)
 
 ## Development
 
