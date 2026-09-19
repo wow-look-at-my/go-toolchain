@@ -4,7 +4,7 @@ A binary in `build/` means one thing: the run that produced it succeeded. To kee
 
 - **before the pipeline starts**, so a failure at any phase — or a crash, or a kill — leaves nothing runnable behind.
 - **when the run fails after the build phase already wrote them** (a red dats suite, the coverage or warnings gate).
-- **when the agent output guard refuses to run**, or when the Go bootstrap fails before the pipeline is reached.
+- **when the Go bootstrap fails** before the pipeline is reached.
 
 Only the target's own artifacts are touched: the bare name (`<name>.exe` and the fat APE), every `<name>_…` shape the toolchain writes (`<name>_<goos>_<goarch>`, the wasm names, the `<name>_host` symlink), and the APE's `<name>.…` sidecar ELFs. `checksums.txt`, `wasm_exec.js`, `profile.json` and anything else in `build/` are left alone.
 
@@ -18,11 +18,11 @@ A binary at `build/<target>` is otherwise indistinguishable from one the current
 
 1. `clearBuildOutputs` before any phase runs — `runWithRunner` (root, per module) and the top of `runReleaseWithRunner` (matrix/release), so a failure anywhere, a crash, or a kill leaves nothing runnable.
 2. `discardBuildOutputs` on the failure path — deferred on the named error return of `run()` (registered FIRST so it runs LAST, after every phase has printed).
-3. `discardBuildOutputsFromCWD` on the two exits that never enter the pipeline — the agent output guard's abort (which also NAMES the deleted paths in its message. So the missing binary does not read as a different bug) and, via the exported `DiscardBuildOutputs`, main's bootstrap-failure exit.
+3. `discardBuildOutputsFromCWD` on the exit that never enters the pipeline — main's bootstrap-failure exit, via the exported `DiscardBuildOutputs`.
 
 What counts as an artifact is `isOutputArtifact`: the bare name (`<name>.exe` and the cosmo fat APE), any `<name>_…` (BinaryName's `<name>_<goos>_<goarch>[.exe]`, the wasm shapes, the `<name>_host` symlink), any `<name>.…` (the APE's sidecar ELFs), and the `.tmp-`-prefixed spelling of all.
 
 Discovery is a directory scan keyed on target NAME rather than a re-derivation of the platform matrix. So artifacts of a previous run's platform set go too. `clearBuildOutputs` records `{dir, names}` per module (`trackedOutputs`, absolute) so the failure path works from any cwd in a multi-module run. Removal failure is FATAL on the clear path (an undeletable binary is exactly the stale binary this prevents) and best-effort on the failure/abort paths (never mask the real error). The "Up to date, nothing to do" fast exit is unaffected — it fires in `PersistentPreRunE` before `run()`. And it means the last run succeeded with its outputs intact. No flag or env var disables any of this.
 
-NOTE for dats suites: dats runs commands in the module root. So a suite test that execs a pipeline command must `cd "$(mktemp -d)"` first or it deletes the binaries the pipeline just built (this bit `dats/cli.dats`'s guard test — see `dats/README.md`).
+NOTE for dats suites: dats runs commands in the module root. A suite test that execs a pipeline command must first `cd` into its own `{outputs.X}` directory. Otherwise it deletes the binaries the pipeline just built (see `dats/README.md`).
 
