@@ -9,7 +9,7 @@ import (
 	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
-	"github.com/wow-look-at-my/slopfix/commentnumbers"
+	"github.com/wow-look-at-my/slopfix/commentfix"
 )
 
 // commentScanSkipDirs hold text nobody here authored.
@@ -43,12 +43,12 @@ func runCommentScanPhase(root string) {
 // whether it changed. A cut sentence is named, because the repair threw prose
 // away and the author is the only a single who can put the meaning back.
 func repairCommentNumbers(path, src string) bool {
-	fixed := commentnumbers.Fix(path, src)
+	fixed := commentfix.Fix(path, src)
 	if !fixed.Changed {
 		// Nothing swapped. A finding here is a single the repair does not cover.
 		for _, hit := range commentNumberFindings(path, src) {
 			logger.WarnFile(path, "%s:%d:%d: %q is a number in a comment: %s",
-				path, hit.Line, hit.Col, hit.Number, commentnumbers.Remedy)
+				path, hit.Line, hit.Col, hit.Number, commentfix.Remedy)
 		}
 		return false
 	}
@@ -69,10 +69,10 @@ func repairCommentNumbers(path, src string) bool {
 
 // commentNumberFindings keeps a finding per line rather than per number,
 // because the repair is a rewrite of the line whatever it counts.
-func commentNumberFindings(path, src string) []commentnumbers.Hit {
+func commentNumberFindings(path, src string) []commentfix.Hit {
 	seen := set.New[int]()
-	var out []commentnumbers.Hit
-	for _, hit := range commentnumbers.Check(path, src) {
+	var out []commentfix.Hit
+	for _, hit := range commentfix.Check(path, src) {
 		if seen.Contains(hit.Line) {
 			continue
 		}
@@ -98,7 +98,7 @@ func commentScanFiles(root string) []string {
 			}
 			return nil
 		}
-		if !commentnumbers.Supported(path) {
+		if !commentfix.Supported(path) {
 			return nil
 		}
 		if info, err := d.Info(); err == nil && info.Size() > commentScanMaxFileBytes {
