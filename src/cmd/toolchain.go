@@ -90,17 +90,15 @@ func linkGoToSelf(exe string) (string, error) {
 		sum := sha256.Sum256([]byte(exe))
 		name = hex.EncodeToString(sum[:8])
 	}
-	// bin/, so the tree above is GOROOT-shaped for a dependency's generator.
 	dir := filepath.Join(base, "go-toolchain-go-"+name)
-	binDir := filepath.Join(dir, "bin")
-	if err := os.MkdirAll(binDir, 0o777); err != nil {
+	if err := os.MkdirAll(dir, 0o777); err != nil {
 		return "", err
 	}
-	link := filepath.Join(binDir, "go"+hostExeSuffix())
+	link := filepath.Join(dir, "go"+hostExeSuffix())
 	if linksTo(link, exe) {
-		return binDir, nil
+		return dir, nil
 	}
-	fresh := filepath.Join(binDir, fmt.Sprintf(".go-%d%s", os.Getpid(), hostExeSuffix()))
+	fresh := filepath.Join(dir, fmt.Sprintf(".go-%d%s", os.Getpid(), hostExeSuffix()))
 	if err := placeLink(exe, fresh); err != nil {
 		return "", err
 	}
@@ -108,7 +106,7 @@ func linkGoToSelf(exe string) (string, error) {
 		os.Remove(fresh)
 		return "", fmt.Errorf("installing the go link at %s: %w", link, err)
 	}
-	return binDir, nil
+	return dir, nil
 }
 
 // linksTo reports whether name resolves to the file at exe.
@@ -148,23 +146,9 @@ func useSelfAsPipelineToolchain(exe, linkDir, goroot string) {
 	activeGoroot = goroot
 	goLinkDir = linkDir
 	os.Setenv("PATH", pathWithFirst(linkDir, os.Getenv("PATH"), hostos.GOOS()))
-	// $GOROOT/bin/go has to resolve for a child, and goroot is this executable.
-	os.Setenv("GOROOT", gorootForChildren(goroot, linkDir))
+	os.Setenv("GOROOT", goroot)
 	os.Setenv("GOTOOLCHAIN", "local")
 	os.Setenv(linkedGoEnv, "1")
-}
-
-// gorootForChildren answers the GOROOT a child process gets: goroot when it
-// is a directory, and the link tree above linkDir when goroot is this
-// executable.
-func gorootForChildren(goroot, linkDir string) string {
-	if fi, err := os.Stat(goroot); err == nil && fi.IsDir() {
-		return goroot
-	}
-	if filepath.Base(linkDir) != "bin" {
-		return goroot
-	}
-	return filepath.Dir(linkDir)
 }
 
 // pathWithFirst puts dir ahead of rest, with the list separator of hostGOOS
@@ -185,13 +169,8 @@ func removeGoLink() {
 	if goLinkDir == "" {
 		return
 	}
-	// goLinkDir is the bin subdirectory, so the tree to drop is its parent.
-	root := goLinkDir
-	if filepath.Base(root) == "bin" {
-		root = filepath.Dir(root)
-	}
-	if err := os.RemoveAll(root); err != nil {
-		logger.Debug("go link: leaving %s behind: %v", root, err)
+	if err := os.RemoveAll(goLinkDir); err != nil {
+		logger.Debug("go link: leaving %s behind: %v", goLinkDir, err)
 	}
 	goLinkDir = ""
 }
