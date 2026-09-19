@@ -150,9 +150,28 @@ func useSelfAsPipelineToolchain(exe, linkDir, goroot string) {
 	activeGoroot = goroot
 	goLinkDir = linkDir
 	os.Setenv("PATH", pathWithFirst(linkDir, os.Getenv("PATH"), hostos.GOOS()))
-	os.Setenv("GOROOT", goroot)
+	// A child that resolves the toolchain as $GOROOT/bin/go needs GOROOT to
+	// be a directory. Outside this module goroot is this executable, which
+	// carries the standard library inside itself, so the env var gets the
+	// link tree instead: its bin/go is this same binary, and nothing reads a
+	// src/ or pkg/ out of it. activeGoroot keeps the real value for the
+	// self-build, which does compile against a checkout.
+	os.Setenv("GOROOT", gorootForChildren(goroot, linkDir))
 	os.Setenv("GOTOOLCHAIN", "local")
 	os.Setenv(linkedGoEnv, "1")
+}
+
+// gorootForChildren answers the GOROOT a child process gets: goroot when it
+// is a directory, and the link tree above linkDir when goroot is this
+// executable.
+func gorootForChildren(goroot, linkDir string) string {
+	if fi, err := os.Stat(goroot); err == nil && fi.IsDir() {
+		return goroot
+	}
+	if filepath.Base(linkDir) != "bin" {
+		return goroot
+	}
+	return filepath.Dir(linkDir)
 }
 
 // pathWithFirst puts dir ahead of rest, with the list separator of hostGOOS

@@ -164,7 +164,11 @@ func TestEnsureGoVersionLinksItselfAsGoAndPinsGOTOOLCHAIN(t *testing.T) {
 
 	require.NoError(t, EnsureGoVersion())
 
-	assert.Equal(t, exe, os.Getenv("GOROOT"), "outside this module the executable carries the standard library")
+	// The executable carries the standard library, so activeGoroot names it.
+	// A child resolving $GOROOT/bin/go needs a directory, so the env var gets
+	// the link tree, whose bin/go is that same executable.
+	assert.Equal(t, exe, activeGoroot, "outside this module the executable carries the standard library")
+	assert.Equal(t, filepath.Dir(goLinkDir), os.Getenv("GOROOT"))
 	assert.Equal(t, "local", os.Getenv("GOTOOLCHAIN"))
 	assert.Equal(t, []string{exe, "go"}, activeGoCmd)
 	assert.True(t, strings.HasPrefix(os.Getenv("PATH"), goLinkDir), "the go link must come first, or the host's own go wins")
