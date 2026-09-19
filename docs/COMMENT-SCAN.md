@@ -33,16 +33,6 @@ It runs on its own goroutine, beside the dependency resolution, `go mod tidy` an
 
 A finding it cannot repair is a defect in slopfix rather than a message for the author. The repair covers every number the rule reports. So the phase warns only when the rule and its repair have come apart.
 
-## Where it runs, and when
-
-The phase is `src/cmd/commentscanphase.go`. It is a start and a join around `commentfix.FixTree`. Nothing about comments is decided here.
-
-It starts only once `findGoModules` has answered. A repair is a write. A run begun in a directory that is not a module has no business rewriting whatever prose it finds there. A tree carrying `dats/` suites and no `go.mod` therefore gets no sweep at all.
-
-It runs on its own goroutine, beside the dependency resolution, `go mod tidy` and `go generate`. Each repaired file is renamed into place, so a reader beside the sweep sees a whole file either way. The test phase joins the sweep before vet, which rewrites the same files. The up-to-date path joins it before the build.
-
-A finding it cannot repair is a defect in slopfix rather than a message for the author. The repair covers every number the rule reports. So the phase warns only when the rule and its repair have come apart.
-
 ## What is scanned
 
 The walk is slopfix's, in `commentfix.TreeFiles`. The `slopfix comments` command reads the same list. It starts at the repository root, not at a module. It skips a hidden directory, `vendor`, `node_modules`, `testdata`, `build`, and any file above a megabyte.
