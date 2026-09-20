@@ -4,14 +4,14 @@ import (
 	"time"
 
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
-	"github.com/wow-look-at-my/slopfix"
+	"github.com/wow-look-at-my/slopfix/commentfix"
 )
 
 // commentScan is the comment repair, running beside phases that do not
 // read it. Depth: docs/COMMENT-SCAN.md
 type commentScan struct {
 	done   chan struct{}
-	result slopfix.TreeRepair
+	result commentfix.TreeResult
 	took   time.Duration
 }
 
@@ -26,7 +26,7 @@ func startCommentScan(root string) *commentScan {
 	start := time.Now()
 	go func() {
 		defer close(scan.done)
-		scan.result = slopfix.FixTree(root)
+		scan.result = commentfix.FixTree(root)
 		scan.took = time.Since(start)
 	}()
 	return scan
@@ -59,11 +59,8 @@ func (c *commentScan) report() {
 	// An ste finding has no repair by design, so these are what the sweep
 	// leaves for the author rather than a sign the rule and its repair parted.
 	for _, finding := range result.Findings {
-		logger.WarnFile(finding.Path, "%s:%d: %s: %s", finding.Path, finding.Line, finding.Rule, finding.Detail)
-	}
-	// A tombstone no whole-line deletion resolves is the other such case.
-	for _, kept := range result.Kept {
-		logger.WarnFile(kept.Path, "%s:%d: %s: %s", kept.Path, kept.LineNo, kept.ID, kept.Tell)
+		logger.WarnFile(finding.Path, "%s:%d:%d: %q is a number in a comment: %s",
+			finding.Path, finding.Line, finding.Col, finding.Number, commentfix.Remedy)
 	}
 	if tl := GetTimeline(); tl != nil {
 		end := time.Now()
