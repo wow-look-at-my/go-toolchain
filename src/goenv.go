@@ -217,7 +217,11 @@ func configureGoEnv() {
 		if goproxy == "" && cfg.Proxy != "" {
 			goproxy = cfg.Proxy
 		}
-		if gosumdb == "" {
+		// The proxy's sumdb mirror is reachable through the proxy and nowhere
+		// else, so a caller that asked for GOPROXY=direct gets no sumdb from
+		// the config either. Every fetch then goes to the module's own source
+		// and the checks below disable the phone-home.
+		if gosumdb == "" && goproxy != "direct" && goproxy != "off" {
 			gosumdb = cfg.gosumdb()
 		}
 	}

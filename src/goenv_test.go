@@ -239,6 +239,28 @@ func TestConfigureGoEnv_GOProxyConfigExplicitOverride(t *testing.T) {
 	assert.Equal(t, "otherdb+def456 https://other-proxy.example.com/sumdb/otherdb", os.Getenv("GOSUMDB"))
 }
 
+// A caller asking for GOPROXY=direct has taken the proxy out of the fetch
+// path, and the config's sumdb mirror lives behind that proxy. So the mirror
+// goes with it and the phone-home stays off, rather than every fetch reaching
+// for a host the run already declined to use.
+func TestConfigureGoEnvDirectDropsTheConfiguredSumDB(t *testing.T) {
+	t.Serial()
+	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret","sumdb_key":"mydb+abc123+AKeyHere"}`
+	setHome(t, t.TempDir())
+	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
+	t.Setenv("GOPROXY", "direct")
+	t.Setenv("GOSUMDB", "")
+	t.Setenv("GONOSUMDB", "")
+	t.Setenv("GONOSUMCHECK", "")
+
+	configureGoEnv()
+
+	assert.Equal(t, "direct", os.Getenv("GOPROXY"))
+	assert.Empty(t, os.Getenv("GOSUMDB"))
+	assert.Equal(t, "*", os.Getenv("GONOSUMDB"))
+	assert.Equal(t, "*", os.Getenv("GONOSUMCHECK"))
+}
+
 func TestConfigureGoEnv_GOProxyConfigNoSumDBKey(t *testing.T) {
 	t.Serial()
 	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret"}`
