@@ -19,7 +19,7 @@ func checkDirtyInCI() error {
 	if err != nil {
 		return nil
 	}
-	files := strings.TrimSpace(string(out))
+	files := dropForkGitlink(strings.TrimSpace(string(out)))
 	if files == "" {
 		return nil
 	}
@@ -30,6 +30,26 @@ func checkDirtyInCI() error {
 			buildVersion, files, dirtyDiff(files)))
 	}
 	return fmt.Errorf("working tree is dirty in CI (run `go-toolchain` locally, review the diff, commit, and push)")
+}
+
+// dropForkGitlink removes the fork submodule's own status line. syncForkSource
+// puts the checkout on the fork branch named like this, or on its default
+// branch, so the gitlink moves whenever the fork does. That is the build
+// following the fork, never an uncommitted change, and the recorded commit is
+// only a starting point for the earliest clone. Every other dirty path survives.
+func dropForkGitlink(files string) string {
+	var kept []string
+	for line := range strings.SplitSeq(files, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if isForkSubmodulePath(fields[len(fields)-1]) {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
 }
 
 // refreshGitIndex re-stats the tracked files and drops the modified mark from
