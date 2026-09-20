@@ -388,7 +388,6 @@ jobs:
       - uses: ./
         with:
           binary: build/go-toolchain
-          autorelease: 'false'
           # A build of this module compiles the fork's standard library from its checkout, in passes. see docs/CI.md
           timeout: '30'
 
@@ -607,28 +606,13 @@ jobs:
         with:
           tests: .github/dats-fixtures/smoke.dats
 
-  publish:
+  # The `build` job publishes, because the action publishes every executable binary it builds. This job outlives it to drop the run's hand-offs once the gates have read them.
+  cleanup:
     needs: [identical, smoke]
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
       actions: write
-      deployments: write
-      artifact-metadata: write
     steps:
-      # Explicit name: multiple same-run hand-offs -- see smoke-linux.
-      - uses: actions/checkout@v7
-
-      - name: Download build outputs hand-off
-        uses: wow-look-at-my/actions@cache-download#latest
-        with:
-          name: go-build-build.broot
-          path: build/
-
-      - uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
-        with:
-          path: build
-
       - uses: wow-look-at-my/actions@cache-cleanup#latest
         if: always()
