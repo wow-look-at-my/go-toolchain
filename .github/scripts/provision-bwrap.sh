@@ -1,12 +1,5 @@
-#!/usr/bin/env bash Provisions bubblewrap on a Linux runner. Phases need it.
-# The dats phase sandboxes every suite command.
-#
-# So every Linux build needs a backend, not only a module with dats suites: a
-# module's own tree says nothing about what its dependencies generate. A host
-# where bwrap already works pays a probe. A host where it cannot work fails
-# here, with its own error, instead of degrading unnoticed.
-#
-# usage: provision-bwrap.sh
+#!/usr/bin/env bash
+# Provisions bubblewrap on a Linux runner. Phases need it.
 set -euo pipefail
 
 as_root() {
