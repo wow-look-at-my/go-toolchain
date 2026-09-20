@@ -107,11 +107,10 @@ func buildSelfPass(r runner.CommandRunner, job buildJob, goCmd []string, work st
 	return passJob.outputPath, nil
 }
 
-// blobWriter answers the go command that writes the standard library blob:
-// the fork checkout's own, when that build left one. A go command carrying an
-// embedded standard library answers no outside GOROOT, so it can list only
-// what it already carries, and a package it lacks stays lacking in every blob
-// it writes. The checkout reads the tree and lists all of it.
+// blobWriter answers the go command that writes the blob. It is the fork
+// checkout's own when that build left one. A go command carrying its own
+// standard library lists only what it carries. A package it lacks stays
+// lacking in every blob it writes. The checkout reads the whole tree.
 func blobWriter(goCmd []string, goroot string) []string {
 	forkGo := filepath.Join(goroot, "bin", "go")
 	if info, err := os.Stat(forkGo); err == nil && !info.IsDir() {
