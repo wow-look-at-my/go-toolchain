@@ -58,7 +58,8 @@ func goVersionCore(v string) string {
 	return v
 }
 
-// verifyGoToolchain loads "runtime" via goPath, catching a GOROOT that runs but cannot compile.
+// verifyGoToolchain loads "runtime" via goPath, catching a go command that runs and carries no
+// standard library it can resolve that package from.
 // GOTOOLCHAIN=local, an emptied GOFLAGS and a go.mod-free directory keep a downloaded toolchain
 // and the caller's own -race out of the answer.
 func verifyGoToolchain(goPath string) error {
