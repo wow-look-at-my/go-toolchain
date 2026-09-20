@@ -4,6 +4,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -250,6 +251,47 @@ func TestCheckFileCommittedByName_ManyFilesIndex(t *testing.T) {
 	require.NoError(t, os.WriteFile(src, []byte("package main\n\nfunc foo() {}\n"), 0644))
 	err := checkFileCommittedByName(src)
 	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "uncommitted changes")
+}
+
+// A linked worktree is where the org keeps a branch, at <repo>/.claude/worktrees/<branch>.
+// go-git v5 reads the wrong index for one, so a file added on the branch reads as
+// untracked and the autofix refuses a tree git itself calls clean. The verdict is
+// confirmed against the CLI, so this passes on a committed file.
+func TestCheckFileCommittedByName_LinkedWorktree(t *testing.T) {
+	t.Serial()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0644))
+	initGitRepo(t, dir)
+
+	tree := filepath.Join(dir, ".claude", "worktrees", "branch")
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+	run("worktree", "add", "-b", "branch", tree)
+
+	// A file that exists only on the branch is the case that failed.
+	added := filepath.Join(tree, "added.go")
+	require.NoError(t, os.WriteFile(added, []byte("package main\n\nfunc added() {}\n"), 0644))
+	cmd := exec.Command("git", "add", "added.go")
+	cmd.Dir = tree
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+	cmd = exec.Command("git", "commit", "-m", "add")
+	cmd.Dir = tree
+	out, err = cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+
+	assert.NoError(t, checkFileCommittedByName(added), "git reports this file clean")
+
+	// The control: a real edit is still caught.
+	require.NoError(t, os.WriteFile(added, []byte("package main\n\nfunc added() { _ = 1 }\n"), 0644))
+	err = checkFileCommittedByName(added)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "uncommitted changes")
 }
 

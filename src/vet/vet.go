@@ -438,11 +438,11 @@ func checkFileCommittedByName(filename string) error {
 	if err == nil {
 		return nil
 	}
-	// If go-git detected uncommitted changes, trust that result
-	if strings.Contains(err.Error(), "uncommitted changes") {
-		return err
-	}
-	// go-git failed for infrastructure reasons; fall back to git CLI
+	// A dirty verdict is confirmed against the git CLI before it stops the
+	// fix. go-git v5 reads the wrong index in a linked worktree, so every file
+	// added on the branch reads as untracked and the autofix never runs on a
+	// tree git itself calls clean. Trusting the library over git turned that
+	// into a refusal with no way past it.
 	return checkFileCommittedExec(filename)
 }
 
