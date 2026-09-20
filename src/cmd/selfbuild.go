@@ -91,7 +91,7 @@ func buildSelfPass(r runner.CommandRunner, job buildJob, goCmd []string, work st
 		return "", err
 	}
 	blob := filepath.Join(dir, "std.blob")
-	if err := writeStdBlob(r, goCmd, job.goroot, blob); err != nil {
+	if err := writeStdBlob(r, blobWriter(goCmd, job.goroot), job.goroot, blob); err != nil {
 		return "", err
 	}
 	passJob := job
@@ -105,6 +105,19 @@ func buildSelfPass(r runner.CommandRunner, job buildJob, goCmd []string, work st
 	}
 	logger.Info("  pass %d: %s, standard library %s", pass, fileSizeText(passJob.outputPath), fileSizeText(blob))
 	return passJob.outputPath, nil
+}
+
+// blobWriter answers the go command that writes the standard library blob:
+// the fork checkout's own, when that build left one. A go command carrying an
+// embedded standard library answers no outside GOROOT, so it can list only
+// what it already carries, and a package it lacks stays lacking in every blob
+// it writes. The checkout reads the tree and lists all of it.
+func blobWriter(goCmd []string, goroot string) []string {
+	forkGo := filepath.Join(goroot, "bin", "go")
+	if info, err := os.Stat(forkGo); err == nil && !info.IsDir() {
+		return []string{forkGo}
+	}
+	return goCmd
 }
 
 // writeStdBlob runs the go command's embedstd tool, which compiles the
