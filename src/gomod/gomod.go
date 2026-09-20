@@ -24,6 +24,13 @@ func ReadModulePath(root string) string {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "module ") {
+			// A trailing comment is not part of the path. The generate
+			// approval rides on this line, so taking the rest of it whole
+			// hands every consumer a path with a space in it, and go then
+			// refuses each package under it as a malformed import path.
+			if at := strings.Index(line, "//"); at >= 0 {
+				line = line[:at]
+			}
 			return strings.TrimSpace(strings.TrimPrefix(line, "module"))
 		}
 	}
