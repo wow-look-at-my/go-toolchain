@@ -255,9 +255,8 @@ func TestCheckFileCommittedByName_ManyFilesIndex(t *testing.T) {
 }
 
 // A linked worktree is where the org keeps a branch, at <repo>/.claude/worktrees/<branch>.
-// go-git v5 reads the wrong index for one, so a file added on the branch reads as
-// untracked and the autofix refuses a tree git itself calls clean. The verdict is
-// confirmed against the CLI, so this passes on a committed file.
+// go-git v5 calls a committed file there dirty where git calls the tree clean, so the
+// verdict is confirmed against the CLI and a committed file passes.
 func TestCheckFileCommittedByName_LinkedWorktree(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()

@@ -438,11 +438,12 @@ func checkFileCommittedByName(filename string) error {
 	if err == nil {
 		return nil
 	}
-	// A dirty verdict is confirmed against the git CLI before it stops the
-	// fix. go-git v5 reads the wrong index in a linked worktree, so every file
-	// added on the branch reads as untracked and the autofix never runs on a
-	// tree git itself calls clean. Trusting the library over git turned that
-	// into a refusal with no way past it.
+	// A dirty verdict is confirmed against the git CLI before it stops the fix.
+	// In a linked worktree go-git v5 calls a committed file dirty where git
+	// calls the whole tree clean, and taking the library's word for it refused
+	// the autofix with no way past: committing cannot clear a verdict about a
+	// file that is already committed. Which files it misreads is known, and why
+	// is not, so git decides.
 	return checkFileCommittedExec(filename)
 }
 
