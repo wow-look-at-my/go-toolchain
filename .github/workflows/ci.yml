@@ -28,7 +28,7 @@ jobs:
   host-build:
     runs-on: ubuntu-latest
     steps:
-      # No persisted credentials: the header checkout leaves in the workspace names THIS repository, so every git question about another one is asked as the wrong identity.
+      # No persisted credentials: the header checkout leaves in the workspace names THIS repository, so every git question about another is asked as the wrong identity.
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
@@ -93,7 +93,7 @@ jobs:
             echo "GONOSUMCHECK=*"
           } >> "$GITHUB_ENV"
 
-      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
+      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure.
       - name: Install the generators
         run: |
           set -euo pipefail
@@ -113,15 +113,15 @@ jobs:
           export PATH="$goroot_bin:$PATH"
           # No GOOS, GOARCH or GOBIN: this go is an APE targeting cosmo, which is what it embeds, and cmd/go reads a cosmo build as a cross-compile because the host it RUNS on is not cosmo. A cross-compile refuses GOBIN and lands in a per-target subdirectory of GOPATH/bin.
           genbin="$("$go" env GOPATH)/bin/$("$go" env GOOS)_$("$go" env GOARCH)"
-          # GITHUB_PATH reaches the NEXT step, and stringer is wanted by this one: golang.org/x/text names it in a directive the fetch runs, so it has to be found the iteration after it is built.
+          # GITHUB_PATH reaches the NEXT step, and stringer is wanted by this: golang.org/x/text names it in a directive the fetch runs, so it has to be found the iteration after it is built.
           mkdir -p "$genbin"
           export PATH="$genbin:$PATH"
-          # The org's own x/tools, which is what gopls and the analyzers here already build against. It keeps the upstream module path, and `go install pkg@version` honors no replacement, so a checkout is how this fork's copy gets built rather than upstream's. Building from a directory also asks the module cache for nothing, so the generator that lives in the module needing it never has to complete that module first.
+          # The org's own x/tools, which is what gopls and the analyzers here already build against. It keeps the upstream module path, and `go install pkg@version` honors no replacement, so a checkout is how this fork's copy gets built rather than upstream's. Building from a directory also asks the module cache for nothing, so the generator that lives in the module needing it never has to complete that module earliest.
           git clone --quiet --depth 1 https://github.com/wow-look-at-my/gosmopolitan_tools "$RUNNER_TEMP/orgtools"
           for gen in stringer goyacc; do
             (cd "$RUNNER_TEMP/orgtools" && "$go" build -o "$genbin/$gen" "./cmd/$gen")
           done
-          # gotext comes from a checkout for the reason stringer does, and for one of its own: completing x/text runs that module's cmd/gotext/examples/extract directive, which starts gotext -- the program this install exists to produce.
+          # gotext comes from a checkout for the reason stringer does, and for any of its own: completing x/text runs that module's cmd/gotext/examples/extract directive, which starts gotext -- the program this install exists to produce.
           git clone --quiet --depth 1 --branch v0.42.0 https://github.com/golang/text "$RUNNER_TEMP/xtext"
           (cd "$RUNNER_TEMP/xtext" && "$go" build -o "$genbin/gotext" ./cmd/gotext)
           for pkg in \
@@ -190,7 +190,7 @@ jobs:
       - name: Publish the build profile
         uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish-site@master
         with:
-          # A namespaced child of this repo's project. OIDC authorizes that name; a sibling name is a 404.
+          # A namespaced child of this repo's project.
           project: go-toolchain/profile
           branch: ${{ github.ref_name }}
           source_dir: ${{ runner.temp }}/profile-site
@@ -199,7 +199,7 @@ jobs:
       - name: Cache validation (second build)
         # build/ in THIS job is the fat APE. A shell starts it, which is the only way an APE starts --... see docs/CI.md
         env:
-          # The second build re-invokes go-toolchain, which also submits the dependency snapshot; give... see docs/CI.md
+          # The next build re-invokes go-toolchain, which also submits the dependency snapshot; give... see docs/CI.md
           GITHUB_TOKEN: ${{ github.token }}
           GOCACHEDEBUG: "1"
           GOCACHELOG: ${{ runner.temp }}/gocache.log
@@ -212,7 +212,7 @@ jobs:
           go-toolchain
           elapsed=$(( SECONDS - start ))
           echo "Second build took ${elapsed}s"
-          # A warm build of this module still links its APE with the standard library three times, once per self-build pass. see docs/CI.md
+          # see docs/CI.md
           if [ "$elapsed" -gt 600 ]; then
             echo "::error::Second build took ${elapsed}s (limit: 600s)"
             exit 1
@@ -228,7 +228,7 @@ jobs:
           name: host-go-toolchain
           path: build/go-toolchain
 
-      # Each generator is an APE, so one build of it runs on every host. The jobs that follow take these rather than compiling their own: this is the only host whose linked go can type-check against its embedded standard library, and it is the point of an APE that they need not.
+      # Each generator is an APE, so a single build of it runs on every host. The jobs that follow take these rather than compiling their own: this is the only host whose linked go can type-check against its embedded standard library, and it is the point of an APE that they need not.
       - name: Gather the generator APEs
         run: |
           set -euo pipefail
@@ -299,12 +299,12 @@ jobs:
           mkdir -p "$genbin"
           # The fork's own go goes on PATH beside it: a dependency's generate directive starts `go` by name, and the runner's own go answers a GOROOT this one owns.
           export PATH="$genbin:$PWD/_gosmopolitan/bin:$PATH"
-          # The org's own x/tools, which is what gopls and the analyzers here already build against. It keeps the upstream module path, and `go install pkg@version` honors no replacement, so a checkout is how this fork's copy gets built rather than upstream's. Building from a directory also asks the module cache for nothing, so the generator that lives in the module needing it never has to complete that module first.
+          # The org's own x/tools, which is what gopls and the analyzers here already build against. It keeps the upstream module path, and `go install pkg@version` honors no replacement, so a checkout is how this fork's copy gets built rather than upstream's. Building from a directory also asks the module cache for nothing, so the generator that lives in the module needing it never has to complete that module earliest.
           git clone --quiet --depth 1 https://github.com/wow-look-at-my/gosmopolitan_tools "$RUNNER_TEMP/orgtools"
           for gen in stringer goyacc; do
             (cd "$RUNNER_TEMP/orgtools" && "$go" build -o "$genbin/$gen" "./cmd/$gen")
           done
-          # gotext comes from a checkout for the reason stringer does, and for one of its own: completing x/text runs that module's cmd/gotext/examples/extract directive, which starts gotext -- the program this install exists to produce.
+          # gotext comes from a checkout for the reason stringer does, and for any of its own: completing x/text runs that module's cmd/gotext/examples/extract directive, which starts gotext -- the program this install exists to produce.
           git clone --quiet --depth 1 --branch v0.42.0 https://github.com/golang/text "$RUNNER_TEMP/xtext"
           (cd "$RUNNER_TEMP/xtext" && "$go" build -o "$genbin/gotext" ./cmd/gotext)
           for pkg in \
@@ -356,7 +356,6 @@ jobs:
     needs: host-build
     runs-on: ubuntu-latest
     steps:
-      # Same reason as host-build: a persisted credential for this repository answers for no other one.
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
@@ -378,7 +377,7 @@ jobs:
           name: host-go-toolchain
           path: build
 
-      # host-build built these, and each one is an APE, so this host runs them rather than compiling its own.
+      # host-build built these, and each is an APE, so this host runs them rather than compiling its own.
       - name: Take the generators host-build built
         uses: wow-look-at-my/actions@cache-download#latest
         with:
@@ -462,7 +461,7 @@ jobs:
           cp dist/go-toolchain "$RUNNER_TEMP/${{ matrix.gt }}"
           chmod +x "$RUNNER_TEMP/${{ matrix.gt }}"
 
-      # host-build built these, and each one is an APE, so darwin and NT run them rather than compiling their own. Only a linux host's linked go can type-check against its embedded standard library, and an APE is exactly what spares the others from needing to.
+      # host-build built these, and each is an APE, so darwin and NT run them rather than compiling their own. Only a linux host's linked go can type-check against its embedded standard library, and an APE is exactly what spares the others from needing to.
       - name: Take the generators host-build built
         uses: wow-look-at-my/actions@cache-download#latest
         with:
@@ -487,7 +486,7 @@ jobs:
           printf '%s\n' "$said" | head -1
           echo "$RUNNER_TEMP/generators" >> "$GITHUB_PATH"
 
-      # A dependency's generate directives run $GOROOT/bin/go, and this GOROOT is the fork checkout, where only a host that ran make.bash has one. The APE is that go command, so it goes there under that name.
+      # The APE is that go command, so it goes there under that name.
       - name: Put the go command where GOROOT looks for it
         shell: bash
         run: |
@@ -514,7 +513,7 @@ jobs:
           name: ape-${{ matrix.origin }}
           path: build/go-toolchain
 
-  # The smoke jobs run ONE host's APE on all three. That says what every host ships only if every... see docs/CI.md
+  # The smoke jobs run A single host's APE on each of them. That says what every host ships only if every... see docs/CI.md
   identical:
     needs: [build, build-everywhere, bootstrap-scratch]
     runs-on: ubuntu-latest
@@ -614,12 +613,12 @@ jobs:
       - name: Smoke suite
         uses: wow-look-at-my/dats@master
         env:
-          # The org proxy wants auth to look up a module it has never seen, and this job's throwaway module always is one. see docs/CI.md
+          # The org proxy wants auth to look up a module it has never seen, and this job's throwaway module always is a single see docs/CI.md
           GO_PROXY_CONFIG: ""
         with:
           tests: .github/dats-fixtures/smoke.dats
 
-  # The `build` job publishes, because the action publishes every executable binary it builds. This job outlives it to drop the run's hand-offs once the gates have read them.
+  # The `build` job publishes, because the action publishes every executable binary it builds. This job outlives it to drop the run's hand-offs a single time the gates have read them.
   cleanup:
     needs: [identical, smoke]
     runs-on: ubuntu-latest

@@ -1,7 +1,5 @@
-#!/usr/bin/env bash
-# Provisions bubblewrap on a Linux runner. Two phases need it. The dats phase
-# sandboxes every suite command. The go command confines the generate directive
-# of every dependency that carries one, and stops the build when it cannot.
+#!/usr/bin/env bash Provisions bubblewrap on a Linux runner. Phases need it.
+# The dats phase sandboxes every suite command.
 #
 # So every Linux build needs a backend, not only a module with dats suites: a
 # module's own tree says nothing about what its dependencies generate. A host
@@ -45,7 +43,6 @@ if ! command -v bwrap > /dev/null 2>&1; then
 	fi
 fi
 
-# Ubuntu 24.04 refuses an unprivileged user namespace unless this is off.
 as_root sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 > /dev/null 2>&1 || true
 
 if ! probe; then

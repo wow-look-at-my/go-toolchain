@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # buildhost-publish fails on a directory that holds nothing it can upload, so
-# the action asks this first. The rule is buildhost-publish's own: the portable
-# manifest, or a `<binary>_{os}_{arch}` name after .exe comes off.
+# the action asks this earliest. The rule is buildhost-publish's own: the
+# portable manifest, or a `<binary>_{os}_{arch}` name after .exe comes off.
 set -euo pipefail
 
 dir="${1:?usage: publishable-artifacts.sh <build dir>}"
