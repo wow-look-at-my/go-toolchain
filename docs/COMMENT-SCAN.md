@@ -21,7 +21,7 @@ The rule now lives in [`slopfix/commentfix`](https://github.com/wow-look-at-my/s
 
 It answers on a tree that does not build. A missing import, an unresolvable module, a syntax error in another package: none of them stop the report, because nothing here parses the language.
 
-It answers for every language. `commentnumbers` reads a comment by its delimiters rather than by a grammar. So a shell script, a workflow, a Dockerfile, a Rust file and a TypeScript file are all scanned. The analyzer only ever saw Go, and the stale prose in a `run:` script was never anybody's finding.
+It answers for every language. `commentfix` reads a comment by its delimiters rather than by a grammar. So a shell script, a workflow, a Dockerfile, a Rust file and a TypeScript file are all scanned. The analyzer only ever saw Go, and the stale prose in a `run:` script was never anybody's finding.
 
 ## Where it runs, and when
 
@@ -41,7 +41,7 @@ It skips a nested module too, whose text belongs to that module. The exception i
 
 It skips a git submodule on the same ground. This one carries no exception. A submodule's working tree is another repository's checkout. That repository writes the prose and takes the fix. Nothing here can repair a finding inside it. Git marks such a tree by writing `.git` as a FILE. The file holds a gitdir pointer, where an ordinary checkout keeps a directory. The skip reads that marker rather than a name. The nested-module predicate cannot stand in for it, because that one reads `go.mod`. A submodule of C, C++ or Rust carries none. A vendored driver or compiler tree is also where the findings run away with the whole warnings budget.
 
-A file whose extension `commentnumbers` has no comment syntax for is skipped rather than guessed at. A wrong guess reports a string literal as prose, and a rule nobody trusts is a rule nobody keeps.
+A file whose extension `commentfix` has no comment syntax for is skipped rather than guessed at. A wrong guess reports a string literal as prose, and a rule nobody trusts is a rule nobody keeps.
 
 ## What counts as a number
 
