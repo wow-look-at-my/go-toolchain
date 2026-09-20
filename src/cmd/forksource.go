@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -180,10 +181,43 @@ func checkoutFork(r runner.CommandRunner, commit string) error {
 }
 
 // updateForkSubmodules checks out the fork's own submodules, which cmd/go
-// builds in vendor mode from.
+// builds in vendor mode from, and then puts each org one on the head of the
+// branch it follows.
 func updateForkSubmodules(r runner.CommandRunner) error {
 	if _, err := gitOutput(r, "git", "-C", forkSubmoduleDir, "submodule", "update", "--init", "--recursive"); err != nil {
 		return fmt.Errorf("checking out gosmopolitan's submodules: %w", err)
+	}
+	return branchForkSubmodules(r)
+}
+
+// forkBranchScript is the fork's own answer to which commit an org submodule
+// stands at. The gitlink beside it is the fallback for a build that cannot
+// reach the remote.
+const forkBranchScript = "src/submodulebranch.bash"
+
+// branchForkSubmodules runs that script, naming this checkout's branch for it.
+// A pair of repositories developed in tandem carry the same branch name, and
+// the script falls back to the branch .gitmodules gives each submodule.
+//
+// A build that skips this step compiles the commit each gitlink names. The
+// fork's cmd/go is what those submodules become, so a stale one there is a
+// stale vet tool and a stale cache client in every binary this pipeline makes.
+func branchForkSubmodules(r runner.CommandRunner) error {
+	script := filepath.Join(forkSubmoduleDir, filepath.FromSlash(forkBranchScript))
+	if _, err := os.Stat(script); err != nil {
+		return fmt.Errorf("the fork checkout carries no %s: %w", forkBranchScript, err)
+	}
+	args := []string{script}
+	if branch := currentBranch(r); branch != "" {
+		args = append(args, branch)
+	}
+	proc, err := runner.Cmd("bash", args...).Run(r)
+	if err != nil {
+		return fmt.Errorf("running the fork's %s: %w", forkBranchScript, err)
+	}
+	io.Copy(io.Discard, proc.Stdout())
+	if err := proc.Wait(); err != nil {
+		return fmt.Errorf("running the fork's %s: %w", forkBranchScript, err)
 	}
 	return nil
 }
