@@ -210,8 +210,8 @@ func run(cmd *cobra.Command, args []string) (err error) {
 	startDir, _ := os.Getwd()
 
 	// Only now, and at an absolute root: the loop below chdirs as it sweeps.
-	activeCommentScan = startCommentScan(startDir)
-	defer waitForCommentScan()
+	activeRepair = startRepair(startDir)
+	defer waitForRepair()
 
 	// Create global trace for fine-grained events.
 	activeTrace = gotrace.NewTrace()
@@ -354,7 +354,7 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 	// asking that question again only re-runs a suite whose answer is on file.
 	// It is also the path that reaches the build with no coverage to report.
 	if treeUnchanged && !isRetry {
-		waitForCommentScan() // This path reaches no vet, so the sweep lands here.
+		waitForRepair() // This path reaches no vet, so the sweep lands here.
 		logger.Output("⇒ Tests and vet skipped: the tree has not changed since the last green run")
 		br, builtArtifacts, err := runBuildPhase(r, quiet)
 		if err != nil {
