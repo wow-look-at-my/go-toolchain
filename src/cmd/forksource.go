@@ -180,9 +180,6 @@ func checkoutFork(r runner.CommandRunner, commit string) error {
 	return nil
 }
 
-// updateForkSubmodules checks out the fork's own submodules, which cmd/go
-// builds in vendor mode from, and then puts each org one on the head of the
-// branch it follows.
 func updateForkSubmodules(r runner.CommandRunner) error {
 	if _, err := gitOutput(r, "git", "-C", forkSubmoduleDir, "submodule", "update", "--init", "--recursive"); err != nil {
 		return fmt.Errorf("checking out gosmopolitan's submodules: %w", err)
@@ -199,9 +196,7 @@ const forkBranchScript = "src/submodulebranch.bash"
 // A pair of repositories developed in tandem carry the same branch name, and
 // the script falls back to the branch .gitmodules gives each submodule.
 //
-// A build that skips this step compiles the commit each gitlink names. The
-// fork's cmd/go is what those submodules become, so a stale one there is a
-// stale vet tool and a stale cache client in every binary this pipeline makes.
+// A build that skips this step compiles the commit each gitlink names.
 func branchForkSubmodules(r runner.CommandRunner) error {
 	script := filepath.Join(forkSubmoduleDir, filepath.FromSlash(forkBranchScript))
 	if _, err := os.Stat(script); err != nil {

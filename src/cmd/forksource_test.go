@@ -13,9 +13,8 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// writeForkBranchScript puts a stand-in for the fork's own script under a fresh
-// directory and makes that directory the working one. The stand-in writes its
-// arguments to a file, which is what each test below reads.
+// The stand-in writes its arguments to a file, which is what each test below
+// reads.
 func writeForkBranchScript(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
