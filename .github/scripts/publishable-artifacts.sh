@@ -31,5 +31,10 @@ if [ "$publish" = true ]; then
 else
 	echo "publishable: no executable binary in $dir, nothing to publish"
 fi
-[ -n "${GITHUB_OUTPUT:-}" ] && echo "publish=$publish" >> "$GITHUB_OUTPUT"
-exit 0
+# The step output is how the answer reaches the job. A write that fails takes
+# the step with it, because a publish decision nobody records is a decision
+# nobody acts on. Outside a job there is no file, and the answer is the stdout
+# line above.
+if [ -n "${GITHUB_OUTPUT:-}" ]; then
+	echo "publish=$publish" >> "$GITHUB_OUTPUT"
+fi
