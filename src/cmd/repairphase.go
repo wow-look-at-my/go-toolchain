@@ -72,6 +72,6 @@ func (c *repairSweep) report() {
 	}
 	if tl := GetTimeline(); tl != nil {
 		end := time.Now()
-		tl.Record("comment scan", "comment-scan", end.Add(-c.took), end, false)
+		tl.Record("prose repair", "prose-repair", end.Add(-c.took), end, false)
 	}
 }
