@@ -397,13 +397,16 @@ jobs:
     needs: host-build
     strategy:
       matrix:
-        include:
-          - origin: darwin
-            runner: macos-latest
-            gt: gt-ape
-          # NT is off: it is the longest leg by far. Its entry named gt-ape.exe on windows-latest. waiver-expires: 2026-09-28
-    runs-on: ${{ matrix.runner }}
+        origin: [darwin, windows]
+        # NT is the longest leg by far, so it is excluded rather than built. Drop this exclude to build it again. waiver-expires: 2026-09-28
+        exclude:
+          - origin: windows
+    # An include that named the runner would come back past the exclude above, since include is processed after it, so both follow from origin here.
+    runs-on: ${{ matrix.origin == 'windows' && 'windows-latest' || 'macos-latest' }}
     timeout-minutes: 60
+    env:
+      # NT needs the suffix to exec what it copies.
+      GT_APE: ${{ matrix.origin == 'windows' && 'gt-ape.exe' || 'gt-ape' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -445,8 +448,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cp dist/go-toolchain "$RUNNER_TEMP/${{ matrix.gt }}"
-          chmod +x "$RUNNER_TEMP/${{ matrix.gt }}"
+          cp dist/go-toolchain "$RUNNER_TEMP/$GT_APE"
+          chmod +x "$RUNNER_TEMP/$GT_APE"
 
       # host-build built these, and each one is an APE, so darwin and NT run them rather than compiling their own. Only a linux host's linked go can type-check against its embedded standard library, and an APE is exactly what spares the others from needing to.
       - name: Take the generators host-build built
@@ -479,7 +482,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p _gosmopolitan/bin
-          cp "$RUNNER_TEMP/${{ matrix.gt }}" _gosmopolitan/bin/go
+          cp "$RUNNER_TEMP/$GT_APE" _gosmopolitan/bin/go
           chmod +x _gosmopolitan/bin/go
           if [ "$RUNNER_OS" = "Windows" ]; then
             cp _gosmopolitan/bin/go _gosmopolitan/bin/go.exe
@@ -492,7 +495,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          "$RUNNER_TEMP/${{ matrix.gt }}" matrix --no-benchmark
+          "$RUNNER_TEMP/$GT_APE" matrix --no-benchmark
 
       - name: Hand off this host's APE
         uses: wow-look-at-my/actions@cache-upload#latest
@@ -519,6 +522,12 @@ jobs:
         with:
           name: ape-darwin
           path: ape/darwin
+      # Skipped for as long as build-everywhere excludes the NT leg that uploads it. waiver-expires: 2026-09-28
+      - if: ${{ false }}
+        uses: wow-look-at-my/actions@cache-download#latest
+        with:
+          name: ape-windows
+          path: ape/windows
       # The APE a from-scratch bootstrap reached, with no release in its ancestry.
       - uses: wow-look-at-my/actions@cache-download#latest
         with:
@@ -542,7 +551,12 @@ jobs:
       # The cross-host pairs are the ones the fixture below actually compares, so a red run says which bytes moved rather than only that some did.
       - name: Where each host's APE differs from the linux one
         run: |
-          for host in darwin; do
+          for host in darwin windows; do
+            # A host whose leg is excluded uploaded nothing. The fixture below is what fails over a hand-off that should be here.
+            if [ ! -f "ape/$host/go-toolchain" ]; then
+              echo "=== no linux vs $host: that host handed off nothing"
+              continue
+            fi
             echo "=== linux vs $host"
             bash .github/scripts/explain-mismatch.sh ape/linux/go-toolchain "ape/$host/go-toolchain"
           done
@@ -571,8 +585,10 @@ jobs:
     needs: [host-build, build]
     strategy:
       matrix:
-        # NT is off: it is the longest leg by far. Put windows-latest back to run it again. waiver-expires: 2026-09-28
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        # NT is the longest leg by far, so it is excluded rather than run. Drop this exclude to run it again. waiver-expires: 2026-09-28
+        exclude:
+          - os: windows-latest
     runs-on: ${{ matrix.os }}
     # A cold stdlib compile under the fork is slower on NT than on the other two hosts.
     timeout-minutes: 30
