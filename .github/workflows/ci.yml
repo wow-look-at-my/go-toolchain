@@ -480,7 +480,7 @@ jobs:
     strategy:
       matrix:
         origin: [darwin, windows]
-        # NT is the long pole; drop this exclude to build it. waiver-expires: 2026-09-28
+        # NT is the long pole; drop this exclude to build it, and the smoke matrix names when.
         exclude:
           - origin: windows
     # An include that named the runner would come back past the exclude above, since include is processed after it, so both follow from origin here.
