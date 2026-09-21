@@ -135,9 +135,8 @@ func writeStdBlob(r runner.CommandRunner, goCmd []string, goroot, blob string) e
 	if err != nil {
 		return fmt.Errorf("embedding the standard library: %w", err)
 	}
-	// Both streams are kept, because a child that fails says what went wrong
-	// on whichever one it chose. Discarding either leaves a bare exit status,
-	// which names no cause at all.
+	// Discarding either leaves a bare exit status, which names no cause at
+	// all.
 	stdout, _ := io.ReadAll(proc.Stdout())
 	stderr, _ := io.ReadAll(proc.Stderr())
 	if err := proc.Wait(); err != nil {
