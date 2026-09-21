@@ -88,7 +88,7 @@ func TestSliceSetLeavesUncertainSlicesAlone(t *testing.T) {
 // when the type checker could not resolve it.
 func runSliceSetOnSource(t *testing.T, src string, module *analysis.Module) []analysis.Diagnostic {
 	t.Helper()
-	t.Serial() // See runCommentSpanOn.
+	t.Serial() // See TestBannedOutputAnalyzer.
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "/consumer/main.go", src, parser.ParseComments)
 	require.NoError(t, err)
