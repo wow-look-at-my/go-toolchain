@@ -125,7 +125,8 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	if onFirstOutput != nil {
 		cmd = cmd.WithOnFirstOutput(onFirstOutput)
 		if activeMissTracker != nil {
-			cmd = cmd.WithStderrWriter(activeMissTracker)
+			// A tee: this writer replaces the console rather than joining it.
+			cmd = cmd.WithStderrWriter(io.MultiWriter(activeMissTracker, os.Stderr))
 		}
 	} else {
 		cmd = cmd.WithQuiet()
