@@ -66,6 +66,8 @@ The action fetches secrets, configures the Go proxy and private repo access, and
 
 **CodeQL** needs `security-events: write`. And the repo must have GitHub's *default* CodeQL setup disabled (*Settings → Code security → Code scanning → CodeQL → Default setup*). Opt out with `codeql: 'false'`.
 
+**Autorelease.** Every executable binary the build produces publishes to buildhost on that branch. There is no switch. A build with no executable binary, such as a library module, publishes nothing and needs no publish grants.
+
 **APE binfmt.** On a Linux runner the action registers a `binfmt_misc` entry. So the kernel starts a fat APE through `/bin/sh`. That is what makes a bare exec of one work. A runner that will not allow it gets a warning and builds as before — see [docs/ACTION.md](docs/ACTION.md).
 
 ### Inputs
@@ -79,7 +81,6 @@ The action fetches secrets, configures the Go proxy and private repo access, and
 | `targets`           | string   | `''`       | Comma-separated wasm targets to add (`wasm/js`, `wasm/wasip1`), plus the special value `cosmo`. Empty (the default) builds the APE alone |
 | `cosmo-platforms`   | string   | `linux/amd64,darwin/arm64,windows/amd64` | Platforms the one fat APE covers. `all` covers everything the fork can emit |
 | `cgo`               | string   | `false`    | Enable CGO (off by default, for static binaries) |
-| `autorelease`       | string   | `true`     | Publish `build/` to buildhost on every branch push (see [docs/ACTION.md](docs/ACTION.md)) |
 | `autorelease_args`  | string   | `''`       | Extra publish options as `key=value` pairs. Unknown keys fail the build |
 | `allow-source-build` | string  | `false`    | Build go-toolchain from source when the buildhost binary is unavailable, instead of failing fast |
 | `timeout`           | string   | `10`       | Timeout in minutes for the go-toolchain build step       |
