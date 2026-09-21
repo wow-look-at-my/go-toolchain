@@ -5,8 +5,8 @@ import (
 	"sync"
 )
 
-// spool drains a child's pipe as it fills, so reading one stream to its
-// end never blocks the child on the other.
+// spool drains a child's pipe as it fills, so reading a single stream
+// to its end never blocks the child on the other.
 type spool struct {
 	mu   sync.Mutex
 	cond *sync.Cond
