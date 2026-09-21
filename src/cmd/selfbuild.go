@@ -135,10 +135,17 @@ func writeStdBlob(r runner.CommandRunner, goCmd []string, goroot, blob string) e
 	if err != nil {
 		return fmt.Errorf("embedding the standard library: %w", err)
 	}
-	io.Copy(io.Discard, proc.Stdout())
+	// Both streams are kept, because a child that fails says what went wrong
+	// on whichever one it chose. Discarding either leaves a bare exit status,
+	// which names no cause at all.
+	stdout, _ := io.ReadAll(proc.Stdout())
 	stderr, _ := io.ReadAll(proc.Stderr())
 	if err := proc.Wait(); err != nil {
-		return fmt.Errorf("embedding the standard library: %w\n%s", err, bytes.TrimSpace(stderr))
+		said := bytes.TrimSpace(bytes.Join([][]byte{stderr, stdout}, []byte("\n")))
+		if len(said) == 0 {
+			said = []byte("it printed nothing on either stream")
+		}
+		return fmt.Errorf("embedding the standard library: %w\n%s", err, said)
 	}
 	if _, err := os.Stat(blob); err != nil {
 		return fmt.Errorf("embedstd reported success and wrote no blob at %s", blob)
