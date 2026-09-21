@@ -49,14 +49,12 @@ func writeBuildhostManifest(outDir string, entries []buildhostManifestEntry) (st
 	return path, nil
 }
 
-// apeMagic is what an APE starts with. buildhost reads the
-// same bytes at offset 0 and refuses a multi-platform upload without them, so
-// this is the manifest's own admission test.
+// apeMagic is what an APE starts with.
 const apeMagic = "MZqFpD"
 
-// isAPE reports whether path begins with the APE magic. An unreadable or
-// short file is not one. That is the safe answer: it stays out of the
-// manifest, and the build publishes nothing instead of a rejected upload.
+// isAPE reports whether path begins with the APE magic. That is the safe
+// answer: it stays out of the manifest, and the build publishes nothing
+// instead of a rejected upload.
 func isAPE(path string) bool {
 	f, err := os.Open(path)
 	if err != nil {
