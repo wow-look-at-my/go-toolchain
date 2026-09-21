@@ -85,7 +85,7 @@ jobs:
           echo "GOROOT_BOOTSTRAP=$RUNNER_TEMP/bootstrap/go" >> "$GITHUB_ENV"
           "$RUNNER_TEMP/bootstrap/go/bin/go" version
 
-      # The pipeline links the fork's go command, so the fork's own build is what first compiles it; it runs after the secrets because a CI run of the fork's go command refuses to build with no shared cache configured. see docs/CI.md
+      # The pipeline links the fork's go command, so the fork's own build is what earliest compiles it; it runs after the secrets because a CI run of the fork's go command refuses to build with no shared cache configured. see docs/CI.md
       - name: Build the bootstrap go command from the fork checkout
         if: steps.release.outputs.linked != 'true'
         working-directory: _gosmopolitan/src
@@ -318,16 +318,16 @@ jobs:
             echo "GONOSUMCHECK=*"
           } >> "$GITHUB_ENV"
 
-      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. One pinned version on every host, so they all complete those modules to the same bytes for the shared cache.
+      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure.
       - name: Install the generators
         run: |
           set -euo pipefail
           go="$PWD/_gosmopolitan/bin/go"
           # No GOOS, GOARCH or GOBIN: the fork targets cosmo, so each generator comes out an APE every host runs, and cmd/go reads that as a cross-compile, which refuses GOBIN and lands in a per-target subdirectory of GOPATH/bin.
           genbin="$("$go" env GOPATH)/bin/$("$go" env GOOS)_$("$go" env GOARCH)"
-          # GITHUB_PATH reaches the NEXT step, and stringer is wanted by this one: golang.org/x/text names it in a directive the fetch runs, so it has to be found the iteration after it is built.
+          # GITHUB_PATH reaches the NEXT step, and stringer is wanted by this: golang.org/x/text names it in a directive the fetch runs, so it has to be found the iteration after it is built.
           mkdir -p "$genbin"
-          # The fork's own go goes on PATH beside it: a dependency's generate directive starts `go` by name, and the runner's own go answers a GOROOT this one owns.
+          # The fork's own go goes on PATH beside it: a dependency's generate directive starts `go` by name, and the runner's own go answers a GOROOT this owns.
           export PATH="$genbin:$PWD/_gosmopolitan/bin:$PATH"
           # The org's own x/tools, which is what gopls and the analyzers here already build against. It keeps the upstream module path, and `go install pkg@version` honors no replacement, so a checkout is how this fork's copy gets built rather than upstream's. Building from a directory also asks the module cache for nothing, so the generator that lives in the module needing it never has to complete that module earliest.
           git clone --quiet --depth 1 https://github.com/wow-look-at-my/gosmopolitan_tools "$RUNNER_TEMP/orgtools"
