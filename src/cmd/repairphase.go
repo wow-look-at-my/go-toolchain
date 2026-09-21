@@ -8,7 +8,7 @@ import (
 )
 
 // repairSweep is the prose repair, running beside phases that do not
-// read it. Depth: docs/COMMENT-SCAN.md
+// read it. Depth: docs/PROSE-REPAIR.md
 //
 // It takes every rule slopfix carries rather than the comment ones alone:
 // comment length, the numbers said in words, the tombstones, the wrap and the
