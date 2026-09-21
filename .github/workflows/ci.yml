@@ -480,7 +480,7 @@ jobs:
     strategy:
       matrix:
         origin: [darwin, windows]
-        # NT is the longest leg by far, so it is excluded rather than built. Drop this exclude to build it again. waiver-expires: 2026-09-28
+        # NT is the long pole; drop this exclude to build it. waiver-expires: 2026-09-28
         exclude:
           - origin: windows
     # An include that named the runner would come back past the exclude above, since include is processed after it, so both follow from origin here.
@@ -672,7 +672,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        # NT is the longest leg by far, so it is excluded rather than run. Drop this exclude to run it again. waiver-expires: 2026-09-28
+        # NT is the long pole; drop this exclude to run it. waiver-expires: 2026-09-28
         exclude:
           - os: windows-latest
     runs-on: ${{ matrix.os }}
