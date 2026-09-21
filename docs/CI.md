@@ -1,6 +1,6 @@
 # This repo's own CI workflow
 
-`.github/workflows/ci.yml` — five stages: `host-build` → `build` → three `smoke-*` jobs → `publish`. It dogfoods the composite action and gates the release on the artifacts actually running.
+`.github/workflows/ci.yml` — `host-build` → `build`, which publishes → the `smoke-*` jobs and `identical` → `cleanup`. It dogfoods the composite action, and the smoke jobs run the artifacts it published.
 
 ## host-build
 
@@ -12,7 +12,7 @@ Two follow-up steps check the capture. First, `ansifilter` (not this repo's own 
 
 ## build
 
-Runs the composite action (`uses: ./`) with NO target inputs and `autorelease: false`. So it exercises the exact default a consumer gets: ONE fat APE (`go-toolchain`) covering linux/amd64, darwin/arm64 and windows/amd64, plus `buildhost-artifacts.json`. The cosmo bootstrap downloads the gosmopolitan toolchain from its default `?branch=master` and cold-compiles its stdlib, hence the raised `timeout: 15`.
+Runs the composite action (`uses: ./`) with NO target inputs. So it exercises the exact default a consumer gets: ONE fat APE (`go-toolchain`) covering linux/amd64, darwin/arm64 and windows/amd64, plus `buildhost-artifacts.json`. The cosmo bootstrap downloads the gosmopolitan toolchain from its default `?branch=master` and cold-compiles its stdlib, hence the raised `timeout: 15`.
 
 A trailing step asserts the shape the default exists to produce. The manifest is schema 1 with exactly one artifact, its platform set is the three above, its download filename is the plain. That last check is the one that stays honest over time — a stray `<name>_<os>_<arch>` file will silently restore the N-downloads-of-one-binary shape without failing anything else.
 
@@ -22,11 +22,11 @@ A trailing step asserts the shape the default exists to produce. The manifest is
 
 `build-everywhere` runs `matrix --no-benchmark` on darwin and windows and hands each result off under `ape-<origin>`. `identical` downloads those two plus `build`'s `go-build-build.broot` as the linux answer, and runs the downloaded linux APE's own `go-toolchain verify-identical` against all three. So a check that needs a Go toolchain to build never lives in the YAML itself. `fail-fast: false`, so one host failing still reports the others.
 
-Linux comes from `build` rather than from a leg of its own. `build` already builds this repo's APE on ubuntu with the same host binary, and its hand-off is the one `publish` ships. The non-linux legs do not go through `uses: ./`: the composite action installs itself with `sudo`, which a Windows runner has not. That is why the smoke jobs stage the APE by hand too.
+Linux comes from `build` rather than from a leg of its own. `build` already builds this repo's APE on ubuntu with the same host binary, and its hand-off is the one it publishes. The non-linux legs do not go through `uses: ./`: the composite action installs itself with `sudo`, which a Windows runner has not. That is why the smoke jobs stage the APE by hand too.
 
 The NT leg builds uncached: the runner logs `GO_BUILDCACHE_CONFIG` in that step's environment and the APE then reports it unset. So the credential the job holds cannot be used there. Caching changes how long a build takes and never what it emits. So the leg still answers the question this job asks.
 
-A missing hand-off fails rather than passing on the survivors. Comparing the hosts that answered will report green for a property no host was checked on. `publish` needs `identical`. So a build that is not reproducible never ships.
+A missing hand-off fails rather than passing on the survivors. Comparing the hosts that answered will report green for a property no host was checked on. A build that is not reproducible therefore reports red, on a commit whose binary buildhost already holds.
 
 Both assertions live in `.github/dats-fixtures/`, not in the workflow. `identical.dats` asserts every host handed off an APE and that the bytes match. The jobs stage the files and invoke the suite. A workflow step schedules work and is not a test harness.
 
@@ -106,22 +106,19 @@ It used to stop at `--help`, on the grounds that gobootstrap downloaded `go<vers
 
 > **Owner-ruled smoke contract (Windows).** NO workflow-side Go provisioning — > no `setup-go`, that bypasses the bootstrap requirement — and no help-flag > `needsGo` carve-outs. `--help`'s bootstrap must resolve the runner image's > EXISTING Go through the APE's OWN NT-side `exec.LookPath`. Broken > pre-gosmopolitan#63 (unix-style `:` PATH walk with no `.exe` suffixing on NT > hosts), fixed in fork v237+. If the image ever drops Go, the red is honest — > escalate to the owner.
 
-## publish
+## cleanup
 
-The single publish path, gated on all three smokes. It downloads the same `go-build-build.broot` hand-off into `build/`, then `wow-look-at-my/buildhost`'s buildhost-publish action publishes it via its `path` input and OIDC — no checkout. A trailing `if: always()` `wow-look-at-my/actions@cache-cleanup#latest` step, backed by the job's `actions: write`, deletes the run's `cache-xfer-*` hand-off entries and age-sweeps 12h-old leftovers.
+`build` is the publish path. The composite action publishes every executable binary it builds, through `wow-look-at-my/buildhost`'s buildhost-publish action and its `path` input, over OIDC. No input turns that off, so the workflow-level `id-token: write`, `deployments: write` and `artifact-metadata: write` grants carry it — see `docs/ACTION.md`.
 
-The job's permissions are load-bearing (`ci.yml:498-503`):
+The APE therefore reaches buildhost before `identical` and `smoke` run. Both jobs still gate the run red. Neither gates the upload any more.
+
+`cleanup` runs last, after both. Its `if: always()` `wow-look-at-my/actions@cache-cleanup#latest` step, backed by `actions: write`, deletes the run's `cache-xfer-*` hand-off entries and age-sweeps 12h-old leftovers:
 
 ```yaml
 permissions:
-  id-token: write
   contents: read
   actions: write            # the cache-cleanup step
-  deployments: write        # the publish registers a GitHub Deployment
-  artifact-metadata: write  # the publish posts an artifact storage record
 ```
-
-`deployments: write` and `artifact-metadata: write` are what let buildhost-publish register the Deployment and post the storage record. Both are mandatory with no opt-out — see `docs/ACTION.md`.
 
 ## No GitHub Actions artifacts anywhere
 
@@ -226,7 +223,7 @@ socketharness reproduces a coding agent's own tool-execution plumbing (a socketp
 
 Build + test via the composite action with NO target inputs, which is exactly what a consumer gets. ONE GOOS=cosmo fat APE (go-toolchain) covering linux/amd64, darwin/arm64 and windows/amd64, plus the buildhost-artifacts.json manifest that publishes it as a single multi-platform artifact. No per-platform copies, no native cross-compiles.
 
-Publishing is NOT done here (autorelease: false): the dedicated `publish` job below is the single publish path.
+This job publishes too. The action publishes every executable binary it builds, and no input turns that off. So the APE reaches buildhost here, before `identical` and `smoke` read it. The `cleanup` job below outlives both gates to drop the run's hand-offs.
 
 ### Provision the sandbox backend (bubblewrap)
 
@@ -246,7 +243,7 @@ The cosmo target additionally downloads + extracts the gosmopolitan toolchain an
 
 ### smoke-linux
 
-Cross-OS smoke of the actual release artifacts: download the build-output hand-off the `build` job uploaded (exactly what `publish` will ship) and RUN the APE on each host OS. APEs self-assimilate on first exec -- they rewrite their own header in place to the host's native format -- so every job runs a throwaway copy. These jobs have no checkout, so build/ lands in an otherwise empty workspace.
+Cross-OS smoke of the actual release artifacts: download the build-output hand-off the `build` job uploaded (exactly the bytes it published) and RUN the APE on each host OS. APEs self-assimilate on first exec -- they rewrite their own header in place to the host's native format -- so every job runs a throwaway copy. These jobs have no checkout, so build/ lands in an otherwise empty workspace.
 
 ### uses: actions/checkout@v7
 
@@ -254,7 +251,7 @@ Only for the dats fixtures under .github/dats-fixtures/ -- this job otherwise ru
 
 ### Download build outputs hand-off
 
-Explicit name on purpose: by this point the run holds SEVERAL hand-offs (host-go-toolchain and socketharness-build from host-build, go-build-build.broot from build, and one ape-<origin> per build-everywhere leg), so a nameless self-discovering download will be ambiguous here. Same for smoke-macos/smoke-windows/publish below.
+Explicit name on purpose: by this point the run holds SEVERAL hand-offs (host-go-toolchain and socketharness-build from host-build, go-build-build.broot from build, and one ape-<origin> per build-everywhere leg), so a nameless self-discovering download will be ambiguous here. Same for smoke-macos and smoke-windows below.
 
 ### Download socketharness hand-off
 
@@ -349,7 +346,7 @@ The same whole-pipeline assertion smoke-linux and smoke-macos make: the shipped 
 
 This consumer has no org cache credentials on purpose. Gosmopolitan's own `cmd/go` treats an unconfigured shared tier as an ordinary, silent developer-machine build rather than a warning. So nothing here needs to say so.
 
-For a while this assertion can not be made at all, and the job asserted the reachable half instead. Both have since closed: the publish job now covers the `windows/amd64` slot, and DNS resolves from NT. So a run reaches the test phase and the guard fires as designed.
+For a while this assertion can not be made at all, and the job asserted the reachable half instead. Both have since closed: the publish now covers the `windows/amd64` slot, and DNS resolves from NT. So a run reaches the test phase and the guard fires as designed.
 
 What that run then found is this repo's own bug, not a fork gap: `-coverprofile` handed the native `go.exe` cosmo's `/tmp`. See "A path in another program's argument list crosses out of cosmo".
 
@@ -361,6 +358,6 @@ The one dimension Windows cannot match. The APE is a cosmo build everywhere, so 
 
 It must also print the INOPERATIVE banner naming `windows`. That banner is the only thing a human on this host gets while the guard is blind. It doubles as a second reading of host detection from inside the guard. The banner named `linux` here until `runtime.CosmoHostOS()` was wired, which is the same defect the Host detection step above caught.
 
-### publish
+### cleanup
 
-The single publish path. Gated on the cross-OS smoke jobs above so a build whose APE cannot actually run on linux/macOS/Windows is never released. Downloads the same build-output hand-off the smoke jobs ran and publishes build/ straight to buildhost (no GHA artifact involved), authenticating with a GHA OIDC token (hence id-token: write).
+The run's housekeeping job. It needs `identical` and the smoke jobs, so the hand-offs they read survive until each one has read them. The publish itself happens in `build`, where the composite action publishes build/ straight to buildhost over OIDC. No GHA artifact is involved.
