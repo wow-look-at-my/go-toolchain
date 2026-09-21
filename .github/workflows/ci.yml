@@ -98,8 +98,13 @@ jobs:
 
       # The dats phase sandboxes every suite command (dats' default), and the backend it picks... see docs/CI.md
       - name: Provision the sandbox backend (bubblewrap)
+        uses: wow-look-at-my/actions@cached-apt#latest
+        with:
+          packages: bubblewrap
+
+      # The probe is the point: a restored bwrap that cannot open a namespace here fails now rather than in the dats phase.
+      - name: Prove bwrap builds a sandbox here
         run: |
-          sudo apt-get update && sudo apt-get install -y bubblewrap
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
           bwrap --ro-bind-try /usr /usr --ro-bind-try /bin /bin --ro-bind-try /lib /lib \
             --ro-bind-try /lib64 /lib64 --ro-bind-try /etc /etc \
@@ -114,8 +119,8 @@ jobs:
             echo "GONOSUMCHECK=*"
           } >> "$GITHUB_ENV"
 
-      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure.
-      - name: Install the generators
+      # The go command the generators build with, named for the cached run and the PATH step, neither of which can see a variable the other set.
+      - name: Choose the go command the generators build with
         run: |
           set -euo pipefail
           if [ "${{ steps.release.outputs.linked }}" = "true" ]; then
@@ -131,43 +136,68 @@ jobs:
             go="$PWD/_gosmopolitan/bin/go"
             goroot_bin="$PWD/_gosmopolitan/bin"
           fi
-          export PATH="$goroot_bin:$PATH"
-          # No GOOS, GOARCH or GOBIN: this go is an APE targeting cosmo, which is what it embeds, and cmd/go reads a cosmo build as a cross-compile because the host it RUNS on is not cosmo. A cross-compile refuses GOBIN and lands in a per-target subdirectory of GOPATH/bin.
-          genbin="$("$go" env GOPATH)/bin/$("$go" env GOOS)_$("$go" env GOARCH)"
-          # GITHUB_PATH reaches the NEXT step, and stringer is wanted by this: golang.org/x/text names it in a directive the fetch runs, so it has to be found the iteration after it is built.
-          mkdir -p "$genbin"
-          export PATH="$genbin:$PATH"
-          # The org's own x/tools, which is what gopls and the analyzers here already build against. It keeps the upstream module path, and `go install pkg@version` honors no replacement, so a checkout is how this fork's copy gets built rather than upstream's. Building from a directory also asks the module cache for nothing, so the generator that lives in the module needing it never has to complete that module earliest.
-          git clone --quiet --depth 1 https://github.com/wow-look-at-my/gosmopolitan_tools "$RUNNER_TEMP/orgtools"
-          for gen in stringer goyacc; do
-            (cd "$RUNNER_TEMP/orgtools" && "$go" build -o "$genbin/$gen" "./cmd/$gen")
-          done
-          # gotext comes from a checkout for the reason stringer does, and for any of its own: completing x/text runs that module's cmd/gotext/examples/extract directive, which starts gotext -- the program this install exists to produce.
-          git clone --quiet --depth 1 --branch v0.42.0 https://github.com/golang/text "$RUNNER_TEMP/xtext"
-          (cd "$RUNNER_TEMP/xtext" && "$go" build -o "$genbin/gotext" ./cmd/gotext)
-          for pkg in \
-            github.com/mjibson/esc@v0.2.0 \
-            google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
-          ; do
-            "$go" install "$pkg"
-          done
-          # protoc is a C++ binary, so go install cannot reach it. The release is pinned.
-          protoc_version=27.2
-          case "$RUNNER_OS-$RUNNER_ARCH" in
-            Linux-X64) protoc_asset=linux-x86_64 ;;
-            Linux-ARM64) protoc_asset=linux-aarch_64 ;;
-            macOS-X64) protoc_asset=osx-x86_64 ;;
-            macOS-ARM64) protoc_asset=osx-aarch_64 ;;
-            Windows-X64) protoc_asset=win64 ;;
-            *) echo "no protoc release for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
-          esac
-          curl -fsSL -o "$RUNNER_TEMP/protoc.zip" \
-            "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-${protoc_asset}.zip"
-          unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
-          chmod +x "$RUNNER_TEMP/protoc/bin/protoc" || true
-          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+          echo "GEN_GO=$go" >> "$GITHUB_ENV"
+          echo "GEN_GOROOT_BIN=$goroot_bin" >> "$GITHUB_ENV"
+
+      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure.
+      - name: Install the generators
+        uses: wow-look-at-my/actions@cached-run#latest
+        with:
+          # The go command builds these, so its identity belongs in the key: a rebuilt fork must not restore generators the old one produced.
+          key: generators-${{ steps.release.outputs.linked }}
+          paths: ~/go/bin
+          run: |
+            go="$GEN_GO"
+            export PATH="$GEN_GOROOT_BIN:$PATH"
+            # No GOOS, GOARCH or GOBIN: this go is an APE targeting cosmo, which is what it embeds, and cmd/go reads a cosmo build as a cross-compile because the host it RUNS on is not cosmo. A cross-compile refuses GOBIN and lands in a per-target subdirectory of GOPATH/bin.
+            genbin="$("$go" env GOPATH)/bin/$("$go" env GOOS)_$("$go" env GOARCH)"
+            mkdir -p "$genbin"
+            export PATH="$genbin:$PATH"
+            # The org's own x/tools, which is what gopls and the analyzers here already build against. It keeps the upstream module path, and `go install pkg@version` honors no replacement, so a checkout is how this fork's copy gets built rather than upstream's. Building from a directory also asks the module cache for nothing, so the generator that lives in the module needing it never has to complete that module earliest.
+            git clone --quiet --depth 1 https://github.com/wow-look-at-my/gosmopolitan_tools "$RUNNER_TEMP/orgtools"
+            for gen in stringer goyacc; do
+              (cd "$RUNNER_TEMP/orgtools" && "$go" build -o "$genbin/$gen" "./cmd/$gen")
+            done
+            # gotext comes from a checkout for the reason stringer does, and for any of its own: completing x/text runs that module's cmd/gotext/examples/extract directive, which starts gotext -- the program this install exists to produce.
+            git clone --quiet --depth 1 --branch v0.42.0 https://github.com/golang/text "$RUNNER_TEMP/xtext"
+            (cd "$RUNNER_TEMP/xtext" && "$go" build -o "$genbin/gotext" ./cmd/gotext)
+            for pkg in \
+              github.com/mjibson/esc@v0.2.0 \
+              google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
+            ; do
+              "$go" install "$pkg"
+            done
+
+      # protoc is a C++ binary, so go install cannot reach it. The release is pinned, which is the whole key: nothing this repo builds changes it.
+      - name: Install protoc
+        uses: wow-look-at-my/actions@cached-run#latest
+        with:
+          key: protoc-27.2
+          paths: ~/protoc
+          run: |
+            protoc_version=27.2
+            case "$RUNNER_OS-$RUNNER_ARCH" in
+              Linux-X64) protoc_asset=linux-x86_64 ;;
+              Linux-ARM64) protoc_asset=linux-aarch_64 ;;
+              macOS-X64) protoc_asset=osx-x86_64 ;;
+              macOS-ARM64) protoc_asset=osx-aarch_64 ;;
+              Windows-X64) protoc_asset=win64 ;;
+              *) echo "no protoc release for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
+            esac
+            curl -fsSL -o "$RUNNER_TEMP/protoc.zip" \
+              "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-${protoc_asset}.zip"
+            unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$HOME/protoc"
+            chmod +x "$HOME/protoc/bin/protoc"
+
+      # A cache hit skips the runs above, so the PATH the rest of this job needs is set here rather than there.
+      - name: Put the generators on PATH
+        run: |
+          set -euo pipefail
+          export PATH="$GEN_GOROOT_BIN:$PATH"
+          genbin="$("$GEN_GO" env GOPATH)/bin/$("$GEN_GO" env GOOS)_$("$GEN_GO" env GOARCH)"
+          echo "$HOME/protoc/bin" >> "$GITHUB_PATH"
           echo "$genbin" >> "$GITHUB_PATH"
-          echo "$goroot_bin" >> "$GITHUB_PATH"
+          echo "$GEN_GOROOT_BIN" >> "$GITHUB_PATH"
           echo "GENBIN=$genbin" >> "$GITHUB_ENV"
 
       # The bootstrap pipeline is an APE the fork's own go command built from this tree, with the flags the pipeline builds itself with, so its compiler shares the passes' tool ID. see docs/CI.md
@@ -305,9 +335,12 @@ jobs:
         run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
       - name: Provision the sandbox backend (bubblewrap)
-        run: |
-          sudo apt-get update && sudo apt-get install -y bubblewrap
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+        uses: wow-look-at-my/actions@cached-apt#latest
+        with:
+          packages: bubblewrap
+
+      - name: Let bwrap open a user namespace
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
 
       # The org module proxy is gone. Modules come from their own source, and the sumdb goes with the proxy that mirrored it. These are the values src/goenv.go already falls back to with no proxy configured.
       - name: Configure Go proxy
@@ -320,44 +353,60 @@ jobs:
 
       # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure.
       - name: Install the generators
+        uses: wow-look-at-my/actions@cached-run#latest
+        with:
+          key: generators
+          paths: ~/go/bin
+          run: |
+            go="$PWD/_gosmopolitan/bin/go"
+            # No GOOS, GOARCH or GOBIN: the fork targets cosmo, so each generator comes out an APE every host runs, and cmd/go reads that as a cross-compile, which refuses GOBIN and lands in a per-target subdirectory of GOPATH/bin.
+            genbin="$("$go" env GOPATH)/bin/$("$go" env GOOS)_$("$go" env GOARCH)"
+            mkdir -p "$genbin"
+            # The fork's own go goes on PATH beside it: a dependency's generate directive starts `go` by name, and the runner's own go answers a GOROOT this owns.
+            export PATH="$genbin:$PWD/_gosmopolitan/bin:$PATH"
+            # The org's own x/tools, which is what gopls and the analyzers here already build against. It keeps the upstream module path, and `go install pkg@version` honors no replacement, so a checkout is how this fork's copy gets built rather than upstream's. Building from a directory also asks the module cache for nothing, so the generator that lives in the module needing it never has to complete that module earliest.
+            git clone --quiet --depth 1 https://github.com/wow-look-at-my/gosmopolitan_tools "$RUNNER_TEMP/orgtools"
+            for gen in stringer goyacc; do
+              (cd "$RUNNER_TEMP/orgtools" && "$go" build -o "$genbin/$gen" "./cmd/$gen")
+            done
+            # gotext comes from a checkout for the reason stringer does, and for any of its own: completing x/text runs that module's cmd/gotext/examples/extract directive, which starts gotext -- the program this install exists to produce.
+            git clone --quiet --depth 1 --branch v0.42.0 https://github.com/golang/text "$RUNNER_TEMP/xtext"
+            (cd "$RUNNER_TEMP/xtext" && "$go" build -o "$genbin/gotext" ./cmd/gotext)
+            for pkg in \
+              github.com/mjibson/esc@v0.2.0 \
+              google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
+            ; do
+              "$go" install "$pkg"
+            done
+
+      # protoc is a C++ binary, so go install cannot reach it. The release is pinned, which is the whole key: nothing this repo builds changes it.
+      - name: Install protoc
+        uses: wow-look-at-my/actions@cached-run#latest
+        with:
+          key: protoc-27.2
+          paths: ~/protoc
+          run: |
+            protoc_version=27.2
+            case "$RUNNER_OS-$RUNNER_ARCH" in
+              Linux-X64) protoc_asset=linux-x86_64 ;;
+              Linux-ARM64) protoc_asset=linux-aarch_64 ;;
+              macOS-X64) protoc_asset=osx-x86_64 ;;
+              macOS-ARM64) protoc_asset=osx-aarch_64 ;;
+              Windows-X64) protoc_asset=win64 ;;
+              *) echo "no protoc release for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
+            esac
+            curl -fsSL -o "$RUNNER_TEMP/protoc.zip" \
+              "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-${protoc_asset}.zip"
+            unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$HOME/protoc"
+            chmod +x "$HOME/protoc/bin/protoc"
+
+      # A cache hit skips the runs above, so the PATH the rest of this job needs is set here rather than there.
+      - name: Put the generators on PATH
         run: |
           set -euo pipefail
           go="$PWD/_gosmopolitan/bin/go"
-          # No GOOS, GOARCH or GOBIN: the fork targets cosmo, so each generator comes out an APE every host runs, and cmd/go reads that as a cross-compile, which refuses GOBIN and lands in a per-target subdirectory of GOPATH/bin.
           genbin="$("$go" env GOPATH)/bin/$("$go" env GOOS)_$("$go" env GOARCH)"
-          # GITHUB_PATH reaches the NEXT step, and stringer is wanted by this: golang.org/x/text names it in a directive the fetch runs, so it has to be found the iteration after it is built.
-          mkdir -p "$genbin"
-          # The fork's own go goes on PATH beside it: a dependency's generate directive starts `go` by name, and the runner's own go answers a GOROOT this owns.
-          export PATH="$genbin:$PWD/_gosmopolitan/bin:$PATH"
-          # The org's own x/tools, which is what gopls and the analyzers here already build against. It keeps the upstream module path, and `go install pkg@version` honors no replacement, so a checkout is how this fork's copy gets built rather than upstream's. Building from a directory also asks the module cache for nothing, so the generator that lives in the module needing it never has to complete that module earliest.
-          git clone --quiet --depth 1 https://github.com/wow-look-at-my/gosmopolitan_tools "$RUNNER_TEMP/orgtools"
-          for gen in stringer goyacc; do
-            (cd "$RUNNER_TEMP/orgtools" && "$go" build -o "$genbin/$gen" "./cmd/$gen")
-          done
-          # gotext comes from a checkout for the reason stringer does, and for any of its own: completing x/text runs that module's cmd/gotext/examples/extract directive, which starts gotext -- the program this install exists to produce.
-          git clone --quiet --depth 1 --branch v0.42.0 https://github.com/golang/text "$RUNNER_TEMP/xtext"
-          (cd "$RUNNER_TEMP/xtext" && "$go" build -o "$genbin/gotext" ./cmd/gotext)
-          for pkg in \
-            github.com/mjibson/esc@v0.2.0 \
-            google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
-          ; do
-            "$go" install "$pkg"
-          done
-          # protoc is a C++ binary, so go install cannot reach it. The release is pinned.
-          protoc_version=27.2
-          case "$RUNNER_OS-$RUNNER_ARCH" in
-            Linux-X64) protoc_asset=linux-x86_64 ;;
-            Linux-ARM64) protoc_asset=linux-aarch_64 ;;
-            macOS-X64) protoc_asset=osx-x86_64 ;;
-            macOS-ARM64) protoc_asset=osx-aarch_64 ;;
-            Windows-X64) protoc_asset=win64 ;;
-            *) echo "no protoc release for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
-          esac
-          curl -fsSL -o "$RUNNER_TEMP/protoc.zip" \
-            "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-${protoc_asset}.zip"
-          unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
-          chmod +x "$RUNNER_TEMP/protoc/bin/protoc" || true
-          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+          echo "$HOME/protoc/bin" >> "$GITHUB_PATH"
           echo "$genbin" >> "$GITHUB_PATH"
 
       - name: Build the bootstrap pipeline from the fork checkout
@@ -393,8 +442,13 @@ jobs:
 
       # The dats phase sandboxes every suite command (dats' default), and the backend it picks... see docs/CI.md
       - name: Provision the sandbox backend (bubblewrap)
+        uses: wow-look-at-my/actions@cached-apt#latest
+        with:
+          packages: bubblewrap
+
+      # The probe is the point: a restored bwrap that cannot open a namespace here fails now rather than in the dats phase.
+      - name: Prove bwrap builds a sandbox here
         run: |
-          sudo apt-get update && sudo apt-get install -y bubblewrap
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
           bwrap --ro-bind-try /usr /usr --ro-bind-try /bin /bin --ro-bind-try /lib /lib \
             --ro-bind-try /lib64 /lib64 --ro-bind-try /etc /etc \
@@ -469,11 +523,15 @@ jobs:
         shell: bash
         run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
+      # No if: the action installs nothing off Linux and succeeds, which is what darwin and NT want here.
       - name: Provision the sandbox backend (bubblewrap)
+        uses: wow-look-at-my/actions@cached-apt#latest
+        with:
+          packages: bubblewrap
+
+      - name: Let bwrap open a user namespace
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update && sudo apt-get install -y bubblewrap
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
 
       # The NT leg gets no backend step: a WSL1 dockerd answers `docker version` and then fails every run in runc, which is worse than no daemon. see docs/DATS-PHASE.md
 
