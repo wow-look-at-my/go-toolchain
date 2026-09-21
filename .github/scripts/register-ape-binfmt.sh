@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
-# Registers the APE binfmt_misc handler, so the kernel hands a fat APE to
-# /bin/sh and a bare execve of one succeeds. Without it only a shell can start
-# an APE, and `go run`, `go test` and any exec from a program fail with
-# "exec format error".
-#
-# A host that cannot register the handler keeps working: every caller in this
-# org already reaches an APE through a shell. So this warns and exits 0.
+# Registers the APE binfmt_misc handler, so the kernel hands a fat APE.
 set -euo pipefail
 
 readonly dir=/proc/sys/fs/binfmt_misc
