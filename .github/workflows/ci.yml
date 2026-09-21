@@ -41,12 +41,23 @@ jobs:
       - uses: wow-look-at-my/actions@secret-server#latest
 
       # The last release a green master run published is the bootstrap, as it is for every consumer; a release without the linked go command hands the job to the from-scratch steps below. see docs/CI.md
+      - name: Take the previous release
+        id: bootstrap
+        uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
+        with:
+          project: go-toolchain
+          path: ${{ runner.temp }}/gt-bootstrap
+          required: false
+
       - name: Install the previous release as the bootstrap pipeline
         id: release
         run: |
           set -euo pipefail
-          curl -fL --compressed "https://dl.pazer.build/go-toolchain?os=linux&arch=amd64" -o "$RUNNER_TEMP/gt-bootstrap"
-          chmod +x "$RUNNER_TEMP/gt-bootstrap"
+          if [ "${{ steps.bootstrap.outputs.downloaded }}" != true ]; then
+            echo "no previous release to bootstrap from; bootstrapping from the fork checkout"
+            echo "linked=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if GO_TOOLCHAIN_LINKED_GO=1 sh "$RUNNER_TEMP/gt-bootstrap" go version; then
             echo "linked=true" >> "$GITHUB_OUTPUT"
           else
@@ -55,12 +66,22 @@ jobs:
           fi
 
       # The fork's last published release is the bootstrap compiler for its make.bash: its go command carries the cache client in process, so go_bootstrap compiles from the shared cache; a stock Go cannot reach it.
+      - name: Take the fork's release
+        if: steps.release.outputs.linked != 'true'
+        uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
+        with:
+          project: gosmopolitan
+          branch: master
+          format: tar.gz
+          path: ${{ runner.temp }}/gosmopolitan.tar.gz
+          executable: false
+
       - name: Install the fork's release as the bootstrap compiler
         if: steps.release.outputs.linked != 'true'
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/bootstrap"
-          curl -fL --compressed "https://dl.pazer.build/gosmopolitan?branch=master&os=linux&arch=amd64" | tar -xz -C "$RUNNER_TEMP/bootstrap"
+          tar -xzf "$RUNNER_TEMP/gosmopolitan.tar.gz" -C "$RUNNER_TEMP/bootstrap"
           echo "GOROOT_BOOTSTRAP=$RUNNER_TEMP/bootstrap/go" >> "$GITHUB_ENV"
           "$RUNNER_TEMP/bootstrap/go/bin/go" version
 
@@ -258,11 +279,20 @@ jobs:
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
+      - name: Take the fork's release
+        uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
+        with:
+          project: gosmopolitan
+          branch: master
+          format: tar.gz
+          path: ${{ runner.temp }}/gosmopolitan.tar.gz
+          executable: false
+
       - name: Install the fork's release as the bootstrap compiler
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/bootstrap"
-          curl -fL --compressed "https://dl.pazer.build/gosmopolitan?branch=master&os=linux&arch=amd64" | tar -xz -C "$RUNNER_TEMP/bootstrap"
+          tar -xzf "$RUNNER_TEMP/gosmopolitan.tar.gz" -C "$RUNNER_TEMP/bootstrap"
           echo "GOROOT_BOOTSTRAP=$RUNNER_TEMP/bootstrap/go" >> "$GITHUB_ENV"
           "$RUNNER_TEMP/bootstrap/go/bin/go" version
 
