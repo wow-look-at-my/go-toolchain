@@ -203,6 +203,23 @@ func sumDBURLHost(raw string) string {
 	return host
 }
 
+// withoutProxyMirror answers gosumdb, or "" when it names a mirror that
+// proxyHost serves. A GOSUMDB is "<name>", "<name>+<key>", or those followed
+// by the URL of the mirror to read, so the URL is the last field.
+func withoutProxyMirror(gosumdb, proxyHost string) string {
+	if gosumdb == "" || proxyHost == "" {
+		return gosumdb
+	}
+	fields := strings.Fields(gosumdb)
+	if len(fields) < 2 {
+		return gosumdb
+	}
+	if sumDBURLHost(fields[len(fields)-1]) == proxyHost {
+		return ""
+	}
+	return gosumdb
+}
+
 // configureGoEnv sets GOPROXY, GOSUMDB, GONOSUMDB, and GONOSUMCHECK. With
 // GO_PROXY_CONFIG set, it writes ~/.netrc and defaults GOPROXY/GOSUMDB to
 // the configured proxy; otherwise it falls back to the GOPROXY/GOSUMDB env
@@ -227,7 +244,13 @@ func configureGoEnv() {
 		if goproxy == "" && cfg.Proxy != "" {
 			goproxy = cfg.Proxy
 		}
-		if gosumdb == "" {
+		// The proxy's sumdb mirror is served by the proxy and by nothing else,
+		// so a run that fetches direct cannot reach it. The mirror goes with
+		// the proxy, whether the config named it or an earlier process put it
+		// in the environment, and the checks below disable the phone-home.
+		if goproxy == "direct" || goproxy == "off" {
+			gosumdb = withoutProxyMirror(gosumdb, cfg.proxyHost())
+		} else if gosumdb == "" {
 			gosumdb = cfg.gosumdb()
 		}
 	}
@@ -259,6 +282,9 @@ func configureGoEnv() {
 		return
 	}
 
+	// A GOSUMDB this run declined still sits in the environment every child
+	// reads, so it goes rather than staying as the setting nobody chose.
+	os.Unsetenv("GOSUMDB")
 	// GONOSUMDB, not GOSUMDB=off, so toolchain auto-downloads still work.
 	os.Setenv("GONOSUMDB", "*")
 	os.Setenv("GONOSUMCHECK", "*")

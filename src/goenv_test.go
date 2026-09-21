@@ -239,6 +239,81 @@ func TestConfigureGoEnv_GOProxyConfigExplicitOverride(t *testing.T) {
 	assert.Equal(t, "otherdb+def456 https://other-proxy.example.com/sumdb/otherdb", os.Getenv("GOSUMDB"))
 }
 
+// A caller asking for GOPROXY=direct has taken the proxy out of the fetch
+// path, and the config's sumdb mirror lives behind that proxy. So the mirror
+// goes with it and the phone-home stays off, rather than every fetch reaching
+// for a host the run already declined to use.
+func TestConfigureGoEnvDirectDropsTheConfiguredSumDB(t *testing.T) {
+	t.Serial()
+	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret","sumdb_key":"mydb+abc123+AKeyHere"}`
+	setHome(t, t.TempDir())
+	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
+	t.Setenv("GOPROXY", "direct")
+	t.Setenv("GOSUMDB", "")
+	t.Setenv("GONOSUMDB", "")
+	t.Setenv("GONOSUMCHECK", "")
+
+	configureGoEnv()
+
+	assert.Equal(t, "direct", os.Getenv("GOPROXY"))
+	assert.Empty(t, os.Getenv("GOSUMDB"))
+	assert.Equal(t, "*", os.Getenv("GONOSUMDB"))
+	assert.Equal(t, "*", os.Getenv("GONOSUMCHECK"))
+}
+
+func TestWithoutProxyMirror(t *testing.T) {
+	assert.Empty(t, withoutProxyMirror("mydb+abc123 https://proxy.example.com/sumdb/mydb", "proxy.example.com"))
+	assert.Equal(t, "mydb+abc123 https://sumdb.example.org/sumdb/mydb",
+		withoutProxyMirror("mydb+abc123 https://sumdb.example.org/sumdb/mydb", "proxy.example.com"))
+	// A bare name reads the database itself, so no host of the proxy's is in it.
+	assert.Equal(t, "mydb+abc123", withoutProxyMirror("mydb+abc123", "proxy.example.com"))
+	assert.Empty(t, withoutProxyMirror("", "proxy.example.com"))
+	assert.Equal(t, "mydb+abc123 https://proxy.example.com/sumdb/mydb",
+		withoutProxyMirror("mydb+abc123 https://proxy.example.com/sumdb/mydb", ""))
+}
+
+// An earlier process of this pipeline configures the environment its children
+// read, so the mirror arrives as an explicit GOSUMDB rather than out of the
+// config. It is the same unreachable host either way.
+func TestConfigureGoEnvDirectDropsAnInheritedProxyMirror(t *testing.T) {
+	t.Serial()
+	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret","sumdb_key":"mydb+abc123+AKeyHere"}`
+	home := t.TempDir()
+	setHome(t, home)
+	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
+	t.Setenv("GOPROXY", "direct")
+	t.Setenv("GOSUMDB", "mydb+abc123+AKeyHere https://proxy.example.com/sumdb/mydb")
+	t.Setenv("GONOSUMDB", "")
+	t.Setenv("GONOSUMCHECK", "")
+
+	configureGoEnv()
+
+	// The netrc proves the config parsed, so a kept mirror is this function's
+	// answer rather than a config it never read.
+	require.FileExists(t, filepath.Join(home, ".netrc"))
+
+	assert.Equal(t, "direct", os.Getenv("GOPROXY"))
+	assert.Empty(t, os.Getenv("GOSUMDB"))
+	assert.Equal(t, "*", os.Getenv("GONOSUMDB"))
+}
+
+// A mirror some other host serves is reachable with no proxy at all, so a
+// direct fetch keeps it.
+func TestConfigureGoEnvDirectKeepsAnotherHostsSumDB(t *testing.T) {
+	t.Serial()
+	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret","sumdb_key":"mydb+abc123+AKeyHere"}`
+	setHome(t, t.TempDir())
+	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
+	t.Setenv("GOPROXY", "direct")
+	t.Setenv("GOSUMDB", "otherdb+def456 https://sumdb.example.org/sumdb/otherdb")
+	t.Setenv("GONOSUMDB", "")
+	t.Setenv("GONOSUMCHECK", "")
+
+	configureGoEnv()
+
+	assert.Equal(t, "otherdb+def456 https://sumdb.example.org/sumdb/otherdb", os.Getenv("GOSUMDB"))
+}
+
 func TestConfigureGoEnv_GOProxyConfigNoSumDBKey(t *testing.T) {
 	t.Serial()
 	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret"}`
