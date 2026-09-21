@@ -70,9 +70,9 @@ jobs:
         if: steps.release.outputs.linked != 'true'
         uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
         with:
+          # No fmt: a GOROOT is stored as a tar.gz, and repackaging wraps it again.
           project: gosmopolitan
           branch: master
-          format: tar.gz
           path: ${{ runner.temp }}/gosmopolitan.tar.gz
           executable: false
 
@@ -282,9 +282,9 @@ jobs:
       - name: Take the fork's release
         uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
         with:
+          # No fmt: a GOROOT is stored as a tar.gz, and repackaging wraps it again.
           project: gosmopolitan
           branch: master
-          format: tar.gz
           path: ${{ runner.temp }}/gosmopolitan.tar.gz
           executable: false
 
