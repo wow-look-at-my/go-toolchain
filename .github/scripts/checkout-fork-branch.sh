@@ -36,6 +36,10 @@ while read -r key _; do
 
 	git config "submodule.$name.branch" "$branch"
 	if git submodule update --init --remote -- "$path"; then
+		# The branch head names its own submodules, and cmd/dist reads
+		# src/cmd/vendor as plain source. Each one is checked out at the
+		# commit this head records, which is what make.bash compiles.
+		git -C "$path" submodule update --init --recursive
 		echo "fork: $path at $branch $(git -C "$path" rev-parse --short=12 HEAD)" >&2
 	else
 		echo "fork: $path stays where it is: cannot reach $url" >&2
