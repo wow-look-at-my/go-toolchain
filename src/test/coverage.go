@@ -262,7 +262,7 @@ func parseProfileBlocks(filename string) ([]coverageBlock, error) {
 		lineRange string // original "startLine.startCol,endLine.endCol"
 	}
 	merged := make(map[blockKey]*coverageBlock)
-	var order []blockKey // preserve the order the blocks arrive in
+	var order []blockKey
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {

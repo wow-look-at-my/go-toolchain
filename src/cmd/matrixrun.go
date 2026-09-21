@@ -209,7 +209,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		if wasmPublishOptOut() {
 			logger.Warn("⇒ Warning: %s=0 — wasm artifacts are excluded from buildhost publishing (.wasm-suffixed names stay outside the publish upload set); they remain in %s/ and checksums.txt for CI artifact uploads", wasmPublishEnv, outputDir)
 			if !slices.ContainsFunc(platforms, func(p buildPlatform) bool { return !p.IsWasm() }) {
-				logger.Warn("⇒ Warning: every target is wasm and %s=0, so a buildhost publish step will find no publishable artifacts and fail; disable autorelease for wasm-only builds with publishing opted out", wasmPublishEnv)
+				logger.Warn("⇒ Warning: every target is wasm and %s=0, so this build produces no publishable artifact and the buildhost publish step is skipped; drop the opt-out to publish the wasm artifacts", wasmPublishEnv)
 			}
 		} else {
 			logger.Warn("⇒ Warning: wasm artifacts publish to buildhost as os=wasm (arch=js/wasip1); this requires buildhost wasm artifact support (wow-look-at-my/buildhost#166) — on older servers the upload is rejected and aborts the whole publish; set %s=0 to keep wasm artifacts out of the publish set", wasmPublishEnv)
