@@ -139,11 +139,10 @@ jobs:
           echo "GEN_GO=$go" >> "$GITHUB_ENV"
           echo "GEN_GOROOT_BIN=$goroot_bin" >> "$GITHUB_ENV"
 
-      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure.
+      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. The go command builds these, so its identity is in the key: a rebuilt fork must not restore generators its predecessor produced.
       - name: Install the generators
         uses: wow-look-at-my/actions@cached-run#latest
         with:
-          # The go command builds these, so its identity belongs in the key: a rebuilt fork must not restore generators the old one produced.
           key: generators-${{ steps.release.outputs.linked }}
           paths: ~/go/bin
           run: |
