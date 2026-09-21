@@ -135,8 +135,6 @@ func writeStdBlob(r runner.CommandRunner, goCmd []string, goroot, blob string) e
 	if err != nil {
 		return fmt.Errorf("embedding the standard library: %w", err)
 	}
-	// Discarding either leaves a bare exit status, which names no cause at
-	// all.
 	stdout, _ := io.ReadAll(proc.Stdout())
 	stderr, _ := io.ReadAll(proc.Stderr())
 	if err := proc.Wait(); err != nil {
