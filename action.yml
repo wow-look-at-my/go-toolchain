@@ -42,10 +42,6 @@ inputs:
     description: 'Enable CGO (disabled by default for static binaries)'
     required: false
     default: 'false'
-  autorelease:
-    description: 'Automatically publish to buildhost on every branch push (requires id-token: write, plus deployments: write and artifact-metadata: write -- the publish registers a GitHub Deployment and posts an artifact storage record as part of publishing, with no opt-out, and fails the build without either grant)'
-    required: false
-    default: 'true'
   autorelease_args:
     description: >-
       Extra publish options forwarded to the buildhost publish, as
@@ -56,6 +52,8 @@ inputs:
       block and generated debs ship an auto-enabled systemd user unit).
       Unknown keys fail the build. Empty (the default) forwards nothing --
       the publish request is byte-identical to before this input existed.
+      Ignored by a build that produces no executable binary, which publishes
+      nothing.
     required: false
     default: ''
   allow-source-build:
@@ -146,24 +144,6 @@ runs:
         brew install coreutils
         echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
 
-    - name: Require the id-token grant autorelease needs
-      if: inputs.autorelease == 'true'
-      uses: wow-look-at-my/actions@has-permission#latest
-      with:
-        permission: id-token
-
-    - name: Require the deployments grant autorelease needs
-      if: inputs.autorelease == 'true'
-      uses: wow-look-at-my/actions@has-permission#latest
-      with:
-        permission: deployments
-
-    - name: Require the artifact-metadata grant autorelease needs
-      if: inputs.autorelease == 'true'
-      uses: wow-look-at-my/actions@has-permission#latest
-      with:
-        permission: artifact-metadata
-
     - name: Require the security-events grant CodeQL needs
       if: inputs.codeql == 'true'
       uses: wow-look-at-my/actions@has-permission#latest
@@ -241,9 +221,35 @@ runs:
       with:
         category: /language:go
 
+    # Every executable binary publishes. A build with none (a library module, or a wasm-only build with publishing opted out) has nothing buildhost can upload. see docs/ACTION.md
+    - name: Select publishable artifacts
+      id: publishable
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "$ACTION_PATH/.github/scripts/publishable-artifacts.sh" "${{ inputs.working-directory }}/build"
+
+    - name: Require the id-token grant the publish needs
+      if: steps.publishable.outputs.publish == 'true'
+      uses: wow-look-at-my/actions@has-permission#latest
+      with:
+        permission: id-token
+
+    - name: Require the deployments grant the publish needs
+      if: steps.publishable.outputs.publish == 'true'
+      uses: wow-look-at-my/actions@has-permission#latest
+      with:
+        permission: deployments
+
+    - name: Require the artifact-metadata grant the publish needs
+      if: steps.publishable.outputs.publish == 'true'
+      uses: wow-look-at-my/actions@has-permission#latest
+      with:
+        permission: artifact-metadata
+
     # A composite `with:` block is static YAML. see docs/ACTION.md
     - name: Parse autorelease_args
-      if: inputs.autorelease == 'true'
+      if: steps.publishable.outputs.publish == 'true'
       id: autorelease_args
       uses: wow-look-at-my/actions@typescript#latest
       with:
@@ -265,7 +271,7 @@ runs:
           for (const key of known) core.setOutput(key, out[key]);
 
     - name: Auto-release to buildhost
-      if: inputs.autorelease == 'true'
+      if: steps.publishable.outputs.publish == 'true'
       uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
       with:
         path: ${{ inputs.working-directory }}/build
