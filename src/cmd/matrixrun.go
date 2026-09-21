@@ -187,14 +187,21 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	// lone upload/row/link and excludes it from that filename scan, letting it
 	// publish under the plain name.
 	if hasCosmo {
-		entries, err := apeManifestEntries(hostTargets, outputDir, apeCoverage(apePlatforms))
+		entries, skipped, err := apeManifestEntries(hostTargets, outputDir, apeCoverage(apePlatforms))
 		if err != nil {
 			return err
 		}
-		if _, err := writeBuildhostManifest(outputDir, entries); err != nil {
-			return err
+		// A build whose outputs are not APEs publishes nothing, and says so
+		// rather than writing a manifest buildhost refuses.
+		for _, file := range skipped {
+			logger.Info("  SKIP  %s in %s: not an APE, so it names no platform set", file, buildhostManifestName)
 		}
-		logger.Info("  WRITE %s (%d APE artifact(s), platforms %s)", buildhostManifestName, len(entries), platformList(apeCoverage(apePlatforms)))
+		if len(entries) > 0 {
+			if _, err := writeBuildhostManifest(outputDir, entries); err != nil {
+				return err
+			}
+			logger.Info("  WRITE %s (%d APE artifact(s), platforms %s)", buildhostManifestName, len(entries), platformList(apeCoverage(apePlatforms)))
+		}
 	}
 
 	// Wasm artifacts default to buildhost's publishable naming

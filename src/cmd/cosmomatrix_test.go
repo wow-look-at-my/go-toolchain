@@ -85,7 +85,7 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 	origHandler := mock.Handler
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if isForkBuild(cfg, fakeGoroot) {
-			writeBuildOutput(t, cfg, "FAT-APE")
+			writeBuildOutput(t, cfg, fakeAPE)
 			return runner.MockProcess(nil, nil), nil
 		}
 		return origHandler(cfg)
