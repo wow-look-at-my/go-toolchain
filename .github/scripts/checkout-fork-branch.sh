@@ -26,7 +26,7 @@ while read -r key _; do
 	*) continue ;;
 	esac
 
-	# `.` means "the branch named like this one", which git resolves but
+	# `.` means "the branch named like this", which git resolves but
 	# cannot fall back from. master is that fallback.
 	branch=$(git config -f .gitmodules --get "submodule.$name.branch" || true)
 	[[ "$branch" == "." || -z "$branch" ]] && branch=master

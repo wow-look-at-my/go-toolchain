@@ -1,7 +1,7 @@
-# The first build's own timing profile, asserted in a suite an engineer can
-# run. host-build copies build/profile.json in beside this file. Build cache
-# hit/miss reporting moved to gosmopolitan's cmd/go (docs/CACHE.md); this
-# fixture checks only that the actiongraph timing report itself is sane.
+# The earliest build's own timing profile, asserted in a suite an engineer
+# can run. host-build copies build/profile.json in beside this file. Build
+# cache hit/miss reporting moved to gosmopolitan's cmd/go (docs/CACHE.md);
+# this fixture checks only that the actiongraph timing report itself is sane.
 
 tests:
 	- desc: the build profile reports real actions with real wall time
