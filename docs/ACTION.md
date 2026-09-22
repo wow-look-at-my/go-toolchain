@@ -80,6 +80,12 @@ The probe captures its output rather than discarding it. So the real reason the 
 
 A caller-provided `binary:` is staged through `/tmp` and pre-run once for the same APE reason. Staging also keeps the caller's own file byte-identical. For a native binary this changes nothing.
 
+## 1d. The generators a dependency needs
+
+A dependency's `//go:generate` directives run when the dependency is fetched. A missing generator therefore fails the build. The step installs stringer, goyacc and gotext before the pipeline runs.
+
+It uses the runner's `go` when there is one. A self-hosted runner often has none. The step then runs go-toolchain as the go command, with `GO_TOOLCHAIN_LINKED_GO=1 go-toolchain go`. That go builds for `GOOS=cosmo`. Its `go install` writes into `$GOPATH/bin/cosmo_amd64` and ignores `GOBIN`. The step puts that directory on `PATH` beside `$GOPATH/bin`.
+
 ## 1e. The CodeQL permission check
 
 `wow-look-at-my/actions@has-permission` reads `security-events` off the running workflow file, and fails the build where the grant is missing. Reading the declared block needs no token and spends no API call.
