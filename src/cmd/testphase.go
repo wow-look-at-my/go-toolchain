@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/wow-look-at-my/go-containers/set"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
@@ -31,19 +32,7 @@ var vetRunFunc = vet.RunWithProgress
 // and the matrix command.
 // Returns (filesChanged, testResult, error) where filesChanged indicates if vet applied any fixes.
 func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.TestResult, error) {
-	// Fix any placeholder-version dependencies before go mod tidy
-	if err := FixBogusDepsVersions(r); err != nil {
-		return false, nil, err
-	}
-
-	// An org dependency carrying a plain version pin gets the branch marker
-	// added up front, so the re-resolution below owns it from this run on.
-	if _, err := EnforceOrgBranchTracking(r); err != nil {
-		return false, nil, err
-	}
-
-	// Re-resolve any dependency pinned to follow a branch (see depsbranch.go)
-	if _, err := UpdateTrackedBranchDeps(r); err != nil {
+	if err := checkOrgPins(moduleRoot()); err != nil {
 		return false, nil, err
 	}
 
@@ -66,14 +55,13 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		if !quiet {
 			genStep = logStep("go generate ./...")
 		}
-		if err := runGenerate(quiet, generateHash); err != nil {
+		if err := runGenerate(quiet, approvedGenerateHash()); err != nil {
 			return false, nil, fmt.Errorf("go generate failed: %w", err)
 		}
 		if genStep != nil {
 			genStep.noteOutput() // generate always prints directives
 			genStep.done()
 		}
-		// Run tidy again after generate in case new imports were added
 		var tidyStep2 *step
 		if !quiet {
 			tidyStep2 = logStep("go mod tidy (post-generate)")
@@ -93,6 +81,8 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			tidyStep2.done()
 		}
 	}
+
+	waitForCommentScan()
 
 	var vetStep *step
 	if !quiet {
@@ -131,23 +121,6 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			}
 			filesChanged = false
 			err = nil
-		} else if isUnreadableExportData(err) {
-			// A dependency's compiled API did not decode, which says nothing about this source.
-			disableSharedBuildCache()
-			logger.Warn("⇒ Warning: vet could not read the compiler's export data (%s) for %s -- that is a dependency's compiled API, not your source. Retrying with every dependency type-checked from source, and with the shared build cache (GOCACHEPROG) off for the rest of this run. A damaged cache entry and export data newer than this binary's importer both land here.",
-				exportDataSignature(err), strings.Join(unreadableExportPackages(err), ", "))
-			if vetPhaseStep != nil {
-				vetPhaseStep.done()
-				vetPhaseStep = nil
-			}
-			vetPhaseStep = logSubStep("vet: retry against dependency source", "main")
-			filesChanged, err = vet.RunFromSource(fix, vetProgress)
-			if err != nil {
-				if isUnreadableExportData(err) {
-					return false, nil, unreadableExportDataError(err)
-				}
-				return false, nil, fmt.Errorf("vet failed: %w", err)
-			}
 		} else {
 			return false, nil, fmt.Errorf("vet failed: %w", err)
 		}
@@ -309,11 +282,23 @@ var errFound = fmt.Errorf("found")
 
 // needsGenerate returns true if any .go file contains a //go:generate directive.
 func needsGenerate() bool {
+	// A dependency that ships a directive and not its output needs the phase as
+	// much as this tree does. See depgenerate.go.
+	if deps, err := depGenerateDirectives(); err == nil && len(pendingDepDirectives(deps)) > 0 {
+		return true
+	}
 	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || !strings.HasSuffix(path, ".go") {
+		if d.IsDir() {
+			// Another module's directives are its own pipeline's.
+			if d.Name() == "vendor" || gomod.IsNestedModule(path) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") {
 			return nil
 		}
 		f, err := os.Open(path)

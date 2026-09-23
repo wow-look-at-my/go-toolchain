@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
@@ -143,7 +144,7 @@ func walkGoFiles(root string) ([]string, error) {
 		if d.IsDir() {
 			name := d.Name()
 			// Skip hidden dirs, vendor, testdata
-			if strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata" {
+			if strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata" || gomod.IsNestedModule(path) {
 				return filepath.SkipDir
 			}
 			return nil

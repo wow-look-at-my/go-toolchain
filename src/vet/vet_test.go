@@ -73,28 +73,12 @@ func TestRunNoGoMod(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-// The retry exists so no importer stands between the type-check and a
-// dependency, so NeedDeps is the whole point of it -- and the flag has to come
-// back off, or every later pass pays for a source-loaded stdlib.
-func TestLoadModeFromSource(t *testing.T) {
+// A dependency arrives as the export data the compiler in this binary
+// wrote, so no load type-checks a single from source.
+func TestDependenciesArriveAsExportData(t *testing.T) {
 	t.Serial()
-	assert.Zero(t, loadMode()&packages.NeedDeps, "the default reads export data")
-
-	dir := t.TempDir()
-	t.Chdir(dir)
-
-	seen := packages.LoadMode(0)
-	// No go.mod here, so RunFromSource returns before loading; read the mode from inside it.
-	func() {
-		loadDepsFromSource = true
-		defer func() { loadDepsFromSource = false }()
-		seen = loadMode()
-	}()
-	assert.NotZero(t, seen&packages.NeedDeps)
-
-	_, err := RunFromSource(false, nil)
-	require.NoError(t, err)
-	assert.Zero(t, loadMode()&packages.NeedDeps, "RunFromSource must restore the default")
+	assert.Zero(t, loadMode()&packages.NeedDeps, "the compiler and the importer are one commit")
+	assert.NotZero(t, loadMode()&packages.NeedModule, "bannedoutput scopes its ban by the module")
 }
 
 func TestSourceLocationShortLoc(t *testing.T) {

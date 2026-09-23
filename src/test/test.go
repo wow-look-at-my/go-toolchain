@@ -216,7 +216,7 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 			args = append(args, "-tags", arg)
 		}
 		args = append(args, "./...")
-		proc, err := runner.Cmd("go", args...).WithHostTarget().WithQuiet().Run(r)
+		proc, err := runner.Cmd("go", args...).WithQuiet().Run(r)
 		if err != nil {
 			return fmt.Errorf("listing files for tags %s: %w", tagCfg, err)
 		}
@@ -242,6 +242,12 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 		return buildtags.UnreachableError(missed, "tests")
 	}
 	return nil
+}
+
+// perRunEnv names the GitHub Actions variables that differ between runs of the same commit's tests.
+var perRunEnv = []string{
+	"GITHUB_SHA", "GITHUB_REF", "GITHUB_REF_NAME", "GITHUB_RUN_ID", "GITHUB_RUN_NUMBER", "GITHUB_RUN_ATTEMPT",
+	"GITHUB_STEP_SUMMARY", "GITHUB_OUTPUT", "GITHUB_ENV", "GITHUB_PATH", "GITHUB_STATE",
 }
 
 // runTestsOnce executes go test for a single build-tag configuration.
@@ -280,7 +286,11 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 	// Tee stderr to console and a buffer, for progress and error reporting.
 	var stderrBuf bytes.Buffer
 	stderrTee := io.MultiWriter(&stderrBuf, os.Stderr)
-	proc, err := runner.Cmd("go", args...).WithHostTarget().WithStderrWriter(stderrTee).Run(r)
+	cmd := runner.Cmd("go", args...).WithStderrWriter(stderrTee)
+	for _, name := range perRunEnv {
+		cmd = cmd.WithEnv(name, "")
+	}
+	proc, err := cmd.Run(r)
 	if err != nil {
 		return nil, err
 	}
@@ -359,7 +369,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 					}
 				}
 				// -o discards the binary; without it, `go build src` would write an executable colliding with the src/ directory.
-				buildProc, buildErr := runner.Cmd("go", "build", "-o", os.DevNull, pkg).WithHostTarget().WithQuiet().Run(r)
+				buildProc, buildErr := runner.Cmd("go", "build", "-o", os.DevNull, pkg).WithQuiet().Run(r)
 				if buildErr != nil {
 					break
 				}

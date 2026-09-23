@@ -40,7 +40,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	if err != nil {
 		return err
 	}
-	forkGoroot, apePlatforms := forkEnv.goroot, forkEnv.coverage
+	apePlatforms := forkEnv.coverage
 
 	// Run tests with coverage before building (same as the default command)
 	if _, _, err := RunTestsWithCoverage(r, false); err != nil {
@@ -156,6 +156,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 			logger.Info("  OK   [%d/%d] %s %s", completed, len(jobs), result.job.outputPath, fmtDuration(result.duration))
 			if _, statErr := os.Stat(result.job.outputPath); statErr == nil {
 				builtFiles = append(builtFiles, result.job.outputPath)
+				recordArtifactSize(result.job.outputPath)
 			}
 		}
 	}
@@ -169,14 +170,21 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	// lone upload/row/link and excludes it from that filename scan, letting it
 	// publish under the plain name.
 	if hasCosmo {
-		entries, err := apeManifestEntries(hostTargets, outputDir, apeCoverage(apePlatforms))
+		entries, skipped, err := apeManifestEntries(hostTargets, outputDir, apeCoverage(apePlatforms))
 		if err != nil {
 			return err
 		}
-		if _, err := writeBuildhostManifest(outputDir, entries); err != nil {
-			return err
+		// A build whose outputs are not APEs publishes nothing, and says so
+		// rather than writing a manifest buildhost refuses.
+		for _, file := range skipped {
+			logger.Info("  SKIP  %s in %s: not an APE, so it names no platform set", file, buildhostManifestName)
 		}
-		logger.Info("  WRITE %s (%d APE artifact(s), platforms %s)", buildhostManifestName, len(entries), platformList(apeCoverage(apePlatforms)))
+		if len(entries) > 0 {
+			if _, err := writeBuildhostManifest(outputDir, entries); err != nil {
+				return err
+			}
+			logger.Info("  WRITE %s (%d APE artifact(s), platforms %s)", buildhostManifestName, len(entries), platformList(apeCoverage(apePlatforms)))
+		}
 	}
 
 	// Wasm artifacts default to buildhost's publishable naming
@@ -191,7 +199,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		if wasmPublishOptOut() {
 			logger.Warn("⇒ Warning: %s=0 — wasm artifacts are excluded from buildhost publishing (.wasm-suffixed names stay outside the publish upload set); they remain in %s/ and checksums.txt for CI artifact uploads", wasmPublishEnv, outputDir)
 			if !slices.ContainsFunc(platforms, func(p buildPlatform) bool { return !p.IsWasm() }) {
-				logger.Warn("⇒ Warning: every target is wasm and %s=0, so a buildhost publish step will find no publishable artifacts and fail; disable autorelease for wasm-only builds with publishing opted out", wasmPublishEnv)
+				logger.Warn("⇒ Warning: every target is wasm and %s=0, so this build produces no publishable artifact and the buildhost publish step is skipped; drop the opt-out to publish the wasm artifacts", wasmPublishEnv)
 			}
 		} else {
 			logger.Warn("⇒ Warning: wasm artifacts publish to buildhost as os=wasm (arch=js/wasip1); this requires buildhost wasm artifact support (wow-look-at-my/buildhost#166) — on older servers the upload is rejected and aborts the whole publish; set %s=0 to keep wasm artifacts out of the publish set", wasmPublishEnv)
@@ -199,19 +207,14 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	}
 
 	// Consumers of a js/wasm artifact need the EXACT wasm_exec.js of the
-	// toolchain that built it. Ship the fork's copy next to the artifact:
-	// covered by checksums.txt and the CI artifact, but outside the buildhost
-	// publish set — "wasm_exec.js" cannot match the publish action's
-	// <binary>_{os}_{arch} filename pattern (pinned by
-	// TestWasmArtifactNamesInBuildhostPublishSet). Best-effort: a fork
-	// GOROOT without lib/wasm only warns.
-	if forkGoroot != "" && slices.ContainsFunc(jobs, func(j buildJob) bool { return j.goos == "js" }) {
-		if dst, err := copyWasmExecJS(forkGoroot, outputDir); err != nil {
-			logger.Warn("⇒ Warning: could not copy wasm_exec.js from the fork toolchain: %v (browser/Node consumers must take lib/wasm/wasm_exec.js from the matching toolchain themselves)", err)
-		} else {
-			logger.Info("  COPY wasm_exec.js <- %s", filepath.Join(forkGoroot, "lib", "wasm"))
-			builtFiles = append(builtFiles, dst)
+	// toolchain that built it.
+	if slices.ContainsFunc(jobs, func(j buildJob) bool { return j.goos == "js" }) {
+		dst, err := writeWasmExecJS(outputDir)
+		if err != nil {
+			return err
 		}
+		logger.Info("  WRITE wasm_exec.js")
+		builtFiles = append(builtFiles, dst)
 	}
 
 	// Generate sha256 checksums for release artifacts

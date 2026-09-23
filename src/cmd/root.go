@@ -36,6 +36,8 @@ var (
 	lintMinNodes   int
 	cgoEnabled     bool
 	countGenerated bool
+	// treeUnchanged is what inputsUnchanged answered at startup.
+	treeUnchanged bool
 )
 
 // skipUpToDateCheck reports whether cmd or an ancestor skips the
@@ -50,10 +52,7 @@ func skipUpToDateCheck(cmd *cobra.Command) bool {
 	return false
 }
 
-// unguardedCmds print no build result, so a capture hides nothing. Depth: docs/AGENT-OUTPUT-GUARD.md.
-var unguardedCmds = set.Of("version")
-
-// toolchainlessCmds run no go command; resolving the fork would download a compiler to answer a question about this binary.
+// toolchainlessCmds run no go command, so they set none up.
 var toolchainlessCmds = set.Of("version", "verify-identical")
 
 // checkTargetFlags validates --targets and --cosmo-platforms, for the commands
@@ -80,40 +79,25 @@ func skipToolchain(cmd *cobra.Command) bool {
 	return false
 }
 
-// skipAgentGuard reports whether cmd or an ancestor prints no build result.
-func skipAgentGuard(cmd *cobra.Command) bool {
-	for c := cmd; c != nil; c = c.Parent() {
-		if unguardedCmds.Contains(c.Name()) {
-			return true
-		}
-	}
-	return false
-}
-
 var rootCmd = &cobra.Command{
 	Use:          "go-toolchain",
 	Short:        "Build Go projects with coverage enforcement",
 	SilenceUsage: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Install the logger ahead of the output guard, so every
-		// command's output honors the requested level.
+		// Install the logger so every command's output honors the
+		// requested level.
 		if err := initLogging(cmd); err != nil {
 			return err
 		}
 		// Snapshot env before phases add vars, so fingerprint matches what the next run checks.
 		captureRunEnv()
-		// Abort if the agent hides our output, unless this is cacheprog (see skipAgentGuard).
-		if !skipAgentGuard(cmd) {
-			guardAgainstAgentOutputCapture()
-		}
 		// A target set nothing can build is rejected before a compiler is fetched for it.
 		if err := checkTargetFlags(cmd); err != nil {
 			return err
 		}
-		// After cobra parses, so --help and a mistyped flag cost no compiler.
+		// After cobra parses, so --help and a mistyped flag set up no toolchain.
 		if !skipToolchain(cmd) {
 			if err := EnsureGoVersion(); err != nil {
-				// Drop the previous run's binaries so a failed run cannot pass for a good run (see staleoutputs.go).
 				discardBuildOutputsFromCWD()
 				return fmt.Errorf("go bootstrap: %w", err)
 			}
@@ -121,10 +105,15 @@ var rootCmd = &cobra.Command{
 		if skipUpToDateCheck(cmd) {
 			return nil
 		}
-		if cmd.Parent() == nil && isUpToDate(runner.New()) {
-			logger.Output("⇒ Up to date, nothing to do")
-			ReportUpdateCheck()
-			os.Exit(0)
+		if cmd.Parent() == nil {
+			r := runner.New()
+			// Read here, before clearBuildOutputs deletes what outputsPresent looks for.
+			treeUnchanged = inputsUnchanged(r)
+			if treeUnchanged && outputsPresent(r) {
+				logger.Output("⇒ Up to date, nothing to do")
+				ReportUpdateCheck()
+				os.Exit(0)
+			}
 		}
 		return nil
 	},
@@ -161,7 +150,6 @@ func init() {
 	fingerprintFlags = rootCmd.LocalFlags()
 	// Kept apart: Flags() merges these in only at parse time, so flagFingerprint visits both sets and dedupes by name.
 	fingerprintPersistentFlags = rootCmd.PersistentFlags()
-	fingerprintPersistentFlags = rootCmd.PersistentFlags()
 
 	Register(rootCmd)
 }
@@ -169,6 +157,7 @@ func init() {
 // Execute runs the root command.
 func Execute() error {
 	defer emitBuildProfile()
+	defer removeFixedPointSelf()
 	return rootCmd.Execute()
 }
 
@@ -198,8 +187,12 @@ func run(cmd *cobra.Command, args []string) (err error) {
 		}()
 	}
 
-	// Leads the phases: it reads bytes, not a type-checked package.
-	if err := runSlopfmtPhase("."); err != nil {
+	// The comment rule is imported, and its extractor reads a parse table that a generate step writes: a dependency ships
+	// the directive and not
+	if err := generateForDeps(approvedGenerateHash()); err != nil {
+		return err
+	}
+	if err := reexecUnderOwnBuild(); err != nil {
 		return err
 	}
 
@@ -215,6 +208,10 @@ func run(cmd *cobra.Command, args []string) (err error) {
 
 	r := runner.New()
 	startDir, _ := os.Getwd()
+
+	// Only now, and at an absolute root: the loop below chdirs as it sweeps.
+	activeCommentScan = startCommentScan(startDir)
+	defer waitForCommentScan()
 
 	// Create global trace for fine-grained events.
 	activeTrace = gotrace.NewTrace()
@@ -266,6 +263,7 @@ func run(cmd *cobra.Command, args []string) (err error) {
 	if tl := GetTimeline(); tl != nil {
 		allSummary.Timeline = tl.Entries()
 	}
+	allSummary.Artifacts = builtArtifactSizes()
 
 	// Write the GitHub Step Summary after all modules complete
 	if writeErr := summary.Write(&allSummary); writeErr != nil {
@@ -286,26 +284,36 @@ func run(cmd *cobra.Command, args []string) (err error) {
 
 // findGoModules searches for go.mod files in the current directory and subdirectories.
 func findGoModules() []string {
-	// Check the current directory before walking subdirectories
+	// A root module leads the list: it is what a caller means by "this repo".
+	var found []string
 	if _, err := os.Stat("go.mod"); err == nil {
-		return []string{"."}
+		found = append(found, ".")
 	}
 
-	// Search subdirectories
-	var found []string
+	// Then every nested module. A root go.mod does NOT end the search: a
+	// repo that keeps a tool, an example or another service in its own
+	// module still has to build and test it, and returning the root alone
+	// reported a whole module green without compiling a line of it.
 	filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "node_modules") {
+			// go itself ignores testdata, so a go.mod there is a fixture.
+			if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "node_modules" || name == "testdata") {
+				return filepath.SkipDir
+			}
+			// The fork checkout holds the standard library's modules, which the fork builds.
+			if isForkSubmodulePath(path) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 		if d.Name() == "go.mod" {
-			found = append(found, filepath.Dir(path))
+			if dir := filepath.Dir(path); dir != "." {
+				found = append(found, dir)
+			}
 		}
 		return nil
 	})
@@ -326,6 +334,12 @@ func runWithRunner(r runner.CommandRunner, sd *summary.SummaryData) error {
 func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.SummaryData) error {
 	quiet := jsonOutput
 
+	// Ahead of the unchanged-tree exit below: a tree that has not changed since
+	// the last green run can still predate this rule.
+	if err := checkOrgPins(moduleRoot()); err != nil {
+		return err
+	}
+
 	// Check for dep updates before tests so we don't run the full
 	// test suite again when a dependency is outdated.
 	if !quiet && !isRetry {
@@ -333,6 +347,30 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 		if WaitForOutdatedDeps(depChecker) {
 			logger.Info("")
 		}
+	}
+
+	// Vet and the tests read the inputs, and the inputs are what they answer
+	// about. An unchanged tree that lost its outputs has to build again, and
+	// asking that question again only re-runs a suite whose answer is on file.
+	// It is also the path that reaches the build with no coverage to report.
+	if treeUnchanged && !isRetry {
+		waitForCommentScan() // This path reaches no vet, so the sweep lands here.
+		logger.Output("⇒ Tests and vet skipped: the tree has not changed since the last green run")
+		br, builtArtifacts, err := runBuildPhase(r, quiet)
+		if err != nil {
+			return err
+		}
+		if err := integration.Run(context.Background(), "tests"); err != nil {
+			return err
+		}
+		if err := runDatsPhase(quiet, builtArtifacts); err != nil {
+			return err
+		}
+		if sd != nil && br != nil {
+			sd.Benchmarks = br.Report
+			sd.BenchComp = br.Comparison
+		}
+		return nil
 	}
 
 	filesChanged, testResult, err := RunTestsWithCoverage(r, quiet)
@@ -429,6 +467,7 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, []datsArti
 			sourcePath: outPath,
 			name:       datsArtifactName(t.OutputName, hostos.GOOS()),
 		})
+		recordArtifactSize(outPath)
 	}
 
 	if !quiet {

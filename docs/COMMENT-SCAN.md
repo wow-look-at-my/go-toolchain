@@ -1,6 +1,6 @@
 # The comment scan: a number in a comment
 
-`src/cmd/slopfmtphase.go` reports any number written in a comment, in digits or in words. The remedy it names is always the same: describe what the code does and let the reader count.
+`src/cmd/commentscanphase.go` reports any number written in a comment, in digits or in words. The remedy it names is always the same: describe what the code does and let the reader count.
 
 A number in a comment is a count of what exists on the day it was written. The edit that adds an item does not update it. So the comment quietly goes false, and the alternative. Naming the thing instead survives both.
 
@@ -17,27 +17,31 @@ A number in a comment is a count of what exists on the day it was written. The e
 
 The rule was a vet analyzer, `src/vet/commentnumbers.go`. An analyzer runs on `*ast.File` values. `go/packages` produces those only after it resolves every import, reads every dependency's export data and type-checks the module. That is minutes of work before the first comment is read. None of it answers the question. A comment is bytes.
 
-The rule now lives in [`slopfix`](https://github.com/wow-look-at-my/slopfix) and runs as the first phase of the pipeline, ahead of the dependency check, `go mod tidy` and vet. Two things follow.
+The rule now lives in [`slopfix/commentfix`](https://github.com/wow-look-at-my/slopfix/tree/master/commentfix) and runs beside the dependency check, `go mod tidy` and `go generate`, ahead of vet. Two things follow.
 
 It answers on a tree that does not build. A missing import, an unresolvable module, a syntax error in another package: none of them stop the report, because nothing here parses the language.
 
-It answers for every language. slopfix parses each file with the grammar its extension names. So a shell script, a workflow, a Rust file and a TypeScript file are all scanned. The analyzer only ever saw Go, and the stale prose in a `run:` script was never anybody's finding.
+It answers for every language. `commentfix` reads a comment by its delimiters rather than by a grammar. So a shell script, a workflow, a Dockerfile, a Rust file and a TypeScript file are all scanned. The analyzer only ever saw Go, and the stale prose in a `run:` script was never anybody's finding.
 
-## Why it runs a binary
+## Where it runs, and when
 
-slopfix is not importable. It parses with tree-sitter, and it generates each grammar's parse table at build time. It commits none of that. So every grammar package is empty on a fresh checkout, and no module can require it. The published binary is what the slopfix README hands a consumer.
+The phase is `src/cmd/commentscanphase.go`. It is a start and a join around `commentfix.FixTree`. Nothing about comments is decided here.
 
-`ensureSlopfix` resolves one: `GO_TOOLCHAIN_SLOPFIX_BIN` names a local build, otherwise the pipeline downloads the host's slot from buildhost into the go cache and keeps it. `GO_TOOLCHAIN_SLOPFIX_VERSION` pins a release.
+It starts only once `findGoModules` has answered. A repair is a write. A run begun in a directory that is not a module has no business rewriting whatever prose it finds there. A tree carrying `dats/` suites and no `go.mod` therefore gets no sweep at all.
 
-A failure to resolve fails the phase, and the pipeline with it. A comment scan that never read a comment must not report a clean tree.
+It runs on its own goroutine, beside the dependency resolution, `go mod tidy` and `go generate`. Each repaired file is renamed into place, so a reader beside the sweep sees a whole file either way. The test phase joins the sweep before vet, which rewrites the same files. The up-to-date path joins it before the build.
+
+A finding it cannot repair is a defect in slopfix rather than a message for the author. The repair covers every number the rule reports. So the phase warns only when the rule and its repair have come apart.
 
 ## What is scanned
 
-The walk starts at the repository root, not at a module. It skips a hidden directory, `vendor`, `node_modules`, `testdata`, the build output directory, and any file above a megabyte.
+The walk is slopfix's, in `commentfix.TreeFiles`. The `slopfix comments` command reads the same list. It starts at the repository root, not at a module. It skips a hidden directory, `vendor`, `node_modules`, `testdata`, `build`, and any file above a megabyte.
 
 It skips a nested module too, whose text belongs to that module. The exception is a root that is not itself a module: skipping there scans nothing, because the repository's modules all sit below the root.
 
-A file whose extension names no grammar is skipped rather than guessed at. slopfix reads a file it is handed by name whatever the extension. So the walk is what holds that line. A wrong guess reports a string literal as prose, and a rule nobody trusts is a rule nobody keeps.
+It skips a git submodule on the same ground. This one carries no exception. A submodule's working tree is another repository's checkout. That repository writes the prose and takes the fix. Nothing here can repair a finding inside it. Git marks such a tree by writing `.git` as a FILE. The file holds a gitdir pointer, where an ordinary checkout keeps a directory. The skip reads that marker rather than a name. The nested-module predicate cannot stand in for it, because that one reads `go.mod`. A submodule of C, C++ or Rust carries none. A vendored driver or compiler tree is also where the findings run away with the whole warnings budget.
+
+A file whose extension `commentfix` has no comment syntax for is skipped rather than guessed at. A wrong guess reports a string literal as prose, and a rule nobody trusts is a rule nobody keeps.
 
 ## What counts as a number
 

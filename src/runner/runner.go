@@ -4,12 +4,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
-
-	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 
 	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-containers/sortedmap"
@@ -76,12 +73,6 @@ func (c *Config) WithEnv(key, value string) *Config {
 	}
 	c.Env.Put(key, value)
 	return c
-}
-
-// WithHostTarget builds for the machine this runs on: nothing can fork/exec
-// the fork's default fat APE. Depth: docs/CI.md
-func (c *Config) WithHostTarget() *Config {
-	return c.WithEnv("GOOS", hostos.GOOS()).WithEnv("GOARCH", runtime.GOARCH)
 }
 
 // WithDir runs the command in dir, so a caller need not move the process.
@@ -160,8 +151,29 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 		return nil, err
 	}
 
-	p := &process{cmd: cmd, stdoutPipe: stdout, stderrPipe: stderr, quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, stderrWriter: cfg.StderrWriter}
+	// Both streams are read from the moment the child starts. A caller that
+	// reads a single stream to its end before the other, or reads neither
+	// until Wait, never leaves the child blocked on a full pipe.
+	p := &process{cmd: cmd, stdout: newSpool(), stderr: newSpool(), quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter}
+	go p.stdout.fill(stdout)
+	// The console still sees each stderr line as it arrives; the spool keeps a copy for Stderr.
+	if live := cfg.liveStderr(); live != nil {
+		go p.stderr.fill(io.TeeReader(stderr, &firstOutputWriter{target: live, hadOutput: &p.hadOutput, callback: cfg.OnFirstOutput}))
+	} else {
+		go p.stderr.fill(stderr)
+	}
 	return p, nil
+}
+
+// liveStderr names where stderr goes as it arrives, or nil to only hold it.
+func (c *Config) liveStderr() io.Writer {
+	switch {
+	case c.StderrWriter != nil:
+		return c.StderrWriter
+	case !c.Quiet:
+		return os.Stderr
+	}
+	return nil
 }
 
 // firstOutputWriter wraps a writer and calls a callback before any write.
@@ -184,15 +196,14 @@ func (w *firstOutputWriter) Write(p []byte) (int, error) {
 
 type process struct {
 	cmd          *exec.Cmd
-	stdoutPipe   io.Reader
-	stderrPipe   io.Reader
+	stdout       *spool
+	stderr       *spool
 	quiet        bool
 	done         bool
 	err          error
 	hadOutput    atomic.Bool
 	onFirst      func()
 	stdoutWriter io.Writer
-	stderrWriter io.Writer
 }
 
 func (p *process) Wait() error {
@@ -200,37 +211,21 @@ func (p *process) Wait() error {
 		return p.err
 	}
 	if !p.quiet {
-		// Copy stdout/stderr concurrently so stderr (e.g. "go: downloading...") streams live instead of buffering.
+		// Stderr already went to its target as it arrived, so only stdout is left.
 		var stdoutTarget io.Writer = os.Stdout
 		if p.stdoutWriter != nil {
 			stdoutTarget = p.stdoutWriter
-		}
-		var stderrTarget io.Writer = os.Stderr
-		if p.stderrWriter != nil {
-			stderrTarget = p.stderrWriter
 		}
 		w := &firstOutputWriter{
 			target:    stdoutTarget,
 			hadOutput: &p.hadOutput,
 			callback:  p.onFirst,
 		}
-		wErr := &firstOutputWriter{
-			target:    stderrTarget,
-			hadOutput: &p.hadOutput,
-			callback:  p.onFirst,
-		}
-		var wg sync.WaitGroup
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			io.Copy(w, p.stdoutPipe)
-		}()
-		go func() {
-			defer wg.Done()
-			io.Copy(wErr, p.stderrPipe)
-		}()
-		wg.Wait()
+		io.Copy(w, p.stdout)
 	}
+	// cmd.Wait closes the pipes, so both spools must have seen their end earliest.
+	p.stdout.drained()
+	p.stderr.drained()
 	p.err = p.cmd.Wait()
 	p.done = true
 	return p.err
@@ -246,9 +241,9 @@ func HadOutput(proc IProcess) bool {
 }
 
 func (p *process) Stdout() io.Reader {
-	return p.stdoutPipe
+	return p.stdout
 }
 
 func (p *process) Stderr() io.Reader {
-	return p.stderrPipe
+	return p.stderr
 }
