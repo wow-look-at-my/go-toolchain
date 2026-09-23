@@ -100,7 +100,7 @@ func hoistableInit(pass *analysis.Pass, ifStmt *ast.IfStmt) ast.Stmt {
 	// Scopes[ifStmt] is the scope the init declares into; its parent is where the statement lands.
 	ifScope := pass.TypesInfo.Scopes[ifStmt]
 	if ifScope == nil || ifScope.Parent() == nil {
-		return ifStmt.Init // no type info: leave it exactly as it was
+		return ifStmt.Init // no type info.
 	}
 	for _, lhs := range assign.Lhs {
 		ident, ok := lhs.(*ast.Ident)
@@ -241,7 +241,7 @@ func buildBinaryAssert(pass *analysis.Pass, bin *ast.BinaryExpr, tVar, assertPkg
 // on stale position information when AST nodes are reused in a different context
 // (e.g., extracting condition operands from an if statement into assert call arguments).
 func clearNodePositions(node ast.Node) {
-	ast.Inspect(node, func(n ast.Node) bool {
+	InspectNode(node, func(n ast.Node) bool {
 		if n == nil {
 			return false
 		}
@@ -299,7 +299,7 @@ func prepareFixNodes(nodes []ast.Node, pos token.Pos) {
 // positioned token (Ident or BasicLit) to pos.
 func setFirstTokenPos(node ast.Node, pos token.Pos) {
 	done := false
-	ast.Inspect(node, func(n ast.Node) bool {
+	InspectNode(node, func(n ast.Node) bool {
 		if done || n == nil {
 			return false
 		}

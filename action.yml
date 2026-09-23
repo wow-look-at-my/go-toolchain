@@ -42,10 +42,6 @@ inputs:
     description: 'Enable CGO (disabled by default for static binaries)'
     required: false
     default: 'false'
-  autorelease:
-    description: 'Automatically publish to buildhost on every branch push (requires id-token: write, plus deployments: write and artifact-metadata: write -- the publish registers a GitHub Deployment and posts an artifact storage record as part of publishing, with no opt-out, and fails the build without either grant)'
-    required: false
-    default: 'true'
   autorelease_args:
     description: >-
       Extra publish options forwarded to the buildhost publish, as
@@ -56,6 +52,8 @@ inputs:
       block and generated debs ship an auto-enabled systemd user unit).
       Unknown keys fail the build. Empty (the default) forwards nothing --
       the publish request is byte-identical to before this input existed.
+      Ignored by a build that produces no executable binary, which publishes
+      nothing.
     required: false
     default: ''
   allow-source-build:
@@ -91,6 +89,14 @@ runs:
       env:
         ACTION_PATH: ${{ github.action_path }}
       run: bash "$ACTION_PATH/.github/scripts/register-ape-binfmt.sh"
+
+    # A dependency's generate directive and the dats phase both run confined. see docs/ACTION.md
+    - name: Provision the sandbox backend (bubblewrap)
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "$ACTION_PATH/.github/scripts/provision-bwrap.sh"
 
     - name: Install go-toolchain
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
@@ -138,24 +144,6 @@ runs:
         brew install coreutils
         echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
 
-    - name: Require the id-token grant autorelease needs
-      if: inputs.autorelease == 'true'
-      uses: wow-look-at-my/actions@has-permission#latest
-      with:
-        permission: id-token
-
-    - name: Require the deployments grant autorelease needs
-      if: inputs.autorelease == 'true'
-      uses: wow-look-at-my/actions@has-permission#latest
-      with:
-        permission: deployments
-
-    - name: Require the artifact-metadata grant autorelease needs
-      if: inputs.autorelease == 'true'
-      uses: wow-look-at-my/actions@has-permission#latest
-      with:
-        permission: artifact-metadata
-
     - name: Require the security-events grant CodeQL needs
       if: inputs.codeql == 'true'
       uses: wow-look-at-my/actions@has-permission#latest
@@ -169,6 +157,29 @@ runs:
         languages: go
         build-mode: manual
         queries: security-and-quality
+
+    # A dependency's //go:generate directives run when it is fetched, and a missing generator fails the build. A runner with no go of its own uses the pipeline's go: GO_TOOLCHAIN_LINKED_GO tells the pipeline binary to act as the go command.
+    - name: Install the generators a dependency's directives need
+      shell: bash
+      run: |
+        set -euo pipefail
+        go=(go)
+        if ! command -v go >/dev/null; then
+          # The pipeline's go has no go.env beside it, so it carries no default module proxy or checksum database.
+          export GO_TOOLCHAIN_LINKED_GO=1 GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}" GOSUMDB="${GOSUMDB:-sum.golang.org}"
+          go=(go-toolchain go)
+        fi
+        for pkg in \
+          golang.org/x/tools/cmd/stringer@v0.49.0 \
+          golang.org/x/tools/cmd/goyacc@v0.49.0 \
+          golang.org/x/text/cmd/gotext@v0.42.0 \
+        ; do
+          "${go[@]}" install "$pkg"
+        done
+        bin="$("${go[@]}" env GOPATH)/bin"
+        echo "$bin" >> "$GITHUB_PATH"
+        # The pipeline's go builds for GOOS=cosmo, so its go install writes into a per-platform subdirectory and ignores GOBIN.
+        echo "$bin/$("${go[@]}" env GOOS)_$("${go[@]}" env GOARCH)" >> "$GITHUB_PATH"
 
     - name: Run go-toolchain
       shell: bash
@@ -219,9 +230,35 @@ runs:
       with:
         category: /language:go
 
+    # Every executable binary publishes. A build with none (a library module, or a wasm-only build with publishing opted out) has nothing buildhost can upload. see docs/ACTION.md
+    - name: Select publishable artifacts
+      id: publishable
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "$ACTION_PATH/.github/scripts/publishable-artifacts.sh" "${{ inputs.working-directory }}/build"
+
+    - name: Require the id-token grant the publish needs
+      if: steps.publishable.outputs.publish == 'true'
+      uses: wow-look-at-my/actions@has-permission#latest
+      with:
+        permission: id-token
+
+    - name: Require the deployments grant the publish needs
+      if: steps.publishable.outputs.publish == 'true'
+      uses: wow-look-at-my/actions@has-permission#latest
+      with:
+        permission: deployments
+
+    - name: Require the artifact-metadata grant the publish needs
+      if: steps.publishable.outputs.publish == 'true'
+      uses: wow-look-at-my/actions@has-permission#latest
+      with:
+        permission: artifact-metadata
+
     # A composite `with:` block is static YAML. see docs/ACTION.md
     - name: Parse autorelease_args
-      if: inputs.autorelease == 'true'
+      if: steps.publishable.outputs.publish == 'true'
       id: autorelease_args
       uses: wow-look-at-my/actions@typescript#latest
       with:
@@ -243,7 +280,7 @@ runs:
           for (const key of known) core.setOutput(key, out[key]);
 
     - name: Auto-release to buildhost
-      if: inputs.autorelease == 'true'
+      if: steps.publishable.outputs.publish == 'true'
       uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
       with:
         path: ${{ inputs.working-directory }}/build

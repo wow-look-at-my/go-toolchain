@@ -86,7 +86,7 @@ func TestSetupCGOEnvironment_Disabled(t *testing.T) {
 	cgoEnabled = false
 	defer func() { cgoEnabled = oldCGO }()
 
-	// Reset sync.Once so it can run
+	// Reset sync.a single time so it can run
 	setupCGOOnce = sync.Once{}
 
 	t.Setenv("PKG_CONFIG_PATH", "")

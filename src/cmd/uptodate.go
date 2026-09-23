@@ -104,6 +104,8 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 
 	fmt.Fprintf(h, "go:%s\n", runtime.Version())
 	fmt.Fprintf(h, "toolchain:%s\n", buildVersion)
+	// The fork checkout is the standard library a build of this module compiles.
+	fmt.Fprintf(h, "gosmopolitan:%s\n", resolvedForkCommit)
 	fmt.Fprintf(h, "output:%s\n", outputDir)
 	fmt.Fprintf(h, "flags:%s\n", flagFingerprint())
 
@@ -127,7 +129,7 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if isOutputDir(path) || name == "vendor" || name == "node_modules" {
+			if isOutputDir(path) || name == "vendor" || name == "node_modules" || isForkSubmodulePath(path) {
 				return filepath.SkipDir
 			}
 			if name != "." && strings.HasPrefix(name, ".") {
@@ -249,11 +251,11 @@ func embeddedFiles(r runner.CommandRunner) ([]string, error) {
 	return embeds, nil
 }
 
-// isUpToDate returns true if the project fingerprint matches the last successful run
-// and all build outputs still exist.
-func isUpToDate(r runner.CommandRunner) bool {
-	fp := fingerprintFile()
-	stored, err := os.ReadFile(fp)
+// inputsUnchanged reports whether every input the pipeline reads still matches
+// the last run that went green. It says nothing about the outputs, so a caller
+// that lost its outputs builds again without re-running vet or the tests.
+func inputsUnchanged(r runner.CommandRunner) bool {
+	stored, err := os.ReadFile(fingerprintFile())
 	if err != nil {
 		return false
 	}
@@ -267,16 +269,11 @@ func isUpToDate(r runner.CommandRunner) bool {
 		return false
 	}
 
-	// A branch-tracked dep's HEAD lives on a remote; an unchanged tree can still be stale if that branch moved.
-	if trackedBranchDepsMoved(r) {
-		return false
-	}
+	return true
+}
 
-	// An unchanged tree can predate branch-tracking; skipping here would skip the run that adds the markers.
-	if len(untrackedOrgDeps()) > 0 {
-		return false
-	}
-
+// outputsPresent reports whether every target this module builds is on disk.
+func outputsPresent(r runner.CommandRunner) bool {
 	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {
 		return false
@@ -291,6 +288,12 @@ func isUpToDate(r runner.CommandRunner) bool {
 	}
 
 	return true
+}
+
+// isUpToDate returns true if the project fingerprint matches the last successful run
+// and all build outputs still exist.
+func isUpToDate(r runner.CommandRunner) bool {
+	return inputsUnchanged(r) && outputsPresent(r)
 }
 
 // saveFingerprint writes the current fingerprint to disk.

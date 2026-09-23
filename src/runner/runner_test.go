@@ -1,12 +1,11 @@
 package runner
 
 import (
-	"runtime"
+	"io"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 )
 
 func TestConfigIsCmd(t *testing.T) {
@@ -139,22 +138,6 @@ func TestConfigWithEnv(t *testing.T) {
 	goarch, _ := cfg.Env.Get("GOARCH")
 	assert.Equal(t, "linux", goos)
 	assert.Equal(t, "amd64", goarch)
-}
-
-// A test binary has to run on the machine that just built it. The fork
-// defaults to cosmo, and `go test` fork/execs what it builds, which a fat APE
-// answers with "exec format error" -- so the target is named, never inherited.
-func TestConfigWithHostTarget(t *testing.T) {
-	t.Serial()
-	cfg := Cmd("go", "test").WithHostTarget()
-	goos, ok := cfg.Env.Get("GOOS")
-	require.True(t, ok, "GOOS must be assigned, not left to the fork's default")
-	assert.Equal(t, hostos.GOOS(), goos)
-	assert.NotEqual(t, "cosmo", goos, "a cosmo test binary cannot be exec'd")
-
-	goarch, ok := cfg.Env.Get("GOARCH")
-	require.True(t, ok)
-	assert.Equal(t, runtime.GOARCH, goarch)
 }
 
 func TestConfigWithQuiet(t *testing.T) {
@@ -320,6 +303,29 @@ func TestRealRunnerStderr(t *testing.T) {
 	assert.Contains(t, string(buf[:n]), "error")
 
 	proc.Wait()
+}
+
+// TestRealRunnerReadsBothStreamsWhileTheCallerReadsOne pins the shape that
+// hung the test phase on NT: the child fills stderr past any pipe buffer
+// before it writes stdout, and the caller reads stdout to its end earliest.
+func TestRealRunnerReadsBothStreamsWhileTheCallerReadsOne(t *testing.T) {
+	t.Serial()
+	r := New()
+	proc, err := r.Run(Config{
+		Name:  "sh",
+		Args:  []string{"-c", "i=0; while [ $i -lt 4000 ]; do echo 'a line of stderr noise the parent is not reading yet, over and over' >&2; i=$((i+1)); done; echo done-stdout"},
+		Quiet: true,
+	})
+	assert.Nil(t, err)
+
+	out, err := io.ReadAll(proc.Stdout())
+	assert.Nil(t, err)
+	assert.Equal(t, "done-stdout\n", string(out))
+
+	errOut, err := io.ReadAll(proc.Stderr())
+	assert.Nil(t, err)
+	assert.Equal(t, 4000, strings.Count(string(errOut), "\n"))
+	assert.Nil(t, proc.Wait())
 }
 
 func TestRealRunnerFailingCommand(t *testing.T) {

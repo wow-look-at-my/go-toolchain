@@ -22,8 +22,8 @@ const guessedHostBanner = "\n⚠ go-toolchain could not determine its HOST OS an
 	"Nothing answered: the runtime does not recognise this host, uname is\n" +
 	"unimplemented for this target, and the filesystem probes were denied or absent\n" +
 	"(a sandbox will do that). Away from Linux this answer is WRONG, and\n" +
-	"host-specific choices -- toolchain archives, brew paths, the agent output guard\n" +
-	"-- are being made on it. Run `go-toolchain version host` to see.\n\n"
+	"host-specific choices -- toolchain archives, brew paths -- are being made on\n" +
+	"it. Run `go-toolchain version host` to see.\n\n"
 
 // warnGuessedHost reports, a single time per run, that the host OS is a
 // fallback rather than a measurement, and names what that costs.
