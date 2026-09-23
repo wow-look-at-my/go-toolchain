@@ -86,6 +86,8 @@ A dependency's `//go:generate` directives run when the dependency is fetched. A 
 
 It uses the runner's `go` when there is one. A self-hosted runner often has none. The step then runs go-toolchain as the go command, with `GO_TOOLCHAIN_LINKED_GO=1 go-toolchain go`. That go builds for `GOOS=cosmo`. Its `go install` writes into `$GOPATH/bin/cosmo_amd64` and ignores `GOBIN`. The step puts that directory on `PATH` beside `$GOPATH/bin`.
 
+That go has no `go.env` beside it. So without help it has an empty proxy list and fails with "GOPROXY list is not the empty string, but contains no entries". The step gives it Go's standard `GOPROXY` and `GOSUMDB` unless the runner already sets them. The generators are public modules, so the public checksum database discloses nothing.
+
 ## 1e. The CodeQL permission check
 
 `wow-look-at-my/actions@has-permission` reads `security-events` off the running workflow file, and fails the build where the grant is missing. Reading the declared block needs no token and spends no API call.
