@@ -165,7 +165,8 @@ runs:
         set -euo pipefail
         go=(go)
         if ! command -v go >/dev/null; then
-          export GO_TOOLCHAIN_LINKED_GO=1
+          # The pipeline's go has no go.env beside it, so it carries no default module proxy or checksum database.
+          export GO_TOOLCHAIN_LINKED_GO=1 GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}" GOSUMDB="${GOSUMDB:-sum.golang.org}"
           go=(go-toolchain go)
         fi
         for pkg in \
