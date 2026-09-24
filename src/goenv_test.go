@@ -3,12 +3,10 @@ package main
 import (
 	"encoding/base64"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/cmd"
 )
 
@@ -24,128 +22,26 @@ func TestEnsureDirectFallback(t *testing.T) {
 	assert.Equal(t, "https://a.com,https://b.com|direct", ensureDirectFallback("https://a.com,https://b.com|direct"))
 }
 
-func TestParseProxyConfig_Valid(t *testing.T) {
+// The org secret still carries GO_PROXY_CONFIG, and the proxy it names is
+// gone. A run that read it would fail every checksum lookup.
+func TestConfigureGoEnvIgnoresGOProxyConfig(t *testing.T) {
 	t.Serial()
 	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret","sumdb_key":"mydb+abc123+AKeyHere"}`
-	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
-	cfg := parseProxyConfig()
-	require.NotNil(t, cfg)
-	assert.Equal(t, "https://proxy.example.com", cfg.Proxy)
-	assert.Equal(t, "alice", cfg.user())
-	assert.Equal(t, "secret", cfg.password())
-	assert.Equal(t, "proxy.example.com", cfg.proxyHost())
-	assert.Equal(t, "mydb", cfg.sumdbName())
-	assert.Equal(t, "mydb+abc123+AKeyHere https://proxy.example.com/sumdb/mydb", cfg.gosumdb())
-}
-
-func TestParseProxyConfig_UsernameField(t *testing.T) {
-	t.Serial()
-	raw := `{"proxy":"https://p.example.com","username":"bob","pass":"hunter2"}`
-	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
-	cfg := parseProxyConfig()
-	require.NotNil(t, cfg)
-	assert.Equal(t, "bob", cfg.user())
-	assert.Equal(t, "hunter2", cfg.password())
-}
-
-func TestParseProxyConfig_LoginField(t *testing.T) {
-	t.Serial()
-	raw := `{"proxy":"https://p.example.com","login":"carol","pass":"pw123"}`
-	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
-	cfg := parseProxyConfig()
-	require.NotNil(t, cfg)
-	assert.Equal(t, "carol", cfg.user())
-	assert.Equal(t, "pw123", cfg.password())
-}
-
-func TestParseProxyConfig_Unset(t *testing.T) {
-	t.Serial()
-	t.Setenv("GO_PROXY_CONFIG", "")
-	assert.Nil(t, parseProxyConfig())
-}
-
-func TestParseProxyConfig_InvalidBase64(t *testing.T) {
-	t.Serial()
-	t.Setenv("GO_PROXY_CONFIG", "not-valid-base64!!!")
-	assert.Nil(t, parseProxyConfig())
-}
-
-func TestParseProxyConfig_InvalidJSON(t *testing.T) {
-	t.Serial()
-	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte("not json")))
-	assert.Nil(t, parseProxyConfig())
-}
-
-func TestProxyConfig_ProxyHost(t *testing.T) {
-	t.Serial()
-	cfg := proxyConfig{Proxy: "https://goproxy.example.com/some/path"}
-	assert.Equal(t, "goproxy.example.com", cfg.proxyHost())
-
-	cfg2 := proxyConfig{Proxy: "goproxy.example.com"}
-	assert.Equal(t, "goproxy.example.com", cfg2.proxyHost())
-}
-
-func TestProxyConfig_GosumdbNoKey(t *testing.T) {
-	t.Serial()
-	cfg := proxyConfig{Proxy: "https://proxy.example.com"}
-	assert.Empty(t, cfg.gosumdb())
-}
-
-func TestProxyConfig_GosumdbNoProxy(t *testing.T) {
-	t.Serial()
-	cfg := proxyConfig{SumDBKey: "mydb+abc+AKey"}
-	assert.Empty(t, cfg.gosumdb())
-}
-
-func TestProxyConfig_GosumdbTrailingSlash(t *testing.T) {
-	t.Serial()
-	cfg := proxyConfig{Proxy: "https://proxy.example.com/", SumDBKey: "mydb+abc+AKey"}
-	assert.Equal(t, "mydb+abc+AKey https://proxy.example.com/sumdb/mydb", cfg.gosumdb())
-}
-
-// setHome points os.UserHomeDir() at dir: NT reads USERPROFILE, unix HOME.
-func setHome(t *testing.T, dir string) {
-	t.Helper()
-	t.Setenv("HOME", dir)
-	t.Setenv("USERPROFILE", dir)
-}
-
-func TestWriteNetrc_CreatesFile(t *testing.T) {
-	t.Serial()
 	home := t.TempDir()
-	setHome(t, home)
-	writeNetrc("proxy.example.com", "alice", "secret")
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
+	t.Setenv("GOPROXY", "")
+	t.Setenv("GOSUMDB", "")
+	t.Setenv("GONOSUMDB", "")
+	t.Setenv("GONOSUMCHECK", "")
 
-	content, err := os.ReadFile(filepath.Join(home, ".netrc"))
-	require.NoError(t, err)
-	assert.Contains(t, string(content), "machine proxy.example.com login alice password secret")
-}
+	configureGoEnv()
 
-func TestWriteNetrc_SkipsDuplicate(t *testing.T) {
-	t.Serial()
-	home := t.TempDir()
-	setHome(t, home)
-	netrcPath := filepath.Join(home, ".netrc")
-	os.WriteFile(netrcPath, []byte("machine proxy.example.com login alice password secret\n"), 0600)
-
-	writeNetrc("proxy.example.com", "alice", "newsecret")
-
-	content, err := os.ReadFile(netrcPath)
-	require.NoError(t, err)
-	// Should not have duplicated the entry.
-	assert.Equal(t, "machine proxy.example.com login alice password secret\n", string(content))
-}
-
-func TestWriteNetrc_EmptyCredentials(t *testing.T) {
-	t.Serial()
-	home := t.TempDir()
-	setHome(t, home)
-	writeNetrc("proxy.example.com", "", "secret")
-	writeNetrc("proxy.example.com", "alice", "")
-	writeNetrc("", "alice", "secret")
-
-	_, err := os.Stat(filepath.Join(home, ".netrc"))
-	assert.True(t, os.IsNotExist(err), "netrc should not be created with empty credentials")
+	assert.Equal(t, "direct", os.Getenv("GOPROXY"))
+	assert.Empty(t, os.Getenv("GOSUMDB"))
+	assert.Equal(t, "*", os.Getenv("GONOSUMDB"))
+	assert.NoFileExists(t, home+"/.netrc")
 }
 
 func TestConfigureGoEnv_Default(t *testing.T) {
@@ -194,143 +90,6 @@ func TestConfigureGoEnv_ExplicitProxyAndSumDB(t *testing.T) {
 	assert.Equal(t, "mydb+abc123 https://proxy.example.com/sumdb/mydb", os.Getenv("GOSUMDB"))
 	assert.Equal(t, "github.com/wow-look-at-my/*", os.Getenv("GONOSUMDB"))
 	assert.Equal(t, "github.com/wow-look-at-my/*", os.Getenv("GONOSUMCHECK"))
-}
-
-func TestConfigureGoEnv_GOProxyConfig(t *testing.T) {
-	t.Serial()
-	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret","sumdb_key":"mydb+abc123+AKeyHere"}`
-	home := t.TempDir()
-	setHome(t, home)
-	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
-	t.Setenv("GOPROXY", "")
-	t.Setenv("GOSUMDB", "")
-	t.Setenv("GONOSUMDB", "")
-	t.Setenv("GONOSUMCHECK", "")
-
-	configureGoEnv()
-
-	assert.Equal(t, "https://proxy.example.com|direct", os.Getenv("GOPROXY"))
-	assert.Equal(t, "mydb+abc123+AKeyHere https://proxy.example.com/sumdb/mydb", os.Getenv("GOSUMDB"))
-	assert.Equal(t, "github.com/wow-look-at-my/*", os.Getenv("GONOSUMDB"))
-	assert.Equal(t, "github.com/wow-look-at-my/*", os.Getenv("GONOSUMCHECK"))
-
-	// Netrc should be written.
-	content, err := os.ReadFile(filepath.Join(home, ".netrc"))
-	require.NoError(t, err)
-	assert.Contains(t, string(content), "machine proxy.example.com login alice password secret")
-}
-
-func TestConfigureGoEnv_GOProxyConfigExplicitOverride(t *testing.T) {
-	t.Serial()
-	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret","sumdb_key":"mydb+abc123+AKeyHere"}`
-	home := t.TempDir()
-	setHome(t, home)
-	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
-	t.Setenv("GOPROXY", "https://other-proxy.example.com,direct")
-	// A private sumdb, since the public database is refused outright; precedence is exercised with an accepted value.
-	t.Setenv("GOSUMDB", "otherdb+def456 https://other-proxy.example.com/sumdb/otherdb")
-	t.Setenv("GONOSUMDB", "")
-	t.Setenv("GONOSUMCHECK", "")
-
-	configureGoEnv()
-
-	// Explicit GOPROXY/GOSUMDB take precedence over GO_PROXY_CONFIG; ",direct" becomes "|direct" so 503s fall through.
-	assert.Equal(t, "https://other-proxy.example.com|direct", os.Getenv("GOPROXY"))
-	assert.Equal(t, "otherdb+def456 https://other-proxy.example.com/sumdb/otherdb", os.Getenv("GOSUMDB"))
-}
-
-// A caller asking for GOPROXY=direct has taken the proxy out of the fetch
-// path, and the config's sumdb mirror lives behind that proxy. So the mirror
-// goes with it and the phone-home stays off, rather than every fetch reaching
-// for a host the run already declined to use.
-func TestConfigureGoEnvDirectDropsTheConfiguredSumDB(t *testing.T) {
-	t.Serial()
-	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret","sumdb_key":"mydb+abc123+AKeyHere"}`
-	setHome(t, t.TempDir())
-	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
-	t.Setenv("GOPROXY", "direct")
-	t.Setenv("GOSUMDB", "")
-	t.Setenv("GONOSUMDB", "")
-	t.Setenv("GONOSUMCHECK", "")
-
-	configureGoEnv()
-
-	assert.Equal(t, "direct", os.Getenv("GOPROXY"))
-	assert.Empty(t, os.Getenv("GOSUMDB"))
-	assert.Equal(t, "*", os.Getenv("GONOSUMDB"))
-	assert.Equal(t, "*", os.Getenv("GONOSUMCHECK"))
-}
-
-func TestWithoutProxyMirror(t *testing.T) {
-	assert.Empty(t, withoutProxyMirror("mydb+abc123 https://proxy.example.com/sumdb/mydb", "proxy.example.com"))
-	assert.Equal(t, "mydb+abc123 https://sumdb.example.org/sumdb/mydb",
-		withoutProxyMirror("mydb+abc123 https://sumdb.example.org/sumdb/mydb", "proxy.example.com"))
-	// A bare name reads the database itself, so no host of the proxy's is in it.
-	assert.Equal(t, "mydb+abc123", withoutProxyMirror("mydb+abc123", "proxy.example.com"))
-	assert.Empty(t, withoutProxyMirror("", "proxy.example.com"))
-	assert.Equal(t, "mydb+abc123 https://proxy.example.com/sumdb/mydb",
-		withoutProxyMirror("mydb+abc123 https://proxy.example.com/sumdb/mydb", ""))
-}
-
-// An earlier process of this pipeline configures the environment its children
-// read, so the mirror arrives as an explicit GOSUMDB rather than out of the
-// config. It is the same unreachable host either way.
-func TestConfigureGoEnvDirectDropsAnInheritedProxyMirror(t *testing.T) {
-	t.Serial()
-	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret","sumdb_key":"mydb+abc123+AKeyHere"}`
-	home := t.TempDir()
-	setHome(t, home)
-	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
-	t.Setenv("GOPROXY", "direct")
-	t.Setenv("GOSUMDB", "mydb+abc123+AKeyHere https://proxy.example.com/sumdb/mydb")
-	t.Setenv("GONOSUMDB", "")
-	t.Setenv("GONOSUMCHECK", "")
-
-	configureGoEnv()
-
-	// The netrc proves the config parsed, so a kept mirror is this function's
-	// answer rather than a config it never read.
-	require.FileExists(t, filepath.Join(home, ".netrc"))
-
-	assert.Equal(t, "direct", os.Getenv("GOPROXY"))
-	assert.Empty(t, os.Getenv("GOSUMDB"))
-	assert.Equal(t, "*", os.Getenv("GONOSUMDB"))
-}
-
-// A mirror some other host serves is reachable with no proxy at all, so a
-// direct fetch keeps it.
-func TestConfigureGoEnvDirectKeepsAnotherHostsSumDB(t *testing.T) {
-	t.Serial()
-	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret","sumdb_key":"mydb+abc123+AKeyHere"}`
-	setHome(t, t.TempDir())
-	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
-	t.Setenv("GOPROXY", "direct")
-	t.Setenv("GOSUMDB", "otherdb+def456 https://sumdb.example.org/sumdb/otherdb")
-	t.Setenv("GONOSUMDB", "")
-	t.Setenv("GONOSUMCHECK", "")
-
-	configureGoEnv()
-
-	assert.Equal(t, "otherdb+def456 https://sumdb.example.org/sumdb/otherdb", os.Getenv("GOSUMDB"))
-}
-
-func TestConfigureGoEnv_GOProxyConfigNoSumDBKey(t *testing.T) {
-	t.Serial()
-	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret"}`
-	home := t.TempDir()
-	setHome(t, home)
-	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
-	t.Setenv("GOPROXY", "")
-	t.Setenv("GOSUMDB", "")
-	t.Setenv("GONOSUMDB", "")
-	t.Setenv("GONOSUMCHECK", "")
-
-	configureGoEnv()
-
-	// Proxy from config, but no sumdb key → sumdb disabled.
-	assert.Equal(t, "https://proxy.example.com|direct", os.Getenv("GOPROXY"))
-	assert.Equal(t, "*", os.Getenv("GONOSUMDB"))
-	assert.Equal(t, "*", os.Getenv("GONOSUMCHECK"))
 }
 
 func TestConfigureGoEnv_DirectPassthrough(t *testing.T) {
