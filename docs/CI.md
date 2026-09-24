@@ -270,7 +270,7 @@ The mirror of the same test in smoke-macos and smoke-windows: each host pins its
 ### the full pipeline runs in a tiny module on a linux host
 ### Configure Go proxy
 
-host-build, build, and build-everywhere fetch `GO_BUILDCACHE_CONFIG` and `GO_PROXY_CONFIG` via the secret-server step first. So `go-toolchain` runs with the shared cache and the org proxy on every host that builds this repo, not only on the linux host-build leg. The org proxy requires auth for a sumdb lookup on a module it has never resolved before, which the smoke jobs' throwaway module always. They take the secret-server step for the cache half: see the smoke-linux entry below.
+host-build, build, and build-everywhere fetch `GO_BUILDCACHE_CONFIG` via the secret-server step first. So `go-toolchain` runs with the shared cache on every host that builds this repo, not only on the linux host-build leg. The step also exports `GO_PROXY_CONFIG`, which `go-toolchain` ignores: the org proxy it names is gone, so modules come direct with sumdb off.
 
 ### cp "$RUNNER_TEMP/gt-ape" ./gt-under-test
 
