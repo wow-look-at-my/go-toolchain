@@ -4,7 +4,17 @@ Depth for the "Dependency handling" line in the [README](../README.md#features).
 
 An org dependency has no version of its own. gosmopolitan's `cmd/go` resolves `github.com/wow-look-at-my/...` to the head of a branch. It takes the branch this repository is on when the dependency has one of that name. It takes the dependency's default branch otherwise. The files on disk keep a placeholder.
 
-A frozen version defeats that. It names one commit of another repository. Nothing moves it. So a consumer builds old code and reads the result as current. Every repository in the org runs this pipeline, which is what makes the pipeline the place to check the rule. A finding fails the run before `go mod tidy`.
+A frozen version defeats that. It names one commit of another repository. Nothing moves it. So a consumer builds old code and reads the result as current. Every repository in the org runs this pipeline, which is what makes the pipeline the place to enforce the rule.
+
+The pipeline repairs a pin before `go mod tidy`, and logs each repair:
+
+| Pin | Repair |
+| --- | --- |
+| a version after an org path in `go.mod` or `vendor/modules.txt` | the placeholder for that path (`v0.0.0`, or `vN.0.0` for a `/vN` path) |
+| an org line in `go.sum` with a pinned version | the line is dropped, and tidy writes the new sum |
+| an org action at `@vN` or a commit | `@master` |
+
+An org submodule with no `branch` is the only pin that still fails the run. Nothing tells the pipeline which branch it must follow.
 
 ## What counts as a pin
 
