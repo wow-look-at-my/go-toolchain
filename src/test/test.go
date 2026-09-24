@@ -30,10 +30,7 @@ const (
 	clrFail   = "\033[38;2;255;128;128m"
 	clrYellow = "\033[38;2;255;255;0m"
 
-	// Bounds the run, and must clear the SLOWEST host. src/cmd spends most of it on process starts: the fork's
-	// t.Chdir and t.Setenv each run their test in a child, and those children take the serial barrier in turn
-	// because children racing the run's shared gocoverdir fail on windows. So the binary pays a serialized
-	// process start per such test, and windows charges the most for each one. Depth: docs/CI.md.
+	// Per BINARY, and it must clear the slowest host. Depth: docs/CI.md.
 	testTimeout = 5 * time.Minute
 )
 
@@ -219,7 +216,7 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 			args = append(args, "-tags", arg)
 		}
 		args = append(args, "./...")
-		proc, err := runner.Cmd("go", args...).WithHostTarget().WithQuiet().Run(r)
+		proc, err := runner.Cmd("go", args...).WithQuiet().Run(r)
 		if err != nil {
 			return fmt.Errorf("listing files for tags %s: %w", tagCfg, err)
 		}
@@ -247,6 +244,12 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 	return nil
 }
 
+// perRunEnv names the GitHub Actions variables that differ between runs of the same commit's tests.
+var perRunEnv = []string{
+	"GITHUB_SHA", "GITHUB_REF", "GITHUB_REF_NAME", "GITHUB_RUN_ID", "GITHUB_RUN_NUMBER", "GITHUB_RUN_ATTEMPT",
+	"GITHUB_STEP_SUMMARY", "GITHUB_OUTPUT", "GITHUB_ENV", "GITHUB_PATH", "GITHUB_STATE",
+}
+
 // runTestsOnce executes go test for a single build-tag configuration.
 func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutput func(),
 	timeline TimelineRecorder, tagCfg buildtags.Config, only []string,
@@ -266,8 +269,8 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 		}
 	}
 	if coverFile != "" {
-		// -count disables result caching only; stale coverprofile fragments otherwise corrupt coverage (https://go.dev/issue/74873).
-		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...", "-count=1")
+		// A cached result replays its cover profile fragment, keyed by the covered packages' build IDs.
+		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...")
 	}
 	switch {
 	case len(only) > 0:
@@ -283,7 +286,11 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 	// Tee stderr to console and a buffer, for progress and error reporting.
 	var stderrBuf bytes.Buffer
 	stderrTee := io.MultiWriter(&stderrBuf, os.Stderr)
-	proc, err := runner.Cmd("go", args...).WithHostTarget().WithStderrWriter(stderrTee).Run(r)
+	cmd := runner.Cmd("go", args...).WithStderrWriter(stderrTee)
+	for _, name := range perRunEnv {
+		cmd = cmd.WithEnv(name, "")
+	}
+	proc, err := cmd.Run(r)
 	if err != nil {
 		return nil, err
 	}
@@ -362,7 +369,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 					}
 				}
 				// -o discards the binary; without it, `go build src` would write an executable colliding with the src/ directory.
-				buildProc, buildErr := runner.Cmd("go", "build", "-o", os.DevNull, pkg).WithHostTarget().WithQuiet().Run(r)
+				buildProc, buildErr := runner.Cmd("go", "build", "-o", os.DevNull, pkg).WithQuiet().Run(r)
 				if buildErr != nil {
 					break
 				}

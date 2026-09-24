@@ -2,7 +2,7 @@
 // Reports a t.Serial() call that sits inside a Go string literal.
 //
 // A fixture holds Go source, and its own `func TestFoo(t *testing.T) {` starts
-// at column zero inside the literal. A rewrite that finds functions by scanning
+// at the left margin inside the literal. A rewrite that finds functions by scanning
 // for that prefix therefore edits the fixture instead of the test around it,
 // which both corrupts the fixture and leaves the real test parallel.
 //

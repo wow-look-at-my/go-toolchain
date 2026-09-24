@@ -1,9 +1,6 @@
 package cmd
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
 	"fmt"
 	"os"
 	"os/exec"
@@ -94,16 +91,18 @@ func TestGoVersionCore(t *testing.T) {
 	assert.Equal(t, "1.27", goVersionCore("1.27rc1"))
 }
 
-// Both separators belong to the host named, not to the machine joining them.
-// A colon on NT fuses the fork's bin with the next entry into a directory that
-// does not exist, so the runner's own go wins and the compiler reports skew.
-func TestForkFirstPath(t *testing.T) {
+// The list separator belongs to the host named, not to the machine joining
+// them. A colon on NT fuses the link directory with the next entry into a
+// directory that does not exist, so the runner's own go wins.
+func TestPathWithFirst(t *testing.T) {
 	t.Serial()
-	got := forkFirstPath(`C:\fork`, `C:\tools;C:\bin`, "windows")
-	assert.Equal(t, `C:\fork\bin;C:\tools;C:\bin`, got)
+	got := pathWithFirst(`C:\link`, `C:\tools;C:\bin`, "windows")
+	assert.Equal(t, `C:\link;C:\tools;C:\bin`, got)
 
-	got = forkFirstPath("/fork", "/usr/bin:/bin", "linux")
-	assert.Equal(t, "/fork/bin:/usr/bin:/bin", got)
+	got = pathWithFirst("/link", "/usr/bin:/bin", "linux")
+	assert.Equal(t, "/link:/usr/bin:/bin", got)
+
+	assert.Equal(t, "/link", pathWithFirst("/link", "", "linux"))
 }
 
 // A fork older than the module's go directive has no fallback to hide behind:
@@ -117,7 +116,6 @@ func TestForkSatisfiesGoMod(t *testing.T) {
 	err := forkSatisfiesGoMod("1.27.0cosmo.r685")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "1.30.0")
-	assert.Contains(t, err.Error(), cosmoBranchEnv)
 	assert.NotContains(t, err.Error(), "go.dev", "the repair is a newer fork, never a stock Go")
 
 	assert.NoError(t, forkSatisfiesGoMod("1.31.0cosmo.r1"))
@@ -136,191 +134,74 @@ func TestGoCacheDir(t *testing.T) {
 	assert.True(t, info.IsDir())
 }
 
-// createTestTarGz builds a tar.gz archive in memory with the given files.
-func createTestTarGz(t *testing.T, files map[string]string) []byte {
-	t.Helper()
-	var buf bytes.Buffer
-	gw := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gw)
-
-	for name, content := range files {
-		hdr := &tar.Header{
-			Name: name,
-			Mode: 0755,
-			Size: int64(len(content)),
-		}
-		require.NoError(t, tw.WriteHeader(hdr))
-		_, err := tw.Write([]byte(content))
-		require.Nil(t, err)
-	}
-	tw.Close()
-	gw.Close()
-	return buf.Bytes()
-}
-
-func TestExtractTarGz(t *testing.T) {
+// The whole pipeline compiles with the go command this binary is, so the
+// setup's job is to put a link to it named go in front of whatever Go the
+// host carries, to point GOROOT at the standard library it builds against,
+// and to pin GOTOOLCHAIN, the setting that otherwise lets the go command
+// fetch a stock toolchain behind our back to satisfy a go directive.
+func TestEnsureGoVersionLinksItselfAsGoAndPinsGOTOOLCHAIN(t *testing.T) {
 	t.Serial()
-	tmpDir := t.TempDir()
-
-	archive := createTestTarGz(t, map[string]string{
-		"go/bin/go":      "#!/bin/sh\necho go",
-		"go/src/main.go": "package main",
-	})
-
-	err := extractTarGz(bytes.NewReader(archive), tmpDir)
-	assert.Nil(t, err)
-
-	// Verify files were extracted
-	content, err := os.ReadFile(filepath.Join(tmpDir, "go", "bin", "go"))
-	assert.Nil(t, err)
-	assert.Equal(t, "#!/bin/sh\necho go", string(content))
-
-	content, err = os.ReadFile(filepath.Join(tmpDir, "go", "src", "main.go"))
-	assert.Nil(t, err)
-	assert.Equal(t, "package main", string(content))
-}
-
-func TestExtractTarGzWithDir(t *testing.T) {
-	t.Serial()
-	tmpDir := t.TempDir()
-
-	var buf bytes.Buffer
-	gw := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gw)
-
-	// Add a directory entry
-	tw.WriteHeader(&tar.Header{Name: "go/", Typeflag: tar.TypeDir, Mode: 0755})
-	tw.WriteHeader(&tar.Header{Name: "go/bin/", Typeflag: tar.TypeDir, Mode: 0755})
-	// Add a regular file
-	content := []byte("binary")
-	tw.WriteHeader(&tar.Header{Name: "go/bin/go", Typeflag: tar.TypeReg, Mode: 0755, Size: int64(len(content))})
-	tw.Write(content)
-	// Add a symlink
-	tw.WriteHeader(&tar.Header{Name: "go/bin/link", Typeflag: tar.TypeSymlink, Linkname: "go"})
-
-	tw.Close()
-	gw.Close()
-
-	err := extractTarGz(bytes.NewReader(buf.Bytes()), tmpDir)
-	assert.Nil(t, err)
-
-	// Check directory
-	info, err := os.Stat(filepath.Join(tmpDir, "go", "bin"))
-	assert.Nil(t, err)
-	assert.True(t, info.IsDir())
-
-	// Check file
-	data, err := os.ReadFile(filepath.Join(tmpDir, "go", "bin", "go"))
-	assert.Nil(t, err)
-	assert.Equal(t, "binary", string(data))
-
-	// Check symlink
-	target, err := os.Readlink(filepath.Join(tmpDir, "go", "bin", "link"))
-	assert.Nil(t, err)
-	assert.Equal(t, "go", target)
-}
-
-func TestExtractTarGzSymlinkRefusedFallsBackToCopy(t *testing.T) {
-	t.Serial()
-	tmpDir := t.TempDir()
-
-	oldSymlink := symlinkFunc
-	symlinkFunc = func(oldname, newname string) error { return fmt.Errorf("function not implemented") }
-	defer func() { symlinkFunc = oldSymlink }()
-
-	var buf bytes.Buffer
-	gw := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gw)
-
-	// The symlink comes BEFORE the file it points at, which is what a real tarball does and what a naive fallback assumes away.
-	tw.WriteHeader(&tar.Header{Name: "go/bin/link", Typeflag: tar.TypeSymlink, Linkname: "go"})
-	content := []byte("binary")
-	tw.WriteHeader(&tar.Header{Name: "go/bin/go", Typeflag: tar.TypeReg, Mode: 0755, Size: int64(len(content))})
-	tw.Write(content)
-
-	tw.Close()
-	gw.Close()
-
-	require.NoError(t, extractTarGz(bytes.NewReader(buf.Bytes()), tmpDir))
-
-	// The symlink's bytes were copied, not linked -- symlinkFunc always fails.
-	data, err := os.ReadFile(filepath.Join(tmpDir, "go", "bin", "link"))
-	require.NoError(t, err)
-	assert.Equal(t, "binary", string(data))
-}
-
-func TestExtractTarGzInvalidGzip(t *testing.T) {
-	t.Serial()
-	err := extractTarGz(bytes.NewReader([]byte("not gzip")), t.TempDir())
-	assert.NotNil(t, err)
-}
-
-func TestExtractTarGzPathTraversal(t *testing.T) {
-	t.Serial()
-	tmpDir := t.TempDir()
-
-	var buf bytes.Buffer
-	gw := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gw)
-
-	// Attempt path traversal
-	content := []byte("malicious")
-	tw.WriteHeader(&tar.Header{Name: "../../../etc/evil", Typeflag: tar.TypeReg, Mode: 0644, Size: int64(len(content))})
-	tw.Write(content)
-	tw.Close()
-	gw.Close()
-
-	err := extractTarGz(bytes.NewReader(buf.Bytes()), tmpDir)
-	assert.Nil(t, err) // should not error, just skip
-
-	// File should NOT exist outside tmpDir
-	_, err = os.Stat(filepath.Join(tmpDir, "..", "..", "..", "etc", "evil"))
-	assert.True(t, os.IsNotExist(err))
-}
-
-// The whole pipeline compiles with the fork, so the bootstrap's job is to put
-// THAT GOROOT in front of whatever Go the host carries -- and to pin
-// GOTOOLCHAIN, the setting that otherwise lets the go command fetch a stock
-// toolchain behind our back to satisfy a go directive.
-func TestEnsureGoVersionUsesTheForkAndPinsGOTOOLCHAIN(t *testing.T) {
-	t.Serial()
-	forkRoot := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(forkRoot, "bin"), 0755))
-	writeFakeGoBin(t, filepath.Join(forkRoot, "bin", "go"))
+	requireShebangHelper(t)
+	// Outside this module, so the fork checkout is not the GOROOT.
+	t.Chdir(t.TempDir())
+	exe := filepath.Join(t.TempDir(), "go-toolchain")
+	writeFakeGoBin(t, exe)
 
 	// t.Setenv, so the GOROOT this assigns cannot outlive the test.
 	t.Setenv("PATH", os.Getenv("PATH"))
 	t.Setenv("GOROOT", "")
 	t.Setenv("GOTOOLCHAIN", "auto")
 
-	oldEnsure, oldVerify := ensureCosmoToolchainFunc, verifyGoToolchainFunc
-	ensureCosmoToolchainFunc = func() (string, error) { return forkRoot, nil }
+	oldExe, oldVerify := selfExecutableFunc, verifyGoToolchainFunc
+	oldCmd, oldRoot := activeGoCmd, activeGoroot
+	selfExecutableFunc = func() (string, error) { return exe, nil }
 	verifyGoToolchainFunc = func(string) error { return nil }
-	defer func() { ensureCosmoToolchainFunc, verifyGoToolchainFunc = oldEnsure, oldVerify }()
+	t.Cleanup(func() {
+		selfExecutableFunc, verifyGoToolchainFunc = oldExe, oldVerify
+		activeGoCmd, activeGoroot = oldCmd, oldRoot
+		removeGoLink()
+	})
 
 	require.NoError(t, EnsureGoVersion())
 
-	assert.Equal(t, forkRoot, os.Getenv("GOROOT"))
+	assert.Equal(t, exe, os.Getenv("GOROOT"), "outside this module the executable carries the standard library")
 	assert.Equal(t, "local", os.Getenv("GOTOOLCHAIN"))
-	assert.True(t, strings.HasPrefix(os.Getenv("PATH"), filepath.Join(forkRoot, "bin")),
-		"the fork's bin must come first, or the host's own go wins")
+	assert.Equal(t, []string{exe, "go"}, activeGoCmd)
+	assert.True(t, strings.HasPrefix(os.Getenv("PATH"), goLinkDir), "the go link must come first, or the host's own go wins")
+	link, err := os.Readlink(filepath.Join(goLinkDir, "go"))
+	require.NoError(t, err)
+	assert.Equal(t, exe, link)
 }
 
-// No fork, no build: there is nothing else that may compile this module.
-func TestEnsureGoVersionFailsWithoutTheFork(t *testing.T) {
+// A go command that cannot compile is a failed run, never a quiet swap to
+// whatever Go is lying around.
+func TestEnsureGoVersionFailsWhenTheProbeFails(t *testing.T) {
 	t.Serial()
-	oldEnsure := ensureCosmoToolchainFunc
-	ensureCosmoToolchainFunc = func() (string, error) { return "", fmt.Errorf("no toolchain published") }
-	defer func() { ensureCosmoToolchainFunc = oldEnsure }()
+	requireShebangHelper(t)
+	t.Chdir(t.TempDir())
+	exe := filepath.Join(t.TempDir(), "go-toolchain")
+	writeFakeGoBin(t, exe)
+	t.Setenv("PATH", os.Getenv("PATH"))
+	t.Setenv("GOROOT", os.Getenv("GOROOT"))
+	t.Setenv("GOTOOLCHAIN", os.Getenv("GOTOOLCHAIN"))
+
+	oldExe, oldVerify := selfExecutableFunc, verifyGoToolchainFunc
+	oldCmd, oldRoot := activeGoCmd, activeGoroot
+	selfExecutableFunc = func() (string, error) { return exe, nil }
+	verifyGoToolchainFunc = func(string) error { return fmt.Errorf("package runtime is not in std") }
+	t.Cleanup(func() {
+		selfExecutableFunc, verifyGoToolchainFunc = oldExe, oldVerify
+		activeGoCmd, activeGoroot = oldCmd, oldRoot
+		removeGoLink()
+	})
 
 	err := EnsureGoVersion()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "gosmopolitan toolchain is the only compiler")
-	assert.Contains(t, err.Error(), "no toolchain published")
+	assert.Contains(t, err.Error(), "failed its integrity probe")
 }
 
 // writeFakeGoBin writes a stub `go` that answers the version probe, so the
-// bootstrap can be exercised without a real toolchain.
+// setup can be exercised without a real toolchain.
 func writeFakeGoBin(t *testing.T, path string) {
 	t.Helper()
 	script := "#!/bin/sh\necho 'go version go1.27.0cosmo.r685 linux/amd64'\n"
@@ -336,7 +217,22 @@ func TestVerifyGoToolchainHealthy(t *testing.T) {
 	assert.NoError(t, verifyGoToolchain(goPath))
 }
 
-func TestVerifyGoToolchainBrokenGOROOT(t *testing.T) {
+// The caller's build flags stay out of the probe. GOFLAGS=-race asks this
+// pipeline for a race-checked run, and cosmo refuses the detector.
+func TestVerifyGoToolchainIgnoresTheCallersGOFLAGS(t *testing.T) {
+	t.Serial()
+	goPath, err := exec.LookPath("go")
+	require.NoError(t, err)
+
+	t.Setenv("GOFLAGS", "-race")
+	assert.NoError(t, verifyGoToolchain(goPath))
+}
+
+// This binary is the go command, and it carries the standard library it
+// compiles. The tree GOROOT names decides nothing about whether runtime
+// resolves. A half-extracted GOROOT therefore stops no build, and the probe
+// answers from what the binary carries.
+func TestVerifyGoToolchainReadsWhatTheBinaryCarries(t *testing.T) {
 	t.Serial()
 	goPath, err := exec.LookPath("go")
 	require.NoError(t, err)
@@ -369,40 +265,11 @@ func TestVerifyGoToolchainBrokenGOROOT(t *testing.T) {
 			brokenRoot := t.TempDir()
 			tc.setup(t, brokenRoot)
 
-			// go still runs and reports a version, but "go list runtime" fails here.
 			t.Setenv("GOROOT", brokenRoot)
 
-			err := verifyGoToolchain(goPath)
-			require.Error(t, err)
-			// Confirms we reproduce the real failure mode, not some unrelated error.
-			assert.Contains(t, err.Error(), "runtime")
+			assert.NoError(t, verifyGoToolchain(goPath))
 		})
 	}
-}
-
-// A broken fork is a failed run, not a quiet swap to whatever Go is lying
-// around: the swap is what this whole change exists to prevent.
-func TestEnsureGoVersionBrokenForkFails(t *testing.T) {
-	t.Serial()
-	forkRoot := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(forkRoot, "bin"), 0755))
-	writeFakeGoBin(t, filepath.Join(forkRoot, "bin", "go"))
-
-	// t.Setenv, so the GOROOT this assigns cannot outlive the test.
-	t.Setenv("PATH", os.Getenv("PATH"))
-	t.Setenv("GOROOT", os.Getenv("GOROOT"))
-	t.Setenv("GOTOOLCHAIN", os.Getenv("GOTOOLCHAIN"))
-
-	oldEnsure, oldVerify := ensureCosmoToolchainFunc, verifyGoToolchainFunc
-	ensureCosmoToolchainFunc = func() (string, error) { return forkRoot, nil }
-	verifyGoToolchainFunc = func(string) error {
-		return fmt.Errorf("package runtime is not in std")
-	}
-	defer func() { ensureCosmoToolchainFunc, verifyGoToolchainFunc = oldEnsure, oldVerify }()
-
-	err := EnsureGoVersion()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed its integrity probe")
 }
 
 func TestRecordGoMinor(t *testing.T) {

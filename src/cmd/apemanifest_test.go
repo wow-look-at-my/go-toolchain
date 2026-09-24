@@ -15,17 +15,23 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
+// fakeAPE is what a test writes where a real build leaves a fat APE. It
+// carries the magic, because the manifest and buildhost both decide APE-ness
+// by reading it: a stand-in without it is a stand-in for a library module.
+const fakeAPE = apeMagic + "FAT-APE"
+
 func TestApeManifestEntries(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "mytool"), []byte("APE"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "mytool"), []byte(apeMagic+"rest"), 0755))
 	targets := []build.Target{{ImportPath: "./cmd/mytool", OutputName: "mytool"}}
 
-	entries, err := apeManifestEntries(targets, dir, []buildPlatform{
+	entries, skipped, err := apeManifestEntries(targets, dir, []buildPlatform{
 		{OS: "linux", Arch: "amd64"},
 		{OS: "darwin", Arch: "arm64"},
 	})
 	require.NoError(t, err)
+	assert.Empty(t, skipped)
 	assert.Equal(t, []buildhostManifestEntry{{
 		File:      "mytool",
 		Platforms: []string{"linux/amd64", "darwin/arm64"},
@@ -34,18 +40,48 @@ func TestApeManifestEntries(t *testing.T) {
 	}}, entries)
 }
 
+// A module with no main package still leaves a build/<name>. Naming it claims
+// it runs on every platform in the set, and buildhost refuses the upload:
+// "declares N platforms but is not an Actually Portable Executable". Every
+// library module in the org failed its publish that way.
+func TestApeManifestEntriesSkipsWhatIsNotAnAPE(t *testing.T) {
+	t.Serial()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "mylib"), []byte("not an APE at all"), 0644))
+	targets := []build.Target{{ImportPath: "./", OutputName: "mylib"}}
+
+	entries, skipped, err := apeManifestEntries(targets, dir, []buildPlatform{{OS: "linux", Arch: "amd64"}})
+	require.NoError(t, err, "a library module is not a build failure")
+	assert.Empty(t, entries, "no entry, so no manifest, so nothing is published")
+	assert.Equal(t, []string{"mylib"}, skipped, "the skip is reported, never silent")
+}
+
+// A file too short to hold the magic reads as not an APE rather than as a
+// read error: the safe answer keeps it out of the manifest either way.
+func TestApeManifestEntriesSkipsAShortFile(t *testing.T) {
+	t.Serial()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tiny"), []byte("MZ"), 0755))
+	targets := []build.Target{{ImportPath: "./cmd/tiny", OutputName: "tiny"}}
+
+	entries, skipped, err := apeManifestEntries(targets, dir, []buildPlatform{{OS: "linux", Arch: "amd64"}})
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+	assert.Equal(t, []string{"tiny"}, skipped)
+}
+
 func TestApeManifestEntriesRefusesUntrueManifest(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()
 	targets := []build.Target{{ImportPath: "./cmd/mytool", OutputName: "mytool"}}
 
 	// A manifest naming a file that is not there fails the publish; catching it here names the missing artifact.
-	_, err := apeManifestEntries(targets, dir, []buildPlatform{{OS: "linux", Arch: "amd64"}})
+	_, _, err := apeManifestEntries(targets, dir, []buildPlatform{{OS: "linux", Arch: "amd64"}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "mytool")
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "mytool"), []byte("APE"), 0755))
-	_, err = apeManifestEntries(targets, dir, nil)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "mytool"), []byte(apeMagic+"rest"), 0755))
+	_, _, err = apeManifestEntries(targets, dir, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty platform set")
 }
@@ -103,11 +139,9 @@ func TestDefaultMatrixBuildsOneMultiPlatformArtifact(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	// The production spelling; NT adds .exe.
-	cosmoGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.Name == cosmoGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
-			writeBuildOutput(t, cfg, "FAT-APE")
+		if isForkBuild(cfg, fakeGoroot) {
+			writeBuildOutput(t, cfg, fakeAPE)
 			return runner.MockProcess(nil, nil), nil
 		}
 		return origHandler(cfg)
@@ -146,7 +180,7 @@ func TestDefaultMatrixBuildsOneMultiPlatformArtifact(t *testing.T) {
 
 	var cosmoCfg *runner.Config
 	for _, cfg := range mock.Calls() {
-		if cfg.Name == cosmoGo {
+		if isForkBuild(cfg, fakeGoroot) {
 			c := cfg
 			cosmoCfg = &c
 		}
@@ -166,11 +200,9 @@ func TestCosmoPlatformsAllLeavesEnvUnset(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	// The production spelling; NT adds .exe.
-	cosmoGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.Name == cosmoGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
-			writeBuildOutput(t, cfg, "FAT-APE")
+		if isForkBuild(cfg, fakeGoroot) {
+			writeBuildOutput(t, cfg, fakeAPE)
 			return runner.MockProcess(nil, nil), nil
 		}
 		return origHandler(cfg)
@@ -179,7 +211,7 @@ func TestCosmoPlatformsAllLeavesEnvUnset(t *testing.T) {
 
 	var cosmoCfg *runner.Config
 	for _, cfg := range mock.Calls() {
-		if cfg.Name == cosmoGo {
+		if isForkBuild(cfg, fakeGoroot) {
 			c := cfg
 			cosmoCfg = &c
 		}

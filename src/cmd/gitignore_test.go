@@ -181,8 +181,7 @@ func TestNeedsLeadingNewline(t *testing.T) {
 	assert.False(t, needsLeadingNewline(filepath.Join(dir, "missing")))
 }
 
-// TestEnsureBuildDirInGitignore_AddsBuildDir covers the one entry this writes:
-// an existing .gitignore keeps what it holds and gains the build directory.
+// An existing .gitignore keeps what it holds and gains the build directory.
 func TestEnsureBuildDirInGitignore_AddsBuildDir(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()

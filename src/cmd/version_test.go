@@ -72,20 +72,11 @@ func TestGithubRepoFromEnv(t *testing.T) {
 	assert.Equal(t, "other-org/other-repo", githubRepo)
 }
 
-// This test redirects a REAL os.Stdout pipe, so it would trip the guard if
-// version were not exempt from it (skipAgentGuard). Stubbing the agent check
-// keeps that independent of the exemption: a change there must fail
-// TestSkipCache_VersionSubcommandsSkip, not kill this whole test binary with
-// the guard's own process exit.
 func TestVersionRaw(t *testing.T) {
 	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{Time: "2023-11-14T22:13:20Z"}
-
-	origUnder := runningUnderAgentFn
-	runningUnderAgentFn = func() (string, bool) { return "", false }
-	t.Cleanup(func() { runningUnderAgentFn = origUnder })
 
 	cmd := rootCmd
 	buf := new(strings.Builder)
@@ -333,98 +324,4 @@ func TestPrintStalenessAPIFailure(t *testing.T) {
 
 	// Should print error message, not panic
 	printStaleness()
-}
-
-// captureStdoutStderr redirects os.Stdout and os.Stderr for the duration of
-// fn and returns what each collected.
-func captureStdoutStderr(t *testing.T, fn func()) (stdout, stderr string) {
-	t.Helper()
-	oldOut, oldErr := os.Stdout, os.Stderr
-	rOut, wOut, _ := os.Pipe()
-	rErr, wErr, _ := os.Pipe()
-	os.Stdout, os.Stderr = wOut, wErr
-
-	fn()
-
-	wOut.Close()
-	wErr.Close()
-	os.Stdout, os.Stderr = oldOut, oldErr
-
-	var outBuf, errBuf strings.Builder
-	buf := make([]byte, 4096)
-	for {
-		n, err := rOut.Read(buf)
-		outBuf.Write(buf[:n])
-		if err != nil {
-			break
-		}
-	}
-	for {
-		n, err := rErr.Read(buf)
-		errBuf.Write(buf[:n])
-		if err != nil {
-			break
-		}
-	}
-	return outBuf.String(), errBuf.String()
-}
-
-func TestRunVersionCosmo_RequireReleasePassesOnRealRelease(t *testing.T) {
-	t.Serial()
-	setupCosmoTest(t)
-	mux := http.NewServeMux()
-	mux.HandleFunc("/gosmopolitan", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Location", "/static?project=gosmopolitan&v=42&os=linux&arch=amd64")
-		w.WriteHeader(http.StatusMovedPermanently)
-	})
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-	cosmoDownloadBase = srv.URL + "/gosmopolitan"
-
-	var err error
-	stdout, stderr := captureStdoutStderr(t, func() { err = runVersionCosmo(true) })
-	require.NoError(t, err)
-	assert.Contains(t, stdout, "v42")
-	assert.Empty(t, stderr)
-}
-
-func TestRunVersionCosmo_RequireReleaseFailsOnBranchFallback(t *testing.T) {
-	t.Serial()
-	setupCosmoTest(t)
-	mux := http.NewServeMux()
-	mux.HandleFunc("/gosmopolitan", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	})
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-	cosmoDownloadBase = srv.URL + "/gosmopolitan"
-
-	// The abort message goes through rawStderr, invisible to captureStdoutStderr's os.Stderr swap.
-	oldRaw := rawStderr
-	var rawBuf strings.Builder
-	rawStderr = &rawBuf
-	t.Cleanup(func() { rawStderr = oldRaw })
-
-	var err error
-	stdout, _ := captureStdoutStderr(t, func() { err = runVersionCosmo(true) })
-	require.Error(t, err)
-	assert.Contains(t, stdout, "branch-master", "the value is still printed for the reader to see")
-	assert.Contains(t, rawBuf.String(), "::error::")
-	assert.Contains(t, rawBuf.String(), "did not name a gosmopolitan release")
-}
-
-func TestRunVersionCosmo_WithoutRequireReleaseNeverFails(t *testing.T) {
-	t.Serial()
-	setupCosmoTest(t)
-	mux := http.NewServeMux()
-	mux.HandleFunc("/gosmopolitan", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	})
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-	cosmoDownloadBase = srv.URL + "/gosmopolitan"
-
-	var err error
-	captureStdoutStderr(t, func() { err = runVersionCosmo(false) })
-	assert.NoError(t, err)
 }

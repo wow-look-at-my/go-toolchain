@@ -8,9 +8,7 @@ import (
 	"strings"
 )
 
-// ensureBuildDirInGitignore adds the build output directory to .gitignore
-// when inside a git repo and not already ignored. Best-effort: errors are
-// silently ignored so they never block the build.
+// ensureBuildDirInGitignore ignores the build output directory.
 func ensureBuildDirInGitignore() {
 	ensureGitignored("/" + outputDir + "/")
 }

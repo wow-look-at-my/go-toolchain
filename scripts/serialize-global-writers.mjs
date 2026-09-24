@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// Serializes every test that assigns one of its own package's variables.
+// Serializes every test that assigns a variable of its own package.
 //
 // A package-level variable is the run's, not the test's, so a test that swaps
-// one swaps it for every test beside it. Save-mutate-restore reads as local and
+// it swaps it for every test beside it. Save-mutate-restore reads as local and
 // is not: the restore runs a whole test later than the write.
 //
 // This reads the package's variable names off its non-test files, then drives
-// scripts/serialize-tests.mjs once per name. A name a test declares itself is
+// scripts/serialize-tests.mjs per name. A name a test declares itself is
 // not a global, so only an assignment with no := for that name counts.
 //
 // Usage: node scripts/serialize-global-writers.mjs <package dir>...

@@ -5,7 +5,6 @@ go 1.27
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/go-git/go-git/v5 v5.19.2
-	github.com/mattn/go-isatty v0.0.24
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
@@ -14,8 +13,9 @@ require (
 	github.com/wow-look-at-my/dats v0.0.0-20260909171645-ec6621e78661 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/go-containers v0.0.0-20260826161058-40a3d1ef3d41 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260907051835-c793c37219b6 // go-toolchain:auto-branch
-	golang.org/x/mod v0.40.0
-	golang.org/x/sys v0.47.0
+	github.com/wow-look-at-my/slopfix v0.0.0 // go-toolchain:generate=c6095713f6ed
+	golang.org/x/mod v0.41.0
+	golang.org/x/sys v0.48.0
 	golang.org/x/tools v0.49.0
 	gopkg.in/yaml.v3 v3.0.1
 	gotest.tools/gotestsum v1.13.0
@@ -36,19 +36,23 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
+	github.com/klauspost/compress v1.20.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
+	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/pjbgf/sha1cd v0.6.0 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
-	github.com/wow-look-at-my/yaml-fixed v0.0.0-20260806231905-d99b869b77a1 // indirect; go-toolchain:auto-branch
+	github.com/wow-look-at-my/go-regex-compiler v0.0.0 // indirect
+	github.com/wow-look-at-my/go-tree-sitter v0.0.0 // indirect; go-toolchain:generate=a0022f830ef0
+	github.com/wow-look-at-my/yaml-fixed v0.0.0 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/crypto v0.55.0 // indirect
-	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/term v0.45.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/crypto v0.57.0 // indirect
+	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/term v0.46.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
 
@@ -83,3 +87,8 @@ replace modernc.org/strutil v1.2.1 => gitlab.com/cznic/strutil v1.2.1
 replace modernc.org/token v1.1.0 => gitlab.com/cznic/token v1.1.0
 
 replace dario.cat/mergo v1.0.0 => github.com/imdario/mergo v1.0.0
+
+// The analyzers type-check the fork's stdlib. Stock x/tools reads a parameter
+// default as a syntax error and cannot decode the fork's export data, so both
+// the export-data path and the source fallback die on every package.
+replace golang.org/x/tools => github.com/wow-look-at-my/gosmopolitan_tools v0.0.0
