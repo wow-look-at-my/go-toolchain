@@ -33,7 +33,7 @@ go-toolchain matrix --targets wasm/js,wasm/wasip1
 
 **Build semantics.** The cosmo build always runs with `CGO_ENABLED=0` (cosmopolitan has no cgo. `--cgo` warns and is ignored for this target) and without `GOARCH` (fat, covering amd64+arm64, is the fork's default output).
 
-**Reproducible across build hosts.** Every build passes `-trimpath` and `-ldflags=-buildid=`, so the same source compiles to the same bytes wherever it is built. inputs vary between runners. Each flag closes one. `-trimpath` drops the paths: where the source was checked out. And where the toolchain was installed. `-ldflags=-buildid=` empties the linked binary's Go build ID. Which is the only channel the toolchain's own identity reaches the output.
+**Reproducible across build hosts.** Every build passes `-trimpath` and `-ldflags=-buildid=`. The same source compiles to the same bytes wherever it is built. inputs vary between runners. Each flag closes one. `-trimpath` drops the paths: where the source was checked out. And where the toolchain was installed. `-ldflags=-buildid=` empties the linked binary's Go build ID. Which is the only channel the toolchain's own identity reaches the output.
 
 Measured on the fork, same source. checkout paths differ by bytes without `-trimpath`, and a differing tool ID differs by about bytes with `-trimpath` alone. Both are the Go build-ID note and the GNU build-ID note, one pair per payload — never code. With both flags the builds are byte-identical.
 

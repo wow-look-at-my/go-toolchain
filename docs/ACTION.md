@@ -131,7 +131,7 @@ Nameless discovery is clean only when the run's hand-off set is unambiguous at d
 
 `github.job` alone does NOT distinguish matrix legs, so a matrix job's name additionally carries the leg's `strategy.job-index` as `.m<index>`. The matrix and strategy contexts ARE evaluable inside composite steps: the runner's action-manifest schema allows both in step expressions. For a non-matrix job `matrix` is null, so the suffix collapses to the empty string. The non-matrix name stays byte-identical to what it was.
 
-`github.job` also does NOT distinguish go-toolchain invocations in the SAME job. So the name additionally carries a build identity `.b<build>` derived from the `working-directory` input (slashes and dots replaced with `-`, default `.` becomes `root`). builds in one job therefore save distinct hand-offs and can no longer 409 on a shared key.
+`github.job` also does NOT distinguish go-toolchain invocations in the SAME job. So the name additionally carries a build identity `.b<build>` derived from the `working-directory` input (slashes and dots replaced with `-`, default `.` becomes `root`). builds in one job therefore save distinct hand-offs. And can no longer 409 on a shared key.
 
 The dots make the suffixes collision-proof against job ids. A job id cannot contain a dot, so `go-build-<jobA>.m<i>` or `go-build-<jobA>.b<build>` can never equal. Or restore-prefix shadow, any `go-build-<jobB>`. `job-index` is 0-based in matrix definition order and identical across re-run attempts of the same leg. Which keeps cache-download's cross-attempt fallback working.
 
