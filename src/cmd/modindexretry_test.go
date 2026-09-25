@@ -97,6 +97,53 @@ func TestRunModTidyMissingGoModMessage(t *testing.T) {
 	require.ErrorContains(t, err, "no go.mod found")
 }
 
+// The generate line names its program between quotes, and an unrelated
+// PATH complaint carries no program to install.
+func TestMissingGeneratorToolReadsTheProgramName(t *testing.T) {
+	t.Serial()
+	line := "cmd/splitdwarf/internal/macho/reloctype.go:7: running \"stringer\": exec: \"stringer\": executable file not found in $PATH\n"
+	require.Equal(t, "stringer", missingGeneratorTool(line))
+	require.Empty(t, missingGeneratorTool("go: some unrelated resolution error\n"))
+	require.Empty(t, missingGeneratorTool("exec: \"cc\": executable file not found in $PATH\n"))
+}
+
+// A tidy that stops on an absent generator installs the pinned package and
+// asks again, because the dependency owes committed output either way.
+func TestRunModTidyInstallsAMissingGenerator(t *testing.T) {
+	t.Serial()
+	t.Setenv("GODEBUG", "")
+	t.Setenv("PATH", os.Getenv("PATH"))
+	chdirWithGoMod(t)
+
+	missing := "x.go:7: running \"stringer\": exec: \"stringer\": executable file not found in $PATH\n"
+	mock, calls := tidyMock(missing, 1)
+	require.NoError(t, runModTidy(mock, true))
+	require.Equal(t, 2, *calls, "the tidy is asked again once the generator exists")
+
+	var installed bool
+	for _, c := range mock.Calls() {
+		if c.IsCmd("go", "install") && strings.Contains(strings.Join(c.Args, " "), "stringer") {
+			installed = true
+		}
+	}
+	require.True(t, installed, "the pinned stringer package is built")
+}
+
+// A generator with no pin fails the run and names what to add, rather than
+// leaving the dependency's output unwritten.
+func TestRunModTidyUnpinnedGeneratorFailsTheRun(t *testing.T) {
+	t.Serial()
+	t.Setenv("GODEBUG", "")
+	chdirWithGoMod(t)
+
+	missing := "x.go:7: running \"weirdgen\": exec: \"weirdgen\": executable file not found in $PATH\n"
+	mock, calls := tidyMock(missing, 1)
+	err := runModTidy(mock, true)
+	require.ErrorContains(t, err, "weirdgen")
+	require.ErrorContains(t, err, "generatorPackages")
+	require.Equal(t, 1, *calls, "nothing is retried while the generator cannot be built")
+}
+
 func TestDisableGoModuleIndexMergesExistingGODEBUG(t *testing.T) {
 	t.Serial()
 	t.Setenv("GODEBUG", "http2client=0")
