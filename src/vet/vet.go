@@ -438,11 +438,12 @@ func checkFileCommittedByName(filename string) error {
 	if err == nil {
 		return nil
 	}
-	// If go-git detected uncommitted changes, trust that result
-	if strings.Contains(err.Error(), "uncommitted changes") {
-		return err
-	}
-	// go-git failed for infrastructure reasons; fall back to git CLI
+	// A dirty verdict is confirmed against the git CLI before it stops the fix.
+	// In a linked worktree go-git v5 calls a committed file dirty where git
+	// calls the whole tree clean, and taking the library's word for it refused
+	// the autofix with no way past: committing cannot clear a verdict about a
+	// file that is already committed. Which files it misreads is known, and why
+	// is not, so git decides.
 	return checkFileCommittedExec(filename)
 }
 
