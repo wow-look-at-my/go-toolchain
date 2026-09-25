@@ -8,7 +8,7 @@ CLI commands (root, matrix, bench, lint, install, version, release, ignore/unign
 
 There is deliberately NO opt-out env var. Submission is part of building in CI, and a knob that turned it off will eventually be set and left set.
 
-Nor is "build somewhere else" a way out. `insideWorkspace()` checks the working directory against `GITHUB_WORKSPACE`, and a build outside it is a hard ERROR for every repository except `selfRepository` (`wow-look-at-my/go-toolchain`), whose smoke jobs. That one carve-out is pinned to an exact repository name precisely so it cannot become a general opt-out. `TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere` pins the refusal.
+Nor is "build somewhere else" a way out. `insideWorkspace()` checks the working directory against `GITHUB_WORKSPACE`. A build outside it is a hard ERROR for every repository except `selfRepository` (`wow-look-at-my/go-toolchain`), whose smoke jobs. That one carve-out is pinned to an exact repository name precisely so it cannot become a general opt-out. `TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere` pins the refusal.
 
 ## No self-update, but a passive update check
 
@@ -20,12 +20,12 @@ It does run a passive **background update check** (`updatecheck.go`). `main.go`'
 
 ## The up-to-date fingerprint
 
-`uptodate.go`: the root `PersistentPreRunE` exits 0 with "Up to date, nothing to do" when the stored fingerprint matches and every build output still exists. The fingerprint is a SHA-256 over the Go version, this binary's version, `outputDir`, the run's flags, the run's environment. `.go`, `go.mod`/`go.sum`, `.dats` suites and their `.golden` snapshots, `action.yml`, anything under a `testdata` directory, and every file `go list` reports for a `//go:embed` directive.
+`uptodate.go`: the root `PersistentPreRunE` exits 0 with "Up to date, nothing to do" when the stored fingerprint matches and every build output still exists. The fingerprint is a SHA-256 over the Go version, this binary's version, `outputDir`, the run's flags, the run's environment. `.go`, `go.mod`/`go.sum`, `.dats` suites. Their `.golden` snapshots, `action.yml`, anything under a `testdata` directory, and every file `go list` reports for a `//go:embed` directive.
 
 Two of those inputs are not files, and both are there because leaving them out made the skip lie:
 
-- **The environment.** An env-gated test or benchmark switched on between two runs is a pipeline the stored fingerprint never described. Skipping it reported a green run that never executed the thing that was turned on. Which variables a project's tests read cannot be known from here. So the whole environment is folded in except `volatileEnv` — `_`, `OLDPWD`. The snapshot is taken by `captureRunEnv` at the top of `PersistentPreRunE`, ahead of both `isUpToDate` and `saveFingerprint`. The pipeline sets variables of its own as it goes (the cacheprog's socket paths carry the PID). So hashing `os.Environ()` at save time will stamp a fingerprint no later run can match, silently disabling the skip forever.
-- **The flags.** `--generate` executes go:generate directives, `--cgo` changes what gets built, `--count-generated` changes what the file-length check fails on. `flagFingerprint` folds in every root flag rather than a chosen subset, so a flag added later is covered without anyone remembering to.
+- **The environment.** An env-gated test or benchmark switched on between runs is a pipeline the stored fingerprint never described. Skipping it reported a green run that never executed the thing that was turned on. Which variables a project's tests read cannot be known from here. So the whole environment is folded in except `volatileEnv` — `_`, `OLDPWD`. The snapshot is taken by `captureRunEnv` at the top of `PersistentPreRunE`, ahead of both `isUpToDate` and `saveFingerprint`. The pipeline sets variables of its own as it goes (the cacheprog's socket paths carry the PID). So hashing `os.Environ()` at save time will stamp a fingerprint no later run can match, silently disabling the skip forever.
+- **The flags.** `--generate` executes go:generate directives, `--cgo` changes what gets built, `--count-generated` changes. What the file-length check fails on. `flagFingerprint` folds in every root flag rather than a chosen subset. A flag added later is covered without anyone remembering to.
 
 There is deliberately no flag that bypasses the check. A skip that fires when something real changed is a bug in the fingerprint. And the fix is to track the input it missed.
 
@@ -33,21 +33,21 @@ Still untracked: a file a test reads at run time that lives outside `testdata` a
 
 ## cacheprog installs its logger first
 
-`runCacheProg` (`cacheprog.go`) installs the stderr-only logger (`logger.InitSubprocess`) as its FIRST action, BEFORE config parsing, because the subprocess's stdout is the GOCACHEPROG protocol channel cmd/go parses.
+`runCacheProg` (`cacheprog.go`) installs the stderr-only logger (`logger.InitSubprocess`) as its FIRST action, BEFORE config parsing. The subprocess's stdout is the GOCACHEPROG protocol channel cmd/go parses.
 
 ## GOOS=cosmo splits
 
-Fat APE builds use the gosmopolitan fork, whose `unix` build tag matches cosmo while `golang.org/x/sys/unix` and `modernc.org/libc` have no cosmo port. Three things split:
+Fat APE builds use the gosmopolitan fork, whose `unix` build tag matches cosmo while `golang.org/x/sys/unix` and `modernc.org/libc` have no cosmo port. things split:
 
 - **The output watchdog** is mirrored via stdlib `syscall` (`watchdog_cosmo.go`. `watchdog_unix.go` is `unix && !cosmo`). Both honor `GO_TOOLCHAIN_NO_WATCHDOG=1` via `watchdogDisabled()` in `watchdog.go` — the supported off-switch that keeps the build on its real stdio.
-- **The GOCACHEPROG self-exec** goes through `cacheProgCommand` (`cacheprog.go`). On cosmo+darwin hosts it writes a `#!/bin/sh` wrapper that re-execs the APE, because on ARM64 macOS the APE never self-assimilates (shell header + compiled loader), keeps its MZ magic. Every other platform keeps the bare `<exe> cacheprog` byte-identically.
+- **The GOCACHEPROG self-exec** goes through `cacheProgCommand` (`cacheprog.go`). On cosmo+darwin hosts it writes a `#!/bin/sh` wrapper that re-execs the APE. Because on ARM64 macOS the APE never self-assimilates (shell header + compiled loader), keeps its MZ magic. Every other platform keeps the bare `<exe> cacheprog` byte-identically.
 - **The persistent outdated-deps cache** is behind the `depsCache` interface, implemented in `depscache_file.go` over a JSON file under the user cache dir. It carries a check result per dependency and version, which needs no query engine. And it is compiled into every binary. `close` merges onto the file before rewriting it atomically, so a go-toolchain running alongside keeps its entries. Keep the backend free of third-party packages. The APE carries a payload per platform, and a package init that fails on any of them kills that platform's binary before `main` runs (a sqlite backend did exactly that on Windows, through `modernc.org/libc`).
 
 ## The matrix cosmo target
 
-`targets.go` + `cosmotargets.go`. `matrix` resolves its platforms in two cases:
+`targets.go` + `cosmotargets.go`. `matrix` resolves its platforms in cases:
 
-- **No target flags — the default.** ONE `GOOS=cosmo` fat APE built with the gosmopolitan fork (artifact `<name>`, no `.exe`), covering `--cosmo-platforms`. One file, three platforms, one published artifact.
+- **No target flags — the default.** ONE `GOOS=cosmo` fat APE built with the gosmopolitan fork (artifact `<name>`, no `.exe`), covering `--cosmo-platforms`. One file, platforms, one published artifact.
 - **`--targets`.** An exact, validated list containing `cosmo` and/or the wasm targets (`wasm/js`, `wasm/wasip1`) — nothing else. The fat APE is the command's only native output. So a native `os/arch` pair is rejected with a pointer to `--cosmo-platforms`, which is how the APE's own host coverage is chosen.
 
 ### --cosmo-platforms
@@ -58,15 +58,15 @@ Do not read this as a size knob. Payloads are per ARCHITECTURE, and the default 
 
 `cosmoRuntimeStatus` is the accepted set. And it is deliberately narrower than what the fork can emit. `darwin/amd64` (Intel-mac runtime never executed on real hardware) and `windows/arm64` (amd64-only PE payload, and WoA x86-64 emulation fails to boot it) are refused with their reason. The published platform set is what tells a consumer where the binary runs, so a platform whose runtime was never proven cannot be in it.
 
-An older fork ignores an unknown `GOCOSMO*` variable silently, which will emit a full-coverage APE while the run reported a slimmed one. `cosmoPlatformsEnvValue` (`cosmoplatforms.go`) therefore probes support first — `go env GOCOSMOPLATFORMS` with a sentinel value, which only an aware toolchain echoes back. The artifact is still correct there: a superset APE runs on every platform claimed, and for the default set it is not even larger.
+An older fork ignores an unknown `GOCOSMO*` variable silently. Which will emit a full-coverage APE while the run reported a slimmed one. `cosmoPlatformsEnvValue` (`cosmoplatforms.go`) therefore probes support first — `go env GOCOSMOPLATFORMS` with a sentinel value. Which only an aware toolchain echoes back. The artifact is still correct there: a superset APE runs on every platform claimed, and for the default set it is not even larger.
 
-The compiler is this binary. `EnsureGoVersion` (`toolchain.go`) links a `go` name to the executable, puts that directory ahead of `PATH`, and sets `GOROOT` and `GOTOOLCHAIN=local`. Outside this module `GOROOT` is the executable, which carries the fork's standard library. Inside it `GOROOT` is the `gosmopolitan` submodule (`forksource.go`). The submodule is at the head of the fork branch that matches this checkout's branch name. If no such branch exists, it uses the default branch. `go-toolchain version` names the fork commit the binary links. The three APEs `identical` compares (`go-toolchain verify-identical`, `src/cmd/apeidentity.go`) come from one compiler because each host runs the same binary.
+The compiler is this binary. `EnsureGoVersion` (`toolchain.go`) links a `go` name to the executable, puts that directory ahead of `PATH`, and sets `GOROOT` and `GOTOOLCHAIN=local`. Outside this module `GOROOT` is the executable, which carries the fork's standard library. Inside it `GOROOT` is the `gosmopolitan` submodule (`forksource.go`). The submodule is at the head of the fork branch that matches this checkout's branch name. If no such branch exists, it uses the default branch. `go-toolchain version` names the fork commit the binary links. The APEs `identical` compares (`go-toolchain verify-identical`, `src/cmd/apeidentity.go`) come from one compiler because each host runs the same binary.
 
 The cosmo build runs the go command with `CGO_ENABLED=0` always (`--cgo` warns), and `GOARCH`/`GOCOSMOFAT` cleared (fat is the fork default).
 
 ## Fork-build cache isolation
 
-`cosmonamespace.go`: every fork-toolchain job (cosmo AND wasm) also exports `GO_TOOLCHAIN_CACHE_NAMESPACE` = `forkToolchainCacheNamespace(goroot)` — 16 hex chars of a SHA-256 over the toolchain's VERSION + `bin/` + `pkg/tool/` tool binaries.
+`cosmonamespace.go`: every fork-toolchain job (cosmo AND wasm) also exports `GO_TOOLCHAIN_CACHE_NAMESPACE` = `forkToolchainCacheNamespace(goroot)` — hex chars of a SHA-256 over the toolchain's VERSION + `bin/` + `pkg/tool/` tool binaries.
 
 The fork stamps a constant version, which gives DIFFERENT fork builds colliding tool/action IDs. A shared cache then serves one build's objects into another's links (the 2026-07-20 SIGSEGV-APE cross-build poisoning). The job's cacheprog scopes every cache key to that namespace (see `docs/CACHE.md`). A fingerprint failure fails the matrix run, and `runBuild` refuses a fork job whose `buildJob.cacheNamespace` is empty (last-chokepoint guard). Normal targets set no namespace and keep byte-identical cache behavior.
 
@@ -76,7 +76,7 @@ Depth: `docs/BUILDHOST-MANIFEST.md` — the wire contract, and why the filename 
 
 With no slots (the default), `apemanifest.go` writes `buildhost-artifacts.json` next to the APE, naming the file, its platform set.
 
-The manifest is an artifact of the build, not a survivor of it: `isOutputArtifact` matches it, so `clearBuildOutputs` and `discardBuildOutputs` delete it with the binaries. `apeManifestEntries` refuses to name a file that is not on disk, or an empty platform set.
+The manifest is an artifact of the build, not a survivor of it: `isOutputArtifact` matches it. So `clearBuildOutputs` and `discardBuildOutputs` delete it with the binaries. `apeManifestEntries` refuses to name a file that is not on disk, or an empty platform set.
 
 ## One APE is one file, by construction
 
@@ -90,10 +90,8 @@ What the deleted machinery existed for is gone too. It replaced the fat name bec
 
 `hostRunnableArtifact` (`matrixbuild.go`) resolves what the dats phase and the local convenience symlinks point at: the native `<name>_<hostos>_<hostarch>` build when one exists, else the APE. Without the fallback a default run — one APE, no per-platform copies — will leave both with nothing to point at.
 
-> **APEs self-assimilate on exec.** Never execute matrix artifacts in `build/`
-> in place. The bench phase never execs artifacts, so the pipeline is safe.
-> smoke tests use throwaway copies only.
+> **APEs self-assimilate on exec.** Never execute matrix artifacts in `build/` > in place. The bench phase never execs artifacts. So the pipeline is safe. > smoke tests use throwaway copies only.
 
 ---
 
-*Provenance: merged from two near-duplicate `src/cmd/` bullets that had accumulated in CLAUDE.md. Unlike `docs/ACTION.md` and `docs/CI.md`, these two did. Both are above.*
+*Provenance: merged from near-duplicate `src/cmd/` bullets that had accumulated in CLAUDE.md. Unlike `docs/ACTION.md` and `docs/CI.md`, these two did. Both are above.*

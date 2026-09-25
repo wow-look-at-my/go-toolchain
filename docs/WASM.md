@@ -2,13 +2,13 @@
 
 Sibling of [MATRIX.md](MATRIX.md), which covers the native targets of the same `matrix` command.
 
-`matrix --targets` also accepts the two WebAssembly platforms: `wasm/js` (browser / Node.js, run with `wasm_exec.js`) and `wasm/wasip1` (WASI runtimes such as wasmtime or wazero) — spelled os-first to match buildhost's wasm artifact scheme and the `<name>_wasm_js` artifact naming. The GOOS-order spellings `js/wasm` and `wasip1/wasm` are accepted as compatibility aliases and normalize to the same targets (mixing both spellings dedupes to one target). Wasm is the only thing `--targets` accepts besides `cosmo` itself, and the two mix freely in one run:
+`matrix --targets` also accepts the WebAssembly platforms: `wasm/js` (browser / Node.js, run with `wasm_exec.js`) and `wasm/wasip1` (WASI runtimes such as wasmtime or wazero) — spelled os-first to match buildhost's wasm artifact scheme. The `<name>_wasm_js` artifact naming. The GOOS-order spellings `js/wasm` and `wasip1/wasm` are accepted as compatibility aliases and normalize to the same targets (mixing both spellings dedupes to one target). Wasm is the only thing `--targets` accepts besides `cosmo` itself, and the two mix freely in one run:
 
 ```bash
 go-toolchain matrix --targets wasm/js,wasm/wasip1,cosmo
 ```
 
-A wasm-only consumer's action config is simply:
+A wasm-only consumer's action config is:
 
 ```yaml
 with:
@@ -27,7 +27,7 @@ with:
 
 **GOMEMLIMIT.** The cgroup default lives in the fork's runtime and reads `/proc/self/cgroup`. It is inert on both wasm ports. Nothing is injected into wasm sources. Nothing has to be.
 
-**Running and testing wasm binaries.** The build pipeline never executes matrix artifacts, and the test phase always runs on the HOST platform — wasm builds do not change what `go test` tests. To run the artifacts or execute a package's tests under wasm, use the fork toolchain's exec wrappers in `<goroot>/lib/wasm` (`go_js_wasm_exec` needs Node.js 18+. `go_wasip1_wasm_exec` needs wasmtime, or wazero via `GOWASIRUNTIME=wazero`):
+**Running and testing wasm binaries.** The build pipeline never executes matrix artifacts. The test phase always runs on the HOST platform — wasm builds do not change what `go test` tests. To run the artifacts or execute a package's tests under wasm, use the fork toolchain's exec wrappers in `<goroot>/lib/wasm` (`go_js_wasm_exec` needs Node.js 18+. `go_wasip1_wasm_exec` needs wasmtime, or wazero via `GOWASIRUNTIME=wazero`):
 
 ```bash
 GOROOT=$HOME/.cache/go-toolchain/cosmo/<key>/go
@@ -35,5 +35,5 @@ PATH="$GOROOT/bin:$GOROOT/lib/wasm:$PATH" GOTOOLCHAIN=local \
   GOOS=js GOARCH=wasm go test ./...
 ```
 
-Rejected spellings fail fast with a pointer to the right one. `js/amd64`, `linux/wasm` and `wasm/amd64` (impossible pairings), a native `os/arch` pair in `--targets` (the fat APE is the only native output. Use `--cosmo-platforms` to choose which hosts it covers), and a wasm target in `--cosmo-platforms` (an APE covers native hosts, and wasm is not one).
+Rejected spellings fail fast with a pointer to the right one. `js/amd64`, `linux/wasm` and `wasm/amd64` (impossible pairings). A native `os/arch` pair in `--targets` (the fat APE is the only native output. Use `--cosmo-platforms` to choose which hosts it covers), and a wasm target in `--cosmo-platforms` (an APE covers native hosts, and wasm is not one).
 

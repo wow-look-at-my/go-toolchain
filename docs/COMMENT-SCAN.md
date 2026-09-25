@@ -17,13 +17,13 @@ A number in a comment is a count of what exists on the day it was written. The e
 
 The rule was a vet analyzer, `src/vet/commentnumbers.go`. An analyzer runs on `*ast.File` values. `go/packages` produces those only after it resolves every import, reads every dependency's export data and type-checks the module. That is minutes of work before the first comment is read. None of it answers the question. A comment is bytes.
 
-The rule now lives in [`slopfix/commentfix`](https://github.com/wow-look-at-my/slopfix/tree/master/commentfix) and runs beside the dependency check, `go mod tidy` and `go generate`, ahead of vet. Two things follow.
+The rule now lives in [`slopfix/commentfix`](https://github.com/wow-look-at-my/slopfix/tree/master/commentfix) and runs beside the dependency check, `go mod tidy` and `go generate`, ahead of vet. things follow.
 
 It answers on a tree that does not build. A missing import, an unresolvable module, a syntax error in another package: none of them stop the report, because nothing here parses the language.
 
 It answers for every language. `commentfix` reads a comment by its delimiters rather than by a grammar. So a shell script, a workflow, a Dockerfile, a Rust file and a TypeScript file are all scanned. The analyzer only ever saw Go, and the stale prose in a `run:` script was never anybody's finding.
 
-## Where it runs, and when
+## Where it runs.
 
 The phase is `src/cmd/commentscanphase.go`. It is a start and a join around `commentfix.FixTree`. Nothing about comments is decided here.
 
@@ -45,14 +45,14 @@ A file whose extension `commentfix` has no comment syntax for is skipped rather 
 
 ## What counts as a number
 
-The check walks each comment's tokens -- runs of letters, digits and the name characters `_`, `.`, `/`, `:` and `-` -- and reports two shapes:
+The check walks each comment's tokens -- runs of letters, digits and the name characters `_`, `.`, `/`, `:` and `-` -- and reports shapes:
 
 - **A digit run**, unless it touches a letter or wears an ordinal suffix. So `sha256`, `amd64`, `p95`, `10ms` and `wasip1` are names and stay. A bare `500`, a `2.5`, and a version literal like `1.24.7` are numbers and go.
 - **A whole alphabetic word** naming a number: the cardinals up to `thousand`, `million` and `dozen`, the ordinals up to `thousandth`, and `once`/`twice`/`thrice`. Case does not matter, so `One` is reported like `one`. A word that merely contains one (`someone`, `oneShot`, `atonement`) is not a match, because the whole run must be the word.
 
-A number behind a section sign is exempt. `§7.3` and `§ 4` cite a section of a document, and the sign is the spelling a reader looks it up by. It is the escape hatch for a document that publishes no slug -- the sign covers only the number it introduces.
+A number behind a section sign is exempt. `§7.3` and `§ 4` cite a section of a document. And the sign is the spelling a reader looks it up by. It is the escape hatch for a document that publishes no slug -- the sign covers only the number it introduces.
 
-An HTTP status code is exempt, but only when the word `HTTP` (in any case) sits immediately before it. `HTTP 403` names a protocol answer that no edit changes, while a bare `403` is the shape of a line number or a row count. The exemption covers a status-code-width run of digits and nothing else, so `HTTP 4 retries` is a count and goes.
+An HTTP status code is exempt. But only when the word `HTTP` (in any case) sits immediately before it. `HTTP 403` names a protocol answer that no edit changes. While a bare `403` is the shape of a line number or a row count. The exemption covers a status-code-width run of digits and nothing else, so `HTTP 4 retries` is a count and goes.
 
 A sum of money is exempt. A currency sign directly against the digits makes the token an amount, which states what something costs rather than counting what is below. Only the amount goes free, so `$1 is the boundary, and 4 dp under it` still reports the `4`, and `costs $ 5` reports.
 
@@ -60,6 +60,6 @@ A token holding `://` is a URL and is skipped whole. So citing an issue by its f
 
 ## Scope
 
-A finding is a WARNING, in every module -- unlike the set checks in [VET.md](VET.md), org code is not held to a harder severity here. A stale count is prose, not broken code. So it must not fail a build on its own. They arrive by the dozen though. So the warnings budget ([WARNINGS-GATE.md](WARNINGS-GATE.md)) is what turns a repo full of them red.
+A finding is a WARNING, in every module -- unlike the set checks in [VET.md](VET.md). Org code is not held to a harder severity here. A stale count is prose, not broken code. So it must not fail a build on its own. They arrive by the dozen though. So the warnings budget ([WARNINGS-GATE.md](WARNINGS-GATE.md)) is what turns a repo full of them red.
 
 There is no opt-out marker and no module exemption. A warning is spent per `file:line`. So a sentence naming several numbers costs a single warning: the repair is a rewrite of the line, whatever it counts.

@@ -37,9 +37,8 @@ A container build usually is not. `COPY . .` with `.git` in `.dockerignore` hand
 
 A package that declares none of them gets no stamp and no warning: it never asked for one. Declaring `var gitHash string` in `package main` is the whole opt-in — there is no flag, no input, and no configuration file.
 
-Discovery is `gomod.PackageStringVars`, which parses the package's non-test files and reports only the package-level variables it can PROVE hold strings. An explicit `string` type, or an initializer that is a string literal. That narrowness is not fussiness. `cmd/link`'s `addstrdata` returns silently for a symbol it cannot find, but calls `Errorf` for a symbol that is not a string variable. Stamping only what the source proves is a string is what keeps this from breaking a consumer that happens to reuse a name.
+Discovery is `gomod.PackageStringVars`, which parses the package's non-test files and reports only the package-level variables it can PROVE hold strings. An explicit `string` type, or an initializer that is a string literal. That narrowness is not fussiness. `cmd/link`'s `addstrdata` returns silently for a symbol it cannot find. But calls `Errorf` for a symbol that is not a string variable. Stamping only what the source proves is a string is what keeps this from breaking a consumer that happens to reuse a name.
 
-## Where the revision comes from
 
 In order:
 
@@ -56,8 +55,8 @@ RUN GO_TOOLCHAIN_VCS_REVISION="${GIT_HASH}" go-toolchain
 
 A revision holding whitespace or a quote is rejected (`usableRevision`) rather than passed through. The go command re-splits the `-ldflags` value, so such a revision will silently become extra flags.
 
-When a package declares a stamp variable and NO source names a revision, the build warns and leaves the variable alone. The binary then ships its placeholder, which is exactly the state that used to pass unnoticed.
+When a package declares a stamp variable and NO source names a revision, the build warns and leaves the variable alone. The binary then ships its placeholder, which is exactly the state.
 
 ## Why the caller trails the stamp
 
-`cmd/link` keeps the LAST `-X` given for a name (`addstrdata1` writes into `strdata` per name, so a later occurrence overwrites an earlier one). The stamp leads and the caller's own flags trail it, so an explicit `-X` from GOFLAGS overrides the resolved revision. `-buildid=` stays last of all, which is a different flag and a different rule. The go command takes the final `-ldflags` string as a whole. And the reproducibility flag has to be in it (see [MATRIX.md](MATRIX.md)).
+`cmd/link` keeps the LAST `-X` given for a name (`addstrdata1` writes into `strdata` per name, so a later occurrence overwrites an earlier one). The stamp leads and the caller's own flags trail it. An explicit `-X` from GOFLAGS overrides the resolved revision. `-buildid=` stays last of all, which is a different flag and a different rule. The go command takes the final `-ldflags` string as a whole. And the reproducibility flag has to be in it (see [MATRIX.md](MATRIX.md)).
