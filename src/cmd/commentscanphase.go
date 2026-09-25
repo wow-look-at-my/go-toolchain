@@ -48,9 +48,19 @@ func waitForCommentScan() {
 // output and cannot narrate itself while it works.
 func (c *commentScan) report() {
 	result := c.result
+	if result.Skipped != "" {
+		logger.Output("⇒ comment scan: %s", result.Skipped)
+	}
 	if len(result.Repaired) > 0 {
 		logger.Output("⇒ comment scan: repaired %d of %d files %s",
 			len(result.Repaired), result.Read, fmtDuration(c.took))
+	}
+	// Each rewrite prints as a diff under its rule, so the author sees every edit.
+	for _, rewrite := range result.Rewrites {
+		logger.Output("   [%s] %s\n%s", rewrite.Rule, rewrite.Path, rewrite.Diff)
+	}
+	for _, rejected := range result.Rejected {
+		logger.WarnFile(rejected.Path, "%s", rejected)
 	}
 	// A cut sentence is gone from the tree, so this is the only record of it.
 	for _, removal := range result.Removed {
