@@ -4,6 +4,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -250,6 +251,62 @@ func TestCheckFileCommittedByName_ManyFilesIndex(t *testing.T) {
 	require.NoError(t, os.WriteFile(src, []byte("package main\n\nfunc foo() {}\n"), 0644))
 	err := checkFileCommittedByName(src)
 	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "uncommitted changes")
+}
+
+// A linked worktree is where the org keeps a branch, at <repo>/.claude/worktrees/<branch>.
+// go-git v5 calls a committed file there dirty where git calls the tree clean, so the
+// verdict is confirmed against the CLI and a committed file passes.
+// worktreeWithAddedFile builds <repo>/.claude/worktrees/branch and commits a
+// file that exists only on the branch, which is the case that failed. It
+// answers that file's path.
+func worktreeWithAddedFile(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0644))
+	initGitRepo(t, dir)
+
+	tree := filepath.Join(dir, ".claude", "worktrees", "branch")
+	run := func(wd string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = wd
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+	run(dir, "worktree", "add", "-b", "branch", tree)
+
+	added := filepath.Join(tree, "added.go")
+	require.NoError(t, os.WriteFile(added, []byte("package main\n\nfunc added() {}\n"), 0644))
+	run(tree, "add", "added.go")
+	run(tree, "commit", "-m", "add")
+	return added
+}
+
+func TestCheckFileCommittedByName_LinkedWorktree(t *testing.T) {
+	t.Serial()
+	added := worktreeWithAddedFile(t)
+
+	assert.NoError(t, checkFileCommittedByName(added), "git reports this file clean")
+
+	// The control: a real edit is still caught.
+	require.NoError(t, os.WriteFile(added, []byte("package main\n\nfunc added() { _ = 1 }\n"), 0644))
+	err := checkFileCommittedByName(added)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "uncommitted changes")
+}
+
+// The library path alone, in the worktree layout the org uses. Whether go-git
+// answers here decides whether the git CLI has to be asked at all.
+func TestCheckFileCommittedGoGit_LinkedWorktree(t *testing.T) {
+	t.Serial()
+	added := worktreeWithAddedFile(t)
+
+	assert.NoError(t, checkFileCommittedGoGit(added), "git reports this file clean")
+
+	require.NoError(t, os.WriteFile(added, []byte("package main\n\nfunc added() { _ = 1 }\n"), 0644))
+	err := checkFileCommittedGoGit(added)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "uncommitted changes")
 }
 
