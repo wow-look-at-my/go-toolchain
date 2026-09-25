@@ -221,6 +221,7 @@ jobs:
         with:
           tests: .github/dats-fixtures/cache-profile.dats
 
+
       # A GitHub Actions artifact is banned org-wide, so the profile is published as a per-branch site instead.
       - name: Stage the build profile
         # Staged outside the checkout: a directory in the tree makes the next build's dirty-tree gate fail.
