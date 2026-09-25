@@ -6,7 +6,7 @@ A binary in `build/` means one thing: the run that produced it succeeded. To kee
 - **when the run fails after the build phase already wrote them** (a red dats suite, the coverage or warnings gate).
 - **when the Go bootstrap fails** before the pipeline is reached.
 
-The clean touches only the target's own artifacts. These are the bare name (`<name>.exe` and the fat APE), and every `<name>_…` shape the toolchain writes. Those shapes include each `<name>_<goos>_<goarch>` binary, each wasm output and the `<name>_host` symlink. The clean also removes the `<name>.…` sidecar ELFs of the APE. `checksums.txt`, `wasm_exec.js`, `profile.json` and anything else in `build/` are left alone.
+Only the target's own artifacts are touched: the bare name (`<name>.exe` and the fat APE), every `<name>_…` shape the toolchain writes (`<name>_<goos>_<goarch>`, the wasm names, the `<name>_host` symlink). The APE's `<name>.…` sidecar ELFs. `checksums.txt`, `wasm_exec.js`, `profile.json` and anything else in `build/` are left alone.
 
 The target file is never written directly. The compiler's `-o` is `build/.tmp-<name>`, and only a build that succeeded moves the result. A failing build deletes what it wrote. A build killed before it can commit is swept on the next delete. So `build/<name>` appears whole or not at all, and only when a build actually finished.
 
