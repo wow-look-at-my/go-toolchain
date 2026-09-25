@@ -7,7 +7,9 @@ A number in a comment is a count of what exists on the day it was written. The e
 ```go
 // BAD                                 // GOOD
 // The four descriptor probes ...      // The descriptor probes ...
-// splits ways: // splits several ways: // warns at lines, errors at 750 // warns past the warn threshold // grace = 57.5, effective = 57.5 // the grace floor is what applies
+// splits three ways:                  // splits several ways:
+// warns at 500 lines, errors at 750   // warns past the warn threshold
+// grace = 57.5, effective = 57.5      // the grace floor is what applies
 ```
 
 ## Why it is a phase and not an analyzer
