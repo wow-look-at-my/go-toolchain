@@ -66,8 +66,8 @@ func (c *commentScan) report() {
 	for _, removal := range result.Removed {
 		logger.Output("   %s: the comment repair cut %q", removal.Path, removal.Text)
 	}
-	// slopfix repairs every finding it reports, so this loop is a guard: a
-	// warning here says the rule and its repair have come apart.
+	// An ste finding has no repair by design, so these are what the sweep
+	// leaves for the author rather than a sign the rule and its repair parted.
 	for _, finding := range result.Findings {
 		logger.WarnFile(finding.Path, "%s:%d:%d: %q is a number in a comment: %s",
 			finding.Path, finding.Line, finding.Col, finding.Number, commentfix.Remedy)
