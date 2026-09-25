@@ -2,13 +2,13 @@
 
 Sibling of [MATRIX.md](MATRIX.md), which covers the native targets of the same `matrix` command.
 
-`matrix --targets` also accepts the two WebAssembly platforms: `wasm/js` (browser / Node.js, run with `wasm_exec.js`) and `wasm/wasip1` (WASI runtimes such as wasmtime or wazero) — spelled os-first to match buildhost's wasm artifact scheme and the `<name>_wasm_js` artifact naming. The GOOS-order spellings `js/wasm` and `wasip1/wasm` are accepted as compatibility aliases and normalize to the same targets (mixing both spellings dedupes to one target). Wasm is the only thing `--targets` accepts besides `cosmo` itself, and the two mix freely in one run:
+`matrix --targets` also accepts the WebAssembly platforms: `wasm/js` (browser / Node.js, run with `wasm_exec.js`). And `wasm/wasip1` (WASI runtimes such as wasmtime or wazero) — spelled os-first to match buildhost's wasm artifact scheme and the `<name>_wasm_js` artifact naming. The GOOS-order spellings `js/wasm` and `wasip1/wasm` are accepted as compatibility aliases and normalize to the same targets (mixing both spellings dedupes to one target). Wasm is the only thing `--targets` accepts besides `cosmo` itself, and the two mix freely in one run:
 
 ```bash
 go-toolchain matrix --targets wasm/js,wasm/wasip1,cosmo
 ```
 
-A wasm-only consumer's action config is simply:
+A wasm-only consumer's action config is:
 
 ```yaml
 with:
