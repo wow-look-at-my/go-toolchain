@@ -104,8 +104,9 @@ runs:
       run: |
         set -euo pipefail
         URL="https://dl.pazer.build/go-toolchain?os=${RUNNER_OS}&arch=${RUNNER_ARCH}"
-        # The `if` keeps `set -e` from skipping the probe and source-build fallback.
-        if curl -fL --compressed --connect-timeout 20 --max-time 120 -o /tmp/go-toolchain "${URL}"; then
+        # The `if` keeps `set -e` from skipping the probe and source-build fallback. A slow download that still moves must finish.
+        if curl -fL --compressed --connect-timeout 20 --speed-limit 1024 --speed-time 60 \
+          --retry 5 --retry-delay 5 --retry-all-errors -o /tmp/go-toolchain "${URL}"; then
           chmod +x /tmp/go-toolchain
           # Run it while still writable in /tmp. see docs/ACTION.md
           /tmp/go-toolchain version || true
