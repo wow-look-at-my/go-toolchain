@@ -212,7 +212,8 @@ func ReachablePackages(root string, r runner.CommandRunner) (set.Set[string], er
 	}
 	out, _ := io.ReadAll(proc.Stdout())
 	if err := proc.Wait(); err != nil {
-		return set.Set[string]{}, err
+		stderr, _ := io.ReadAll(proc.Stderr())
+		return set.Set[string]{}, fmt.Errorf("go %s: %w\n%s", strings.Join(args, " "), err, strings.TrimSpace(string(stderr)))
 	}
 
 	reachable := set.New[string]()

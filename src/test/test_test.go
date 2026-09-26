@@ -291,6 +291,31 @@ example.com/proj/pkg1/main.go:14.20,16.2 3 0
 	assert.Equal(t, float32(85.0), result.Coverage.Packages[0].Pct())
 }
 
+func TestRunTestsFailsWhenTheReachableListFails(t *testing.T) {
+	t.Serial()
+	t.Chdir(setupTestModule(t, "example.com/proj", []string{"pkg1"}))
+	coverFile := filepath.Join(t.TempDir(), "coverage.out")
+
+	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/proj/pkg1"}
+{"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/proj/pkg1"}
+`
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		switch {
+		case cfg.IsCmd("go", "test"):
+			os.WriteFile(coverFile, []byte("mode: set\nexample.com/proj/pkg1/main.go:10.20,12.2 17 1\n"), 0o644)
+			return runner.MockProcess([]byte(testOutput), nil), nil
+		case cfg.IsCmd("go", "list") && cfg.HasArg("-deps"):
+			return runner.MockProcessWithStderr(nil, []byte("missing go.sum entry for module providing package example.com/dep\n"), fmt.Errorf("exit status 1")), nil
+		}
+		return nil, nil
+	}
+
+	_, err := RunTests(mock, false, coverFile, nil, nil)
+	require.Error(t, err, "a coverage total without the reachable filter is not a number to report")
+	assert.Contains(t, err.Error(), "missing go.sum entry", "go list's own error must reach the user")
+}
+
 func TestRunTestsFallsBackToEllipsis(t *testing.T) {
 	t.Serial()
 	// Run in an empty temp dir with no go.mod — listTestPackages returns nil

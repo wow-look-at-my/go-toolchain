@@ -400,8 +400,11 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 		waitErr = nil
 	}
 
-	// Determine reachable packages to filter coverage (non-fatal on error)
-	reachable, _ := ReachablePackages(".", r)
+	// -coverpkg=./... also covers std under an in-module GOROOT, and only this filter drops it.
+	reachable, err := ReachablePackages(".", r)
+	if err != nil && waitErr == nil {
+		return nil, fmt.Errorf("listing the packages the coverage total counts: %w", err)
+	}
 
 	// Parse coverage profile for total and file coverage (files contain functions)
 	totalCoverage, files, _ := ParseProfileFiltered(coverFile, reachable)
