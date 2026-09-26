@@ -194,7 +194,8 @@ func datsBackendPreflight(dirs []string) error {
 	}
 	return fmt.Errorf("dats suites need a sandbox backend, and none is usable on this host: %w\nfix: %s", err, datsBackendFix(hostos.GOOS()))
 }
- (if any) against the binaries
+
+// runDatsPhase runs the module's dats suites (if any) against the binaries
 // just built, in this process: go-toolchain links the dats library, so the
 // suite-presence gate is the only thing standing between a module and its
 // suites — no download, no cache, no dats version to drift from the linked-in copy.
