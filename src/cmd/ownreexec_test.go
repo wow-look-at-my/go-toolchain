@@ -60,6 +60,7 @@ func TestReexecUnderOwnBuildLeavesAConsumerAlone(t *testing.T) {
 
 // A tidy failure stops the run before the self-build reads a short go.mod.
 func TestReexecUnderOwnBuildTidiesFirst(t *testing.T) {
+	t.Serial()
 	t.Setenv(selfReexecEnv, "")
 	t.Chdir(t.TempDir())
 	require.NoError(t, os.WriteFile("go.mod", []byte("module "+ownModulePath+"\n\ngo 1.27\n"), 0o644))
