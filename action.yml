@@ -91,12 +91,18 @@ runs:
       run: bash "$ACTION_PATH/.github/scripts/register-ape-binfmt.sh"
 
     # A dependency's generate directive and the dats phase both run confined. see docs/ACTION.md
-    - name: Provision the sandbox backend (bubblewrap)
+    - name: Install the sandbox backend (bubblewrap)
+      if: runner.os == 'Linux'
+      uses: wow-look-at-my/actions@cached-apt#latest
+      with:
+        packages: bubblewrap
+
+    - name: Prove bwrap builds a sandbox here
       if: runner.os == 'Linux'
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
-      run: bash "$ACTION_PATH/.github/scripts/provision-bwrap.sh"
+      run: bash "$ACTION_PATH/.github/scripts/check-bwrap.sh"
 
     - name: Install go-toolchain
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
