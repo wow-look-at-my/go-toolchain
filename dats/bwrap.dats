@@ -1,7 +1,6 @@
-# Tests for .github/scripts/provision-bwrap.sh, the step action.yml runs so the
-# build has its sandbox backend. The script's contract: every Linux run gets
-# either a usable bwrap or an error a caller can act on. Nothing here installs
-# anything; the sandbox grants no root and no apt.
+# Tests for .github/scripts/check-bwrap.sh, the gate action.yml runs after
+# cached-apt installs bubblewrap. The script's contract: every Linux run gets
+# either a usable bwrap or an error a caller can act on.
 
 sandbox:
 	image: golang:1.25
@@ -12,7 +11,7 @@ tests:
 	- desc: a module with no dats directory still gets a backend
 	  cmd: |
 		set -u
-		script="$PWD/.github/scripts/provision-bwrap.sh"
+		script="$PWD/.github/scripts/check-bwrap.sh"
 		cd "$(mktemp -d)"
 		out="$(bash "$script" 2>&1)"
 		status=$?
@@ -32,7 +31,7 @@ tests:
 	- desc: a module with dats suites gets an answer a caller can act on
 	  cmd: |
 		set -u
-		out="$(bash .github/scripts/provision-bwrap.sh 2>&1)"
+		out="$(bash .github/scripts/check-bwrap.sh 2>&1)"
 		status=$?
 		echo "$out"
 		case "$status:$out" in
@@ -43,3 +42,12 @@ tests:
 	  outputs:
 		stdout:
 			- "OUTCOME "
+
+	# The script installs nothing, so a host with no bwrap fails and names the package.
+	- desc: a host with no bwrap fails and names the install
+	  cmd: 'PATH=/nonexistent "$(command -v bash)" .github/scripts/check-bwrap.sh'
+	  exit: 1
+	  outputs:
+		stdout:
+			- "::error::bubblewrap is not installed"
+			- "apt-get install bubblewrap"

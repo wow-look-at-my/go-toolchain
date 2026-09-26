@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -55,6 +56,25 @@ func TestReexecUnderOwnBuildLeavesAConsumerAlone(t *testing.T) {
 	t.Chdir(t.TempDir())
 	require.NoError(t, os.WriteFile("go.mod", []byte("module example.com/consumer\n\ngo 1.27\n"), 0o644))
 	assert.NoError(t, reexecUnderOwnBuild())
+}
+
+// A tidy failure stops the run before the self-build reads a short go.mod.
+func TestReexecUnderOwnBuildTidiesFirst(t *testing.T) {
+	t.Serial()
+	t.Setenv(selfReexecEnv, "")
+	t.Chdir(t.TempDir())
+	require.NoError(t, os.WriteFile("go.mod", []byte("module "+ownModulePath+"\n\ngo 1.27\n"), 0o644))
+	require.NoError(t, os.WriteFile("main.go", []byte("package main\n\nfunc main() {}\n"), 0o644))
+
+	tidied := 0
+	orig := selfBuildTidy
+	selfBuildTidy = func() error { tidied++; return errors.New("go mod tidy failed: sentinel") }
+	t.Cleanup(func() { selfBuildTidy = orig })
+
+	err := reexecUnderOwnBuild()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "sentinel", "the tidy error must stop the run before the self-build")
+	assert.Equal(t, 1, tidied)
 }
 
 func TestReexecUnderOwnBuildRunsOnceOnTheChild(t *testing.T) {

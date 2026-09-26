@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	dats "github.com/wow-look-at-my/dats"
 	datsrunner "github.com/wow-look-at-my/dats/runner"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 )
 
 // forceDatsProbe pins the backend answer, so a sandbox assertion reads the
@@ -44,6 +45,59 @@ func TestDatsSandbox(t *testing.T) {
 		forceDatsProbe(t, fmt.Errorf("no usable sandbox backend: bwrap: not found in $PATH"))
 		assert.Equal(t, dats.Sandbox{}, datsSandbox(), "installing bubblewrap fixes this, so the run must still fail")
 	})
+}
+
+// The dats phase runs last, so a missing backend has to fail the run before
+// tidy, vet, tests and the build spend minutes on it.
+func TestDatsBackendPreflight(t *testing.T) {
+	t.Serial()
+	withSuite := func(t *testing.T) string {
+		t.Helper()
+		dir := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "dats"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "dats", "cli.dats"), []byte("tests: []\n"), 0o644))
+		return dir
+	}
+
+	t.Run("no backend fails early and names the fix", func(t *testing.T) {
+		forceDatsProbe(t, fmt.Errorf("no usable sandbox backend: bwrap: not found in $PATH"))
+		err := datsBackendPreflight([]string{withSuite(t)})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "bwrap: not found in $PATH", "dats' own error must reach the user")
+		assert.Contains(t, err.Error(), datsBackendFix(hostos.GOOS()))
+	})
+
+	t.Run("a backend is present", func(t *testing.T) {
+		forceDatsProbe(t, nil)
+		assert.NoError(t, datsBackendPreflight([]string{withSuite(t)}))
+	})
+
+	t.Run("no dats dir never probes", func(t *testing.T) {
+		probes := 0
+		previous := datsSandboxProbe
+		datsSandboxProbe = func() error { probes++; return fmt.Errorf("no usable sandbox backend") }
+		t.Cleanup(func() { datsSandboxProbe = previous })
+
+		assert.NoError(t, datsBackendPreflight([]string{t.TempDir(), t.TempDir()}))
+		assert.Zero(t, probes, "a repo with no suites must not pay for a probe")
+	})
+
+	t.Run("suites in a nested module still probe", func(t *testing.T) {
+		forceDatsProbe(t, fmt.Errorf("no usable sandbox backend"))
+		assert.Error(t, datsBackendPreflight([]string{t.TempDir(), withSuite(t)}))
+	})
+
+	t.Run("a host that can never sandbox does not fail early", func(t *testing.T) {
+		forceDatsProbe(t, fmt.Errorf("%w: no usable sandbox backend", datsrunner.ErrNoBackendOnHost))
+		assert.NoError(t, datsBackendPreflight([]string{withSuite(t)}), "the dats phase runs these suites on the host")
+	})
+}
+
+func TestDatsBackendFix(t *testing.T) {
+	t.Serial()
+	assert.Contains(t, datsBackendFix("linux"), "apt-get install bubblewrap")
+	assert.Contains(t, datsBackendFix("darwin"), "sandbox-exec")
+	assert.Contains(t, datsBackendFix("freebsd"), "docker")
 }
 
 func TestHasDatsSuites(t *testing.T) {

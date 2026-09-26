@@ -58,11 +58,13 @@ Registering is idempotent. An entry that is already present and enabled is left 
 
 ## 1b4. The sandbox backend
 
-`.github/scripts/provision-bwrap.sh` runs on a Linux runner before the build. The dats phase sandboxes every suite command. Without bubblewrap it falls back to docker, which runs the suites in a container with no host Go for the bootstrap.
+On a Linux runner, `wow-look-at-my/actions@cached-apt#latest` installs `bubblewrap` before the build. A cache hit skips apt. `.github/scripts/check-bwrap.sh` then proves that `bwrap` builds a sandbox. The dats phase sandboxes every suite command. Without bubblewrap it falls back to docker, which runs the suites in a container with no host Go for the bootstrap.
 
 The go command also confines a dependency's generate directive. It stops the build when it cannot. So a module needs `bwrap` for what its dependencies generate, whether or not it has suites of its own.
 
-The script therefore provisions on every Linux run. A module's own tree says nothing about what its dependencies generate. The resolution that answers this runs after the step. A host where `bwrap` already builds a sandbox pays one probe. Otherwise the script installs bubblewrap with apt, turns off Ubuntu 24.04's `apparmor_restrict_unprivileged_userns`, and probes again. A host where the probe still fails fails the job here, with its own error. It never degrades unnoticed. The step is skipped on macOS and Windows, which have other backends or none.
+The install therefore runs on every Linux run, with no condition. A module's own tree says nothing about what its dependencies generate. The check script installs nothing. It probes once. On a failed probe it turns off Ubuntu 24.04's `apparmor_restrict_unprivileged_userns`, turns on `unprivileged_userns_clone`, and probes again. A missing `bwrap` or a probe that still fails fails the job here, with its own error. It never degrades unnoticed. Both steps are skipped on macOS and Windows, which have other backends or none.
+
+cached-apt restores files, not dpkg state, and runs no maintainer script. The bubblewrap postinst only applies `kernel.unprivileged_userns_clone`. The check script sets that sysctl itself before its second probe.
 
 A consumer therefore drops its own bubblewrap step. `dats/bwrap.dats` covers the contract: a usable backend, or an error a caller can act on.
 

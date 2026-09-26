@@ -187,6 +187,11 @@ func run(cmd *cobra.Command, args []string) (err error) {
 		}()
 	}
 
+	// Ahead of every phase: the dats phase runs last, and a missing sandbox backend must not wait for it.
+	if err := datsBackendPreflight(append([]string{"."}, findGoModules()...)); err != nil {
+		return err
+	}
+
 	// The comment rule is imported, and its extractor reads a parse table that a generate step writes: a dependency ships
 	// the directive and not
 	if err := generateForDeps(approvedGenerateHash()); err != nil {

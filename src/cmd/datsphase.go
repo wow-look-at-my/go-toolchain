@@ -9,11 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 
 	dats "github.com/wow-look-at-my/dats"
 	datsrunner "github.com/wow-look-at-my/dats/runner"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
@@ -164,6 +166,33 @@ func datsSandbox() dats.Sandbox {
 	logger.Error("dats suites run UNSANDBOXED on this host: %v", err)
 	logger.Error("every suite still runs and every assertion still holds; what is gone is the isolation between a command and this machine")
 	return dats.Sandbox{Mode: datsrunner.SandboxNone}
+}
+
+// datsBackendFix names what gives a host of this GOOS a dats sandbox backend.
+func datsBackendFix(goos string) string {
+	switch goos {
+	case "linux":
+		return "install bubblewrap: apt-get install bubblewrap"
+	case "darwin":
+		return "make /usr/bin/sandbox-exec usable, or start a docker daemon"
+	default:
+		return "start a docker daemon that runs linux containers"
+	}
+}
+
+// datsBackendPreflight fails at the start of a run when a dir holds suites
+// and no sandbox backend is usable, not after the build. It asks the probe
+// that datsSandbox asks, so both cannot disagree. A host that can never
+// sandbox passes: the dats phase runs its suites on the host, loudly.
+func datsBackendPreflight(dirs []string) error {
+	if !slices.ContainsFunc(dirs, hasDatsSuites) {
+		return nil
+	}
+	err := datsSandboxProbe()
+	if err == nil || errors.Is(err, datsrunner.ErrNoBackendOnHost) {
+		return nil
+	}
+	return fmt.Errorf("dats suites need a sandbox backend, and none is usable on this host: %w\nfix: %s", err, datsBackendFix(hostos.GOOS()))
 }
 
 // runDatsPhase runs the module's dats suites (if any) against the binaries

@@ -54,6 +54,12 @@ The alternative was to fail, and failing is what takes the suites away from the 
 
 A missing bubblewrap on a linux host is NOT this. It carries no marker, an install cures it. And it stays fatal — degrading there will let a fixable setup gap turn every consuming repo's isolation. `TestDatsSandbox` pins all three cases.
 
+## The backend is checked earliest
+
+The dats phase runs last. A host with no usable backend must not wait for it. `datsBackendPreflight` therefore runs at the start of `run()` and of `runReleaseWithRunner`. Before tidy, generate, vet, the tests. The build. It walks the repository root and every module dir with `hasDatsSuites`. A repository with no suites never probes.
+
+When suites exist it calls `datsSandboxProbe`, the probe `datsSandbox` calls. The early answer and the phase's answer therefore cannot disagree. A fixable error fails the run at once, with dats' own error and the fix for the host: `apt-get install bubblewrap` on linux. An `ErrNoBackendOnHost` error passes, and the dats phase later runs the suites on the host, loudly, as described above. Nothing is installed. `TestDatsBackendPreflight` pins each case.
+
 ## Why the NT leg provisions no backend
 
 CI tried to give the windows leg a linux daemon through WSL, and the attempt is worth recording so nobody spends the afternoon again. WSL1 installs, `dockerd` starts, and `docker info` answers — then every `docker run` dies in runc. That daemon is worse than no daemon. It passes dats' probe, auto selects it, and every suite fails its setup command instead of taking the `ErrNoBackendOnHost` path above. WSL2 will work and cannot be had — a GitHub-hosted windows VM is already nested one level, and nested virtualization cannot be enabled inside it. So `build-everywhere`'s NT leg installs nothing, the runner's own daemon serves windows containers and is rejected by OSType.

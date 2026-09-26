@@ -229,6 +229,8 @@ This job publishes too. The action publishes every executable binary it builds, 
 
 The dats phase sandboxes every suite command (dats' default), and the backend it picks decides what those commands can reach. Without bubblewrap it falls back to docker, which runs them in a container -- no host Go for the bootstrap. Installing it is what dats' own error message tells you to do on Linux. The last line is the gate: an unusable bwrap fails the job here, with its own error, instead of degrading to the fallback unnoticed.
 
+The `uses: ./` step later in this job runs the same cached-apt install and a bwrap check again, inside the composite action. See [ACTION.md](ACTION.md), section "1b4. The sandbox backend".
+
 ### Download host binary
 
 Explicit name (host-build's "Upload host binary" hand-off): the strict cache-download hard-fails a nameless pick whenever the RUN holds several hand-offs. So "only one saved at this point" only ever held on attempt 1.
