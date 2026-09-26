@@ -8,7 +8,7 @@ The first step runs `wow-look-at-my/actions@no-all-builds-job#latest`, which fai
 
 Since `no-all-builds-job#3` the guard scans **the run's jobs** (Actions API) and **the head commit's check runs** (Checks API), and it **fails closed** when it cannot scan. The calling workflow's token therefore has to grant `actions: read` and `checks: read` — private repos 403 without them. Public-repo reads pass scope-less. Both are in the documented consumer permissions block.
 
-That `actions: read` is the guard's requirement, not autorelease's.
+That `actions: read` is the guard's requirement, not the publish's.
 
 ## 1b. The comment-wall guard
 
@@ -80,6 +80,14 @@ The probe captures its output rather than discarding it. So the real reason the 
 
 A caller-provided `binary:` is staged through `/tmp` and pre-run once for the same APE reason. Staging also keeps the caller's own file byte-identical. For a native binary this changes nothing.
 
+## 1d. The generators a dependency needs
+
+A dependency's `//go:generate` directives run when the dependency is fetched. A missing generator therefore fails the build. The step installs stringer, goyacc and gotext before the pipeline runs.
+
+It uses the runner's `go` when there is one. A self-hosted runner often has none. The step then runs go-toolchain as the go command, with `GO_TOOLCHAIN_LINKED_GO=1 go-toolchain go`. That go builds for `GOOS=cosmo`. Its `go install` writes into `$GOPATH/bin/cosmo_amd64` and ignores `GOBIN`. The step puts that directory on `PATH` beside `$GOPATH/bin`.
+
+That go has no `go.env` beside it. So without help it has an empty proxy list and fails with "GOPROXY list is not the empty string, but contains no entries". The step gives it Go's standard `GOPROXY` and `GOSUMDB` unless the runner already sets them. The generators are public modules, so the public checksum database discloses nothing.
+
 ## 1e. The CodeQL permission check
 
 `wow-look-at-my/actions@has-permission` reads `security-events` off the running workflow file, and fails the build where the grant is missing. Reading the declared block needs no token and spends no API call.
@@ -131,11 +139,13 @@ A downstream job cache-downloads with NO name, which self-discovers the current 
 
 ## 4. Autorelease, and the permissions it needs
 
-`autorelease` (on by default) publishes the workspace `build/` **directly** to buildhost, through `wow-look-at-my/buildhost`'s buildhost-publish action and its local `path` input — no GitHub Actions artifact is involved.
+Autorelease publishes the workspace `build/` **directly** to buildhost, through `wow-look-at-my/buildhost`'s buildhost-publish action and its local `path` input — no GitHub Actions artifact is involved. No input turns it off. Every executable binary the action builds publishes.
+
+**A build with no executable binary publishes nothing.** buildhost-publish fails on a directory that holds nothing it can upload. The action therefore reads `build/` first. It skips the publish when no name matches `buildhost-artifacts.json` or `<binary>_{os}_{arch}`. Two builds take that path. The first is a library module with no main package. The second is a wasm-only build under the `GO_TOOLCHAIN_WASM_PUBLISH=0` opt-out, whose `.wasm`-suffixed names stay outside the upload set. This check copies buildhost-publish's own file rule. The two disagree only after that rule changes.
 
 **`autorelease_args` is parsed, not spread.** A composite `with:` block is static YAML. So those args cannot be spread into the publish step dynamically. Each recognized key is parsed into a step output and mapped onto an explicit buildhost-publish input. An unknown key fails loudly, because a typo must never be silently ignored. An empty input leaves every output empty, and buildhost-publish treats an empty input as absent. So the publish stays byte-identical.
 
-**The grants are read before the build.** A missing `id-token: write`, `deployments: write` or `artifact-metadata: write` used to surface as `Resource not accessible by integration` AFTER the whole build had run. `wow-look-at-my/actions@has-permission` now reads each one in the first seconds. It reads the running workflow file and resolves the scope the way GitHub does. The job's own `permissions:` block, then the workflow-level block when the job declares none. A missing grant fails the step that reads it. And the error names the grant and the block it came from. The check only runs where `autorelease` is on.
+**The grants are read only where a publish happens.** A missing grant otherwise surfaces at the end of the publish. The error there is `Resource not accessible by integration`. `wow-look-at-my/actions@has-permission` reads `id-token: write`, `deployments: write` and `artifact-metadata: write` the moment the action finds a binary to publish. A build that publishes nothing needs none of the three. It reads the running workflow file and resolves the scope the way GitHub does. The job's own `permissions:` block, then the workflow-level block when the job declares none. A missing grant fails the step that reads it. And the error names the grant and the block it came from.
 
 It replaced a set of empty-body `POST` probes that read a 403 off the live API. Reading the declared block needs no token, spends no API call, and cannot be confused by a failure that has nothing to do with permissions. It also removed a fork-PR carve-out. The old `id-token` check read `ACTIONS_ID_TOKEN_REQUEST_URL` out of the environment, which GitHub withholds on an external fork PR whatever the workflow declares. So that case had to be skipped by name. The declared block is the same on a fork.
 

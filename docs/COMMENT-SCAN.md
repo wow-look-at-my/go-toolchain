@@ -8,7 +8,6 @@ A number in a comment is a count of what exists on the day it was written. The e
 // BAD                                 // GOOD
 // The four descriptor probes ...      // The descriptor probes ...
 // splits three ways:                  // splits several ways:
-// asked once per repository           // asked a single time per repository
 // warns at 500 lines, errors at 750   // warns past the warn threshold
 // grace = 57.5, effective = 57.5      // the grace floor is what applies
 ```
@@ -21,7 +20,7 @@ The rule now lives in [`slopfix/commentfix`](https://github.com/wow-look-at-my/s
 
 It answers on a tree that does not build. A missing import, an unresolvable module, a syntax error in another package: none of them stop the report, because nothing here parses the language.
 
-It answers for every language. `commentnumbers` reads a comment by its delimiters rather than by a grammar. So a shell script, a workflow, a Dockerfile, a Rust file and a TypeScript file are all scanned. The analyzer only ever saw Go, and the stale prose in a `run:` script was never anybody's finding.
+It answers for every language. `commentfix` reads a comment by its delimiters rather than by a grammar. So a shell script, a workflow, a Dockerfile, a Rust file and a TypeScript file are all scanned. The analyzer only ever saw Go, and the stale prose in a `run:` script was never anybody's finding.
 
 ## Where it runs, and when
 
@@ -30,6 +29,8 @@ The phase is `src/cmd/commentscanphase.go`. It is a start and a join around `com
 It starts only once `findGoModules` has answered. A repair is a write. A run begun in a directory that is not a module has no business rewriting whatever prose it finds there. A tree carrying `dats/` suites and no `go.mod` therefore gets no sweep at all.
 
 It runs on its own goroutine, beside the dependency resolution, `go mod tidy` and `go generate`. Each repaired file is renamed into place, so a reader beside the sweep sees a whole file either way. The test phase joins the sweep before vet, which rewrites the same files. The up-to-date path joins it before the build.
+
+Inside git it writes only the files the branch changed since its merge base with the default branch, including uncommitted and untracked ones. It writes nothing while a merge, rebase, cherry-pick or revert waits for the user, or when no merge base resolves, and prints why. Each file it writes prints as a diff under its rule, and a rewrite slopfix's guard threw away prints as a warning with its line.
 
 A finding it cannot repair is a defect in slopfix rather than a message for the author. The repair covers every number the rule reports. So the phase warns only when the rule and its repair have come apart.
 
@@ -41,14 +42,16 @@ It skips a nested module too, whose text belongs to that module. The exception i
 
 It skips a git submodule on the same ground. This one carries no exception. A submodule's working tree is another repository's checkout. That repository writes the prose and takes the fix. Nothing here can repair a finding inside it. Git marks such a tree by writing `.git` as a FILE. The file holds a gitdir pointer, where an ordinary checkout keeps a directory. The skip reads that marker rather than a name. The nested-module predicate cannot stand in for it, because that one reads `go.mod`. A submodule of C, C++ or Rust carries none. A vendored driver or compiler tree is also where the findings run away with the whole warnings budget.
 
-A file whose extension `commentnumbers` has no comment syntax for is skipped rather than guessed at. A wrong guess reports a string literal as prose, and a rule nobody trusts is a rule nobody keeps.
+A file whose extension `commentfix` has no comment syntax for is skipped rather than guessed at. A wrong guess reports a string literal as prose, and a rule nobody trusts is a rule nobody keeps.
 
 ## What counts as a number
 
 The check walks each comment's tokens -- runs of letters, digits and the name characters `_`, `.`, `/`, `:` and `-` -- and reports two shapes:
 
 - **A digit run**, unless it touches a letter or wears an ordinal suffix. So `sha256`, `amd64`, `p95`, `10ms` and `wasip1` are names and stay. A bare `500`, a `2.5`, and a version literal like `1.24.7` are numbers and go.
-- **A whole alphabetic word** naming a number: the cardinals up to `thousand`, `million` and `dozen`, the ordinals up to `thousandth`, and `once`/`twice`/`thrice`. Case does not matter, so `One` is reported like `one`. A word that merely contains one (`someone`, `oneShot`, `atonement`) is not a match, because the whole run must be the word.
+- **A whole alphabetic word** that can tally a set: the cardinals from `two` up, the scales `hundred` to `trillion`, and `dozen`. Case does not matter. A word that merely contains one (`twoPhase`, `threefold`) is not a match, because the whole run must be the word.
+
+`zero`, `one`, `once`, `twice` and the ordinals are not reported. None of them counts a set that can grow. "exactly one is found" is a condition, "newest first" an order, "a zero deadline" a value.
 
 A number behind a section sign is exempt. `§7.3` and `§ 4` cite a section of a document, and the sign is the spelling a reader looks it up by. It is the escape hatch for a document that publishes no slug -- the sign covers only the number it introduces.
 

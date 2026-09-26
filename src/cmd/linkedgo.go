@@ -12,7 +12,7 @@ import (
 // ..." is the go command, and "go-toolchain tool <name> ..." is a linked
 // build tool. Anything else is the pipeline.
 func LinkedGoArgs(argv []string) ([]string, bool) {
-	if len(argv) == 0 || os.Getenv(linkedGoEnv) == "" {
+	if len(argv) == 0 || !PipelineStartedGo() {
 		return nil, false
 	}
 	if isGoName(argv[0]) {
@@ -26,6 +26,9 @@ func LinkedGoArgs(argv []string) ([]string, bool) {
 	}
 	return nil, false
 }
+
+// PipelineStartedGo reports that the pipeline started this process.
+func PipelineStartedGo() bool { return os.Getenv(linkedGoEnv) != "" }
 
 // linkedGoEnv marks a process the pipeline started.
 const linkedGoEnv = "GO_TOOLCHAIN_LINKED_GO"

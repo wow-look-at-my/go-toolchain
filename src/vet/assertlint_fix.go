@@ -100,7 +100,7 @@ func hoistableInit(pass *analysis.Pass, ifStmt *ast.IfStmt) ast.Stmt {
 	// Scopes[ifStmt] is the scope the init declares into; its parent is where the statement lands.
 	ifScope := pass.TypesInfo.Scopes[ifStmt]
 	if ifScope == nil || ifScope.Parent() == nil {
-		return ifStmt.Init // no type info: leave it exactly as it was
+		return ifStmt.Init // no type info.
 	}
 	for _, lhs := range assign.Lhs {
 		ident, ok := lhs.(*ast.Ident)
