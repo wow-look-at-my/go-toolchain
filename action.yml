@@ -98,20 +98,75 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
       run: bash "$ACTION_PATH/.github/scripts/provision-bwrap.sh"
 
-    - name: Install go-toolchain
+    # The redirect names the release, so each release is downloaded once per repository. see docs/ACTION.md
+    - name: Resolve the go-toolchain release
+      id: gt-release
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
       run: |
         set -euo pipefail
         URL="https://dl.pazer.build/go-toolchain?os=${RUNNER_OS}&arch=${RUNNER_ARCH}"
-        # The `if` keeps `set -e` from skipping the probe and source-build fallback.
-        if curl -fL --compressed --connect-timeout 20 --max-time 120 -o /tmp/go-toolchain "${URL}"; then
-          chmod +x /tmp/go-toolchain
-          # Run it while still writable in /tmp. see docs/ACTION.md
-          /tmp/go-toolchain version || true
-          sudo cp /tmp/go-toolchain /usr/local/bin/go-toolchain
+        echo "url=${URL}" >> "$GITHUB_OUTPUT"
+        echo "dir=${RUNNER_TEMP}/go-toolchain-bin" >> "$GITHUB_OUTPUT"
+        if ! location=$(curl -fsS -o /dev/null -w '%{redirect_url}' --connect-timeout 20 --max-time 60 "${URL}"); then
+          echo "::warning::Could not resolve the go-toolchain release from ${URL}. The binary downloads without the cache."
+          exit 0
+        fi
+        release=$(printf '%s' "${location}" | sed -nE 's/.*[?&]v=([0-9]+).*/\1/p')
+        if [ -z "${release}" ]; then
+          echo "::warning::The go-toolchain redirect names no release: ${location}. The binary downloads without the cache."
+          exit 0
+        fi
+        echo "release=${release}" >> "$GITHUB_OUTPUT"
+
+    - name: Restore the go-toolchain binary
+      if: steps.gt-release.outputs.release != ''
+      uses: wow-look-at-my/actions@smart-cache#latest
+      with:
+        path: ${{ steps.gt-release.outputs.dir }}
+        key: go-toolchain-bin-${{ runner.os }}-${{ runner.arch }}-v${{ steps.gt-release.outputs.release }}
+
+    - name: Install go-toolchain
+      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
+      shell: bash
+      env:
+        URL: ${{ steps.gt-release.outputs.url }}
+        BIN_DIR: ${{ steps.gt-release.outputs.dir }}
+      run: |
+        set -euo pipefail
+        BIN="${BIN_DIR}/go-toolchain"
+        mkdir -p "${BIN_DIR}"
+        if [ -s "${BIN}" ]; then
+          echo "go-toolchain restored from the cache: ${BIN}"
         else
-          echo "::warning::Download from buildhost failed (curl exit $?): ${URL}"
+          # A stall aborts the transfer. A slow transfer that still moves is kept. see docs/ACTION.md
+          attempt=0
+          while :; do
+            attempt=$((attempt + 1))
+            rc=0
+            curl -fL --compressed --connect-timeout 20 --speed-limit 262144 --speed-time 30 -o "${BIN}.part" "${URL}" || rc=$?
+            if [ "${rc}" -eq 0 ]; then
+              mv "${BIN}.part" "${BIN}"
+              break
+            fi
+            rm -f "${BIN}.part"
+            case "${rc}" in
+              6|7|18|28|35|52|55|56|92)
+                echo "::warning::go-toolchain download attempt ${attempt} stalled or dropped (curl exit ${rc}). Retrying in 5 s."
+                sleep 5
+                ;;
+              *)
+                echo "::warning::Download from buildhost failed (curl exit ${rc}): ${URL}"
+                break
+                ;;
+            esac
+          done
+        fi
+        if [ -s "${BIN}" ]; then
+          chmod +x "${BIN}"
+          # Run it while still writable. see docs/ACTION.md
+          "${BIN}" version || true
+          sudo cp "${BIN}" /usr/local/bin/go-toolchain
         fi
         # Capture the probe output: it names an HTTP 404, a missing PATH entry, or a crash.
         if ! probe=$(go-toolchain version 2>&1); then
