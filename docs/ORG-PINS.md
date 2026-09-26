@@ -40,3 +40,27 @@ replace charm.land/bubbletea/v2 => github.com/wow-look-at-my/bubbletea/v2 v2.0.0
 `cmd/go` reads the name. This pipeline does not. The version token beside the name is still the placeholder. So a named line is not a pin.
 
 A name is resolved the same way the branch this repository is on is. A dependency with no branch of that name takes its default branch. So the pin follows the code once a merged pull request deletes the branch it was opened from.
+
+## One resolution per CI run (`GOORGPIN`, `src/cmd/orgpinenv.go`)
+
+`cmd/go` resolves a branch head on every invocation. A dependency that gets a commit while a run builds then reaches different jobs, and different passes of the self-hosted build, at different commits. The `identical` job then finds APEs that differ. A later pass can miss a `go.sum` entry.
+
+`GOORGPIN` holds whitespace-separated `modulepath=version` entries. The fork's `cmd/go` builds each listed org module at that version instead of its branch head. The fork honors the variable only when `GITHUB_ACTIONS=true` and no coding agent is detected. Anywhere else a set `GOORGPIN` is a hard error from the go command.
+
+- In CI, with `GOORGPIN` empty, the pipeline resolves every org module once, after the go command is set up and before any phase runs. It runs `go list -mod=readonly -m all` in each module the run builds and keeps the org entries, including the target of a `replace`. It exports the result, so every go command, every pass of the self-hosted build and each re-exec inherits it.
+- A `GOORGPIN` the workflow set is kept as it is.
+- A failed resolve fails the run. So do modules of the run that resolve one org module to different versions.
+- Outside CI the pipeline neither resolves nor sets pins. Nothing lets a local run set or honor them.
+- The pins are part of the up-to-date fingerprint. As a result, a moved dependency is a new input.
+
+Each run logs the pins it builds, one per line:
+
+```
+⇒ org pins, resolved at the start of this run:
+   github.com/wow-look-at-my/dats=v0.0.0-20260910122754-5dfcc0b24b09
+   github.com/wow-look-at-my/slopfix=v0.0.0-20260926074833-23586e671eee
+```
+
+With pins from the workflow, the first line reads `⇒ org pins, set by the workflow:`.
+
+A workflow with several jobs that build must resolve once for all of them. One pin job computes the pins and exposes them as a job output. Every job that builds `needs:` it and sets `GOORGPIN` at job level. See [ACTION.md](ACTION.md#5-one-set-of-org-pins-for-a-multi-job-workflow).
