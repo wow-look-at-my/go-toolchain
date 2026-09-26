@@ -4,7 +4,7 @@ Shared Go module utilities: module path reading, main package discovery.
 
 ## The root is an argument, never the working directory
 
-`ReadModulePath`, `FindMainPackages` and `FindMainPackagesForTarget` each take the module root to read. Production passes `"."`, so the behaviour is what it always was. A test passes its own temp directory and never calls `os.Chdir`. That matters because the gosmopolitan fork runs tests in parallel unless one takes the serial barrier. A test that changed the process directory moved it under every test beside it, which showed up.
+`ReadModulePath`, `FindMainPackages` and `FindMainPackagesForTarget` each take the module root to read. Production passes `"."`. As a result, the behaviour is what it always was. A test passes its own temp directory and never calls `os.Chdir`. That matters because the gosmopolitan fork runs tests in parallel unless one takes the serial barrier. A test that changed the process directory moved it under every test beside it, which showed up.
 
 ## Main package discovery
 
