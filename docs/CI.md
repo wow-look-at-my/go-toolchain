@@ -4,7 +4,7 @@
 
 ## fork-heads
 
-Resolves each org submodule's branch head once per run. `host-build` and `bootstrap-scratch` check out those exact commits through `FORK_HEADS`. The binary embeds the fork commit, so a fork push that lands between jobs used to split them across commits, and `identical` failed on a run with no real difference.
+Resolves each org submodule's branch head once per run. `host-build` and `bootstrap-scratch` check out those exact commits through `FORK_HEADS`. The binary embeds the fork commit. A fork push between jobs put the jobs on different commits. `identical` then failed on a run with no real difference.
 
 ## host-build
 
