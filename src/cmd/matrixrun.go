@@ -16,6 +16,10 @@ import (
 )
 
 func runReleaseWithRunner(r runner.CommandRunner) (err error) {
+	// The dats phase runs last, so its backend is checked earliest.
+	if err := datsBackendPreflight([]string{"."}); err != nil {
+		return err
+	}
 	setupCGOEnvironment()
 	// Same contract as staleoutputs.go: clear outputs up front, and again on failure.
 	if err := clearBuildOutputs(r); err != nil {
