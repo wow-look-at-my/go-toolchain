@@ -4,10 +4,14 @@ import (
 	"os"
 
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
 // Set on the child of a self re-exec.
 const selfReexecEnv = "GO_TOOLCHAIN_SELF_REEXEC"
+
+// selfBuildTidy runs the pipeline's tidy ahead of the self-build. Swapped in tests.
+var selfBuildTidy = func() error { return runModTidy(runner.New(), jsonOutput) }
 
 // reexecUnderOwnBuild hands a run of this module to the toolchain it builds.
 // Vet and the tests then answer about the compiler that ships, and every
@@ -20,6 +24,11 @@ func reexecUnderOwnBuild() error {
 	pkg, ok := ownMainPackage()
 	if !ok {
 		return nil
+	}
+	// The self-build reads go.mod and go.sum. A new import in an org dependency
+	// leaves them short until tidy runs, and that build then fails.
+	if err := selfBuildTidy(); err != nil {
+		return err
 	}
 	st := logStep("building the toolchain this run tests with")
 	bin, dir, err := buildSelfFixedPoint(pkg)
