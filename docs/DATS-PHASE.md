@@ -50,13 +50,13 @@ Never answer any of this by turning the sandbox off. A suite cannot even ask for
 
 `datsSandbox` asks dats for a backend before the run and passes the answer as `Options.Sandbox`. Auto is what almost every host gets. The exception is a host where NO backend can exist. Bwrap is linux, seatbelt is macOS. And an NT host is left with its own daemon.
 
-The alternative was to fail, and failing is what takes the suites away from the host they exist to cover. So the phase keeps every suite and every assertion and gives up the one property it cannot have, at error level, naming what is gone. The isolation between a suite command and the machine. Reduced function with a signal is engineering. Reduced function in silence is the lie `claude_snippets/silent-degradation-is-a-lie.md` describes. That is why this path is loud rather than a quiet fallback.
+The alternative was to fail, and failing is what takes the suites away from the host they exist to cover. So the phase keeps every suite and every assertion and gives up the property it cannot have, at error level, naming what is gone. The isolation between a suite command and the machine. Reduced function with a signal is engineering. Reduced function in silence is the lie `claude_snippets/silent-degradation-is-a-lie.md` describes. That is why this path is loud rather than a quiet fallback.
 
-A missing bubblewrap on a linux host is NOT this. It carries no marker, an install cures it. And it stays fatal — degrading there will let a fixable setup gap turn every consuming repo's isolation. `TestDatsSandbox` pins all three cases.
+A missing bubblewrap on a linux host is NOT this. It carries no marker, an install cures it. And it stays fatal — degrading there will let a fixable setup gap turn every consuming repo's isolation. `TestDatsSandbox` pins all cases.
 
 ## Why the NT leg provisions no backend
 
-CI tried to give the windows leg a linux daemon through WSL, and the attempt is worth recording so nobody spends the afternoon again. WSL1 installs, `dockerd` starts, and `docker info` answers — then every `docker run` dies in runc. That daemon is worse than no daemon. It passes dats' probe, auto selects it, and every suite fails its setup command instead of taking the `ErrNoBackendOnHost` path above. WSL2 will work and cannot be had — a GitHub-hosted windows VM is already nested one level, and nested virtualization cannot be enabled inside it. So `build-everywhere`'s NT leg installs nothing, the runner's own daemon serves windows containers and is rejected by OSType.
+CI tried to give the windows leg a linux daemon through WSL. The attempt is worth recording so nobody spends the afternoon again. WSL1 installs, `dockerd` starts, and `docker info` answers — then every `docker run` dies in runc. That daemon is worse than no daemon. It passes dats' probe, auto selects it, and every suite fails its setup command instead of taking the `ErrNoBackendOnHost` path above. WSL2 will work and cannot be had — a GitHub-hosted windows VM is already nested one level, and nested virtualization cannot be enabled inside it. So `build-everywhere`'s NT leg installs nothing, the runner's own daemon serves windows containers and is rejected by OSType.
 
 ## How the run is configured
 
@@ -68,6 +68,6 @@ CI tried to give the windows leg a linux daemon through WSL, and the attempt is 
 
 ## Failure and coverage
 
-A failure wraps as `dats suites failed: %w` and fails the build. On the root path that happens before `saveFingerprint`, so a red suite is never stamped up-to-date. `.dats` and `.golden` files feed `computeFingerprint` (`uptodate.go`), so suite and golden edits bust the "Up to date" fast-exit.
+A failure wraps as `dats suites failed: %w` and fails the build. On the root path that happens before `saveFingerprint`. As a result, a red suite is never stamped up-to-date. `.dats` and `.golden` files feed `computeFingerprint` (`uptodate.go`), so suite and golden edits bust the "Up to date" fast-exit.
 
 There is deliberately NO filtering, selection, or skip mechanism at either layer — every discovered test runs on every build (dats itself has none by design). The repo dogfoods the phase via `dats/cli.dats`.
