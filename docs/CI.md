@@ -2,6 +2,10 @@
 
 `.github/workflows/ci.yml` — `host-build` → `build`, which publishes → the `smoke-*` jobs and `identical` → `cleanup`. It dogfoods the composite action, and the smoke jobs run the artifacts it published.
 
+## fork-heads
+
+Resolves each org submodule's branch head once per run. `host-build` and `bootstrap-scratch` check out those exact commits through `FORK_HEADS`. The binary embeds the fork commit, so a fork push that lands between jobs used to split them across commits, and `identical` failed on a run with no real difference.
+
 ## host-build
 
 Builds go-toolchain from source with the previous release as the bootstrap (the passes and the from-scratch fallback are described under build-everywhere and identical below). Its cache-validation step runs `build/go-toolchain` again over the same tree and holds the warm build to a time ceiling.
