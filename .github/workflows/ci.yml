@@ -473,6 +473,8 @@ jobs:
           binary: build/go-toolchain
           # A build of this module compiles the fork's standard library from its checkout, in passes. see docs/CI.md
           timeout: '30'
+          # The embedded dats sandboxes every suite command and refuses to run without one of these.
+          apt-depends: 'bubblewrap | docker.io'
 
   # Each non-linux host builds this repo's APE with the linux-built binary, so a difference in the output is the host and nothing else. see docs/CI.md
   build-everywhere:

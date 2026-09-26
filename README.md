@@ -82,6 +82,7 @@ The action fetches secrets, configures the Go proxy and private repo access, and
 | `cosmo-platforms`   | string   | `linux/amd64,darwin/arm64,windows/amd64` | Platforms the one fat APE covers. `all` covers everything the fork can emit |
 | `cgo`               | string   | `false`    | Enable CGO (off by default, for static binaries) |
 | `autorelease_args`  | string   | `''`       | Extra publish options as `key=value` pairs. Unknown keys fail the build |
+| `apt-depends`       | string   | `''`       | Debian `Depends` for the published deb, e.g. `bubblewrap \| docker.io`. Empty sends nothing |
 | `allow-source-build` | string  | `false`    | Build go-toolchain from source when the buildhost binary is unavailable, instead of failing fast |
 | `timeout`           | string   | `10`       | Timeout in minutes for the go-toolchain build step       |
 | `codeql`            | string   | `true`     | Run CodeQL `security-and-quality` analysis around the build |

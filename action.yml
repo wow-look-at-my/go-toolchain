@@ -56,6 +56,15 @@ inputs:
       nothing.
     required: false
     default: ''
+  apt-depends:
+    description: >-
+      Runtime prerequisites of the published binary, in Debian relationship
+      syntax (e.g. 'bubblewrap | docker.io'). Forwarded to the buildhost
+      publish as apt_depends, so the generated deb and the APT index carry a
+      Depends line. buildhost refuses an invalid value, and the publish
+      fails. Empty (the default) forwards nothing.
+    required: false
+    default: ''
   allow-source-build:
     description: 'Allow building go-toolchain from source when the buildhost binary is unavailable. When false (default), the build fails fast instead of silently falling back to a source build.'
     required: false
@@ -285,3 +294,4 @@ runs:
       with:
         path: ${{ inputs.working-directory }}/build
         create_service: ${{ steps.autorelease_args.outputs.create_service }}
+        apt_depends: ${{ inputs.apt-depends }}
