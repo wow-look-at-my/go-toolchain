@@ -37,7 +37,7 @@ var listOrgModules = func(dir string) (string, error) {
 // exports the result to each go command the run starts. Otherwise each go
 // command resolves a branch head of its own, and the passes of a single run
 // can compile different commits of a dependency. A pin the workflow set wins.
-// Outside CI it does nothing, because the fork refuses GOORGPIN there.
+// Outside CI it does nothing, and CheckCIOnlyEnv refuses a GOORGPIN set there.
 func pinOrgModules(modules []string) error {
 	if !orgPinsInCI() {
 		return nil

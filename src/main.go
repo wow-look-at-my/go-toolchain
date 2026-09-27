@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/wow-look-at-my/go-toolchain/src/cmd"
@@ -41,6 +42,12 @@ func isCacheProgInvocation() bool {
 }
 
 func main() {
+	// Ahead of every mode, the linked go command included, so a local run cannot inherit a CI pin.
+	if err := cmd.CheckCIOnlyEnv(); err != nil {
+		fmt.Fprintln(os.Stderr, "go-toolchain:", err)
+		os.Exit(1)
+	}
+
 	// This binary is the go command when it runs under the name go, and a
 	// linked tool when the go command starts it as "tool <name>".
 	if code, linked := cmd.RunLinkedGo(os.Args); linked {
