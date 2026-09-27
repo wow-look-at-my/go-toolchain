@@ -83,7 +83,7 @@ func builtBinaries(mock *runner.Mock) []string {
 		}
 		for i, arg := range call.Args {
 			if arg == "-o" && i+1 < len(call.Args) {
-				built = append(built, filepath.Base(call.Args[i+1]))
+				built = append(built, strings.TrimPrefix(filepath.Base(call.Args[i+1]), ".tmp-"))
 			}
 		}
 	}
@@ -103,7 +103,7 @@ func TestMatrixBuildsEveryModuleInTheTree(t *testing.T) {
 }
 
 // A library beside the module that ships the binary is the ordinary shape of
-// such a tree. It has nothing to cross-compile, and that is not a failure.
+// such a tree. It compiles like any module, and the manifest leaves it out.
 func TestMatrixPassesOverALibraryModule(t *testing.T) {
 	t.Serial()
 	moduleTree(t, []string{"cli", "reader"}, "cli")
@@ -112,7 +112,7 @@ func TestMatrixPassesOverALibraryModule(t *testing.T) {
 
 	require.NoError(t, runMatrixModules(mock))
 
-	assert.Equal(t, []string{"cli"}, builtBinaries(mock))
+	assert.ElementsMatch(t, []string{"cli", "reader"}, builtBinaries(mock))
 }
 
 // The library module is still gated: only its build had nothing to do.
@@ -133,22 +133,21 @@ func TestMatrixStillTestsALibraryModule(t *testing.T) {
 	assert.Equal(t, 2, tested, "both modules run their tests")
 }
 
-// The command exists to produce binaries. A tree of nothing but libraries
-// produced none, and says so rather than reporting a green run.
-func TestMatrixFailsWhenNoModuleBuildsABinary(t *testing.T) {
+// The action runs matrix on every repository, so a tree of nothing but
+// libraries passes. apeManifestEntries keeps each out of the publish.
+func TestMatrixPassesATreeOfLibraries(t *testing.T) {
 	t.Serial()
 	moduleTree(t, []string{"reader", "writer"})
 	matrixTestFlags(t)
+	mock := matrixMock(t)
 
-	err := runMatrixModules(matrixMock(t))
+	require.NoError(t, runMatrixModules(mock))
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no main packages found to build in any of the 2 modules")
+	assert.ElementsMatch(t, []string{"reader", "writer"}, builtBinaries(mock))
 }
 
-// One module, at the root: the single-module contract is unchanged, down to
-// the error a library repo already got.
-func TestMatrixKeepsTheSingleModuleContract(t *testing.T) {
+// One module, at the root: a library repository passes the same way.
+func TestMatrixPassesASingleLibraryModule(t *testing.T) {
 	t.Serial()
 	old, _ := os.Getwd()
 	require.NoError(t, os.Chdir(t.TempDir()))
@@ -157,10 +156,7 @@ func TestMatrixKeepsTheSingleModuleContract(t *testing.T) {
 	require.NoError(t, os.WriteFile("lib.go", []byte("package lib\n"), 0o600))
 	matrixTestFlags(t)
 
-	err := runMatrixModules(matrixMock(t))
-
-	require.Error(t, err)
-	assert.Equal(t, "no main packages found to build", err.Error())
+	require.NoError(t, runMatrixModules(matrixMock(t)))
 }
 
 func TestMatrixReturnsToTheDirectoryItStartedIn(t *testing.T) {
