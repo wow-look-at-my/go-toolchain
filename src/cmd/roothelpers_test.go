@@ -94,6 +94,25 @@ func TestFindGoModules_SkipsTestdata(t *testing.T) {
 	assert.Equal(t, ".", modules[0])
 }
 
+// A submodule checkout has a .git file, and a nested clone has a .git directory.
+// Either is another repository, so its modules are not built here.
+func TestFindGoModules_SkipsOtherRepositories(t *testing.T) {
+	t.Serial()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test\ngo 1.21\n"), 0644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "docs", "spec", "tests"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "docs", "spec", ".git"), []byte("gitdir: ../../.git/modules/docs/spec\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "docs", "spec", "tests", "go.mod"), []byte("module spec/tests\n"), 0644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "third", ".git"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "third", "go.mod"), []byte("module third\n"), 0644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "tool"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tool", "go.mod"), []byte("module test/tool\n"), 0644))
+
+	t.Chdir(dir)
+
+	assert.Equal(t, []string{".", "tool"}, findGoModules())
+}
+
 func TestFindGoModules_SkipsHiddenAndVendor(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()
