@@ -10,7 +10,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// An org dependency has no version of its own.
+// An org dependency follows a branch. The go command records its head in go.mod.
 
 // orgPin is a single place a file freezes an org dependency.
 type orgPin struct {
@@ -24,9 +24,8 @@ func (p orgPin) String() string {
 }
 
 // orgPinFiles names the files that can carry a pin, relative to the module root.
-// A glob that matches nothing contributes nothing.
+// go.mod is absent: the go command records each org head there and moves it on every run.
 var orgPinFiles = []string{
-	"go.mod",
 	"go.sum",
 	"vendor/modules.txt",
 	".gitmodules",
@@ -72,7 +71,7 @@ func checkOrgPins(root string) error {
 }
 
 // unpinOrgDeps rewrites each pin it can in the files under root, and reports
-// what it rewrote. A go.mod or vendor version becomes the placeholder. An
+// what it rewrote. A vendor version becomes the placeholder. An
 // action step moves to @master. A submodule is left alone.
 func unpinOrgDeps(root string) ([]orgPin, error) {
 	var fixed []orgPin

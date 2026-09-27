@@ -52,35 +52,27 @@ require (
 	assert.NoError(t, checkOrgPins(root))
 }
 
-func TestFindOrgPinsRefusesAFrozenVersion(t *testing.T) {
+func TestFindOrgPinsRefusesAFrozenSum(t *testing.T) {
 	root := writeOrgPinFiles(t, map[string]string{
-		"go.mod": `module example.com/m
-
-go 1.21
-
-require (
-	github.com/wow-look-at-my/dated v0.0.0-20260913211206-5bf638fdce71
-	github.com/wow-look-at-my/tagged v1.4.0 // indirect
-)
-`,
 		"go.sum": "github.com/wow-look-at-my/dated v0.0.0-20260913211206-5bf638fdce71/go.mod h1:abc=\n",
 	})
 
 	pins, err := findOrgPins(root)
 	require.NoError(t, err)
-	require.Len(t, pins, 3)
-	assert.Equal(t, "go.mod:6: org module pinned to v0.0.0-20260913211206-5bf638fdce71", pins[0].String())
-	assert.Equal(t, "go.mod:7: org module pinned to v1.4.0", pins[1].String())
-	assert.Equal(t, "go.sum", pins[2].File)
+	require.Len(t, pins, 1)
+	assert.Equal(t, "go.sum:1: org module pinned to v0.0.0-20260913211206-5bf638fdce71/go.mod", pins[0].String())
 }
 
-func TestCheckOrgPinsUnpinsWhatItCan(t *testing.T) {
+// The go command writes the head it builds into go.mod on every run, so a
+// rewrite here only makes the next go command write it again.
+func TestCheckOrgPinsLeavesTheGoModVersions(t *testing.T) {
+	gomodText := "module example.com/m\n\ngo 1.21\n\nrequire (\n" +
+		"\tgithub.com/wow-look-at-my/dated v0.0.0-20260913211206-5bf638fdce71 // go-toolchain:auto-branch\n" +
+		"\tgithub.com/wow-look-at-my/major/v3 v3.1.4 // indirect\n" +
+		"\tgithub.com/pierrec/lz4/v4 v4.1.27\n)\n\n" +
+		"replace example.com/fork => github.com/wow-look-at-my/fork v1.2.3\n"
 	root := writeOrgPinFiles(t, map[string]string{
-		"go.mod": "module example.com/m\n\ngo 1.21\n\nrequire (\n" +
-			"\tgithub.com/wow-look-at-my/dated v0.0.0-20260913211206-5bf638fdce71 // go-toolchain:auto-branch\n" +
-			"\tgithub.com/wow-look-at-my/major/v3 v3.1.4 // indirect\n" +
-			"\tgithub.com/pierrec/lz4/v4 v4.1.27\n)\n\n" +
-			"replace example.com/fork => github.com/wow-look-at-my/fork v1.2.3\n",
+		"go.mod": gomodText,
 		"go.sum": "github.com/pierrec/lz4/v4 v4.1.27 h1:abc=\n" +
 			"github.com/wow-look-at-my/dated v0.0.0-20260913211206-5bf638fdce71/go.mod h1:abc=\n",
 		".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - uses: wow-look-at-my/dats@v1\n      - uses: actions/checkout@v7\n",
@@ -90,10 +82,7 @@ func TestCheckOrgPinsUnpinsWhatItCan(t *testing.T) {
 
 	gomod, err := os.ReadFile(filepath.Join(root, "go.mod"))
 	require.NoError(t, err)
-	assert.Contains(t, string(gomod), "\tgithub.com/wow-look-at-my/dated v0.0.0 // go-toolchain:auto-branch\n")
-	assert.Contains(t, string(gomod), "\tgithub.com/wow-look-at-my/major/v3 v3.0.0 // indirect\n")
-	assert.Contains(t, string(gomod), "\tgithub.com/pierrec/lz4/v4 v4.1.27\n", "a third-party version must stay")
-	assert.Contains(t, string(gomod), "=> github.com/wow-look-at-my/fork v0.0.0\n")
+	assert.Equal(t, gomodText, string(gomod))
 
 	gosum, err := os.ReadFile(filepath.Join(root, "go.sum"))
 	require.NoError(t, err)
