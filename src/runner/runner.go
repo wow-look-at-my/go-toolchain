@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-containers/sortedmap"
@@ -137,32 +138,71 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 		}
 	}
 
-	stdout, err := cmd.StdoutPipe()
+	// The pipes are ours, not StdoutPipe's: exec closes those at Wait, and this
+	// process must outlive that to bound a reader itself. See drainGrace.
+	stdoutR, stdoutW, err := os.Pipe()
 	if err != nil {
 		return nil, err
 	}
-
-	stderr, err := cmd.StderrPipe()
+	stderrR, stderrW, err := os.Pipe()
 	if err != nil {
+		stdoutR.Close()
+		stdoutW.Close()
 		return nil, err
 	}
+	cmd.Stdout = stdoutW
+	cmd.Stderr = stderrW
 
 	if err := cmd.Start(); err != nil {
+		for _, f := range []*os.File{stdoutR, stdoutW, stderrR, stderrW} {
+			f.Close()
+		}
 		return nil, err
 	}
+	// The child holds the only write ends now. A reader gets no EOF until we drop ours.
+	stdoutW.Close()
+	stderrW.Close()
 
 	// Both streams are read from the moment the child starts. A caller that
 	// reads a single stream to its end before the other, or reads neither
 	// until Wait, never leaves the child blocked on a full pipe.
-	p := &process{cmd: cmd, stdout: newSpool(), stderr: newSpool(), quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter}
-	go p.stdout.fill(stdout)
+	outR, outW := io.Pipe()
+	errR, errW := io.Pipe()
+	p := &process{cmd: cmd, stdout: newSpool(), stderr: newSpool(), quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, exited: make(chan struct{})}
+	go p.stdout.fill(outR)
 	// The console still sees each stderr line as it arrives; the spool keeps a copy for Stderr.
 	if live := cfg.liveStderr(); live != nil {
-		go p.stderr.fill(io.TeeReader(stderr, &firstOutputWriter{target: live, hadOutput: &p.hadOutput, callback: cfg.OnFirstOutput}))
+		go p.stderr.fill(io.TeeReader(errR, &firstOutputWriter{target: live, hadOutput: &p.hadOutput, callback: cfg.OnFirstOutput}))
 	} else {
-		go p.stderr.fill(stderr)
+		go p.stderr.fill(errR)
 	}
+	go relay(stdoutR, outW)
+	go relay(stderrR, errW)
+	go p.reap(outW, errW)
 	return p, nil
+}
+
+// relay carries the OS pipe into the io.Pipe a caller reads, and ends it on EOF.
+func relay(src *os.File, dst *io.PipeWriter) {
+	_, err := io.Copy(dst, src)
+	dst.CloseWithError(err)
+}
+
+// drainGrace is how long a relay keeps going after the command exits.
+var drainGrace = 5 * time.Second
+
+// reap waits for the command, then ends any read still waiting on EOF.
+// A grandchild that inherited the child's stdout holds the OS pipe open, so
+// EOF never arrives there. That read sits inside a blocking syscall, which no
+// deadline and no close can interrupt, so the bound belongs on the io.Pipe
+// above it. The relay goroutine stays parked on a process that is already gone.
+func (p *process) reap(writers ...*io.PipeWriter) {
+	p.waitErr = p.cmd.Wait()
+	close(p.exited)
+	time.Sleep(drainGrace)
+	for _, w := range writers {
+		w.Close()
+	}
 }
 
 // liveStderr names where stderr goes as it arrives, or nil to only hold it.
@@ -204,6 +244,8 @@ type process struct {
 	hadOutput    atomic.Bool
 	onFirst      func()
 	stdoutWriter io.Writer
+	exited       chan struct{} // closed when reap has the exit status
+	waitErr      error         // read only after exited is closed
 }
 
 func (p *process) Wait() error {
@@ -223,10 +265,12 @@ func (p *process) Wait() error {
 		}
 		io.Copy(w, p.stdout)
 	}
-	// cmd.Wait closes the pipes, so both spools must have seen their end earliest.
+	// Wait reports only once both spools have seen their end: reap closes the
+	// relays after the grace, releasing a stream a grandchild still holds open.
 	p.stdout.drained()
 	p.stderr.drained()
-	p.err = p.cmd.Wait()
+	<-p.exited
+	p.err = p.waitErr
 	p.done = true
 	return p.err
 }

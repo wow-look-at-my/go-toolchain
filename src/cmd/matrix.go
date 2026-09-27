@@ -95,7 +95,8 @@ func runRelease(cmd *cobra.Command, args []string) error {
 	initBuildProfile()
 	defer captureProfileTrace()
 	r := runner.New()
-	err := runReleaseWithRunner(r)
+	var sd summary.SummaryData
+	err := runReleaseInto(r, &sd)
 	if err != nil {
 		return err
 	}
@@ -106,7 +107,7 @@ func runRelease(cmd *cobra.Command, args []string) error {
 
 	// Write GitHub Step Summary with timeline
 	if tl := GetTimeline(); tl != nil {
-		sd := summary.SummaryData{Timeline: tl.Entries()}
+		sd.Timeline = tl.Entries()
 		if writeErr := summary.Write(&sd); writeErr != nil {
 			logger.Warn("⇒ Warning: failed to write step summary: %v", writeErr)
 		}
