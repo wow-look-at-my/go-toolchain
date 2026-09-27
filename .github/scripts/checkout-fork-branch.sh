@@ -35,9 +35,12 @@ while read -r key _; do
 	fi
 
 	git config "submodule.$name.branch" "$branch"
-	if git submodule update --init --remote -- "$path"; then
-		echo "fork: $path at $branch $(git -C "$path" rev-parse --short=12 HEAD)" >&2
-	else
-		echo "fork: $path stays where it is: cannot reach $url" >&2
+	# A shallow submodule clone fetches one branch, and --remote reads only the tracking ref.
+	if ! git submodule update --init -- "$path" ||
+		! git -C "$path" fetch --depth=1 origin "+refs/heads/$branch:refs/remotes/origin/$branch" ||
+		! git submodule update --remote -- "$path"; then
+		echo "fork: cannot put $path on $branch from $url" >&2
+		exit 1
 	fi
+	echo "fork: $path at $branch $(git -C "$path" rev-parse --short=12 HEAD)" >&2
 done < <(git config -f .gitmodules --get-regexp '^submodule\..*\.path$' || true)
