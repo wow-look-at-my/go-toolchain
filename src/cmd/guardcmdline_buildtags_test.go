@@ -1,17 +1,10 @@
 package cmd
 
-<<<<<<< HEAD
 // The bug this pins: a `_darwin.go` readCmdline beside a `!darwin` /proc
 // reader, which GOOS=cosmo resolves to the /proc side.
-=======
-// The bug this pins: readCmdline lived in a `_darwin.go` file next to a
-// `!darwin` /proc reader. GOOS=cosmo excludes the first and selects the
-// second, so the published APE asked a Mac for /proc, read nothing, and
-// acquitted every captured run the guard exists to refuse -- while the
-// GOOS=darwin unit tests, which do select the sysctl reader, stayed green.
->>>>>>> origin/claude/guardcmdline-recovered
 
 import (
+	"go/build/constraint"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +12,88 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 )
+
+// claudeGuardTagSets are the release-relevant build contexts: from-source GOOS=linux, the
+// GOOS=cosmo fat APE every published "linux"/"windows" slot actually is, and native darwin,
+// which has no /proc and gets its own classifier.
+var claudeGuardTagSets = map[string]map[string]bool{
+	"linux":  {"linux": true, "unix": true, "amd64": true},
+	"cosmo":  {"cosmo": true, "linux": true, "unix": true, "amd64": true},
+	"darwin": {"darwin": true, "unix": true, "amd64": true},
+}
+
+// knownGOOSSuffix lists GOOS values whose `_<goos>.go` filename suffix
+// imposes an implicit build constraint (upstream GOOS list plus the
+// gosmopolitan fork's cosmo).
+var knownGOOSSuffix = set.Of(
+	"aix", "android", "cosmo", "darwin",
+	"dragonfly", "freebsd", "hurd", "illumos",
+	"ios", "js", "linux", "netbsd", "openbsd",
+	"plan9", "solaris", "wasip1", "windows", "zos",
+)
+
+// knownGOARCHSuffix lists GOARCH values recognized in filename suffixes.
+var knownGOARCHSuffix = set.Of(
+	"386", "amd64", "arm", "arm64", "loong64",
+	"mips", "mips64", "mips64le", "mipsle",
+	"ppc64", "ppc64le", "riscv64", "s390x", "wasm",
+)
+
+// filenameGOOS returns the GOOS a file's `_<goos>[_<goarch>].go` suffix
+// implies, or "" when the name imposes no GOOS constraint. Mirrors go/build's
+// goodOSArchFile.
+func filenameGOOS(name string) string {
+	name = strings.TrimSuffix(filepath.Base(name), ".go")
+	parts := strings.Split(name, "_")
+	if n := len(parts); n >= 2 && knownGOARCHSuffix.Contains(parts[n-1]) {
+		parts = parts[:n-1]
+	}
+	if n := len(parts); n >= 2 && knownGOOSSuffix.Contains(parts[n-1]) {
+		return parts[n-1]
+	}
+	return ""
+}
+
+// buildTagLine returns path's //go:build line, or "" when it has none.
+func buildTagLine(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimRight(line, "\r")
+		if constraint.IsGoBuild(line) {
+			return line
+		}
+	}
+	return ""
+}
+
+// evalTagLine reports whether the //go:build expression in line is satisfied
+// by the given tag set.
+func evalTagLine(t *testing.T, line string, tags map[string]bool) bool {
+	t.Helper()
+	expr, err := constraint.Parse(line)
+	require.NoError(t, err, "parsing %q", line)
+	return expr.Eval(func(tag string) bool { return tags[tag] })
+}
+
+// claudeGuardSelected returns the subset of files selected for a GOOS.
+func claudeGuardSelected(t *testing.T, files []string, goos string, tags map[string]bool) []string {
+	t.Helper()
+	var selected []string
+	for _, f := range files {
+		if fg := filenameGOOS(f); fg != "" && fg != goos {
+			continue
+		}
+		if line := buildTagLine(t, f); line != "" && !evalTagLine(t, line, tags) {
+			continue
+		}
+		selected = append(selected, f)
+	}
+	return selected
+}
 
 // guardCmdlineSourceFiles returns the non-test guardcmdline*.go files.
 func guardCmdlineSourceFiles(t *testing.T) []string {
@@ -51,16 +125,10 @@ func guardCmdlineDefiners(t *testing.T, decl string) []string {
 	return out
 }
 
-<<<<<<< HEAD
 // A single definition per platform: none and the guard has no argv to read,
 // several and the build is ambiguous.
 func TestGuardCmdlineReaderBuildsForEachPlatform(t *testing.T) {
 	t.Serial()
-=======
-// Exactly one definition per platform: none and the guard has no argv to read,
-// several and the build is ambiguous.
-func TestGuardCmdlineReaderBuildsForEachPlatform(t *testing.T) {
->>>>>>> origin/claude/guardcmdline-recovered
 	files := guardCmdlineDefiners(t, "func readCmdline(")
 	for goos, tags := range claudeGuardTagSets {
 		selected := claudeGuardSelected(t, files, goos, tags)
@@ -72,17 +140,7 @@ func TestGuardCmdlineReaderBuildsForEachPlatform(t *testing.T) {
 // The ps reader is what the APE has on a Mac, so it must be selected for
 // cosmo. A GOOS=linux build never needs it and must not carry it.
 func TestGuardCmdlinePSReaderSharedWithCosmo(t *testing.T) {
-<<<<<<< HEAD
 	t.Serial()
-	files := guardCmdlineDefiners(t, "func psCmdline(")
-	for _, goos := range []string{"darwin", "cosmo"} {
-		selected := claudeGuardSelected(t, files, goos, claudeGuardTagSets[goos])
-		assert.Len(t, selected, 1,
-			"GOOS=%s must select exactly one psCmdline, got %v", goos, selected)
-	}
-	assert.Empty(t, claudeGuardSelected(t, files, "linux", claudeGuardTagSets["linux"]),
-		"psCmdline must not be selected for GOOS=linux, which reads /proc")
-=======
 	files := guardCmdlineDefiners(t, "func readCmdlinePS(")
 	for _, goos := range []string{"darwin", "cosmo"} {
 		selected := claudeGuardSelected(t, files, goos, claudeGuardTagSets[goos])
@@ -91,22 +149,18 @@ func TestGuardCmdlinePSReaderSharedWithCosmo(t *testing.T) {
 	}
 	assert.Empty(t, claudeGuardSelected(t, files, "linux", claudeGuardTagSets["linux"]),
 		"readCmdlinePS must not be selected for GOOS=linux, which reads /proc")
->>>>>>> origin/claude/guardcmdline-recovered
 }
 
 // The /proc reader is linked into the APE for its linux host, alongside the ps
 // reader it picks between at run time.
-<<<<<<< HEAD
-func TestGuardCmdlineProcReaderSharedWithCosmo(t *testing.T) {
+func TestGuardCmdlineProcReaderBuildsEverywhere(t *testing.T) {
 	t.Serial()
-	files := guardCmdlineDefiners(t, "func procCmdline(")
-	for _, goos := range []string{"linux", "cosmo"} {
-		selected := claudeGuardSelected(t, files, goos, claudeGuardTagSets[goos])
+	files := guardCmdlineDefiners(t, "func readCmdlineProc(")
+	for goos, tags := range claudeGuardTagSets {
+		selected := claudeGuardSelected(t, files, goos, tags)
 		assert.Len(t, selected, 1,
-			"GOOS=%s must select exactly one procCmdline, got %v", goos, selected)
+			"GOOS=%s must select exactly one readCmdlineProc, got %v", goos, selected)
 	}
-	assert.Empty(t, claudeGuardSelected(t, files, "darwin", claudeGuardTagSets["darwin"]),
-		"procCmdline must not be selected for GOOS=darwin, which has no /proc and would carry it unused")
 }
 
 // The ancestry walk starts at this process, so the pid it starts from has to
@@ -119,13 +173,5 @@ func TestGuardCmdlineSelfPIDBuildsEverywhere(t *testing.T) {
 		selected := claudeGuardSelected(t, files, goos, tags)
 		assert.Len(t, selected, 1,
 			"GOOS=%s must select exactly one selfPID, got %v", goos, selected)
-=======
-func TestGuardCmdlineProcReaderBuildsEverywhere(t *testing.T) {
-	files := guardCmdlineDefiners(t, "func readCmdlineProc(")
-	for goos, tags := range claudeGuardTagSets {
-		selected := claudeGuardSelected(t, files, goos, tags)
-		assert.Len(t, selected, 1,
-			"GOOS=%s must select exactly one readCmdlineProc, got %v", goos, selected)
->>>>>>> origin/claude/guardcmdline-recovered
 	}
 }
