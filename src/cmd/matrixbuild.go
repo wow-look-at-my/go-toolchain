@@ -99,6 +99,9 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	if onFirstOutput != nil {
 		args = append(args, "-v") // print packages as they are compiled
 	}
+	if job.recordSums {
+		args = append(args, "-mod=mod")
+	}
 	// Ours goes last: the linker reads the final spelling, so a caller's flags cannot drop it.
 	ldflags := reproducibleLDFlags
 	if job.ldflags != "" {
