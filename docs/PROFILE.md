@@ -2,7 +2,7 @@
 
 Every run profiles what the build actually did, per compiler/linker/test action. go-toolchain injects `-debug-actiongraph=<file>` into each `go build` / `go test` invocation (one dump per invocation. Matrix targets each get their own), then merges the dumped action. It carries no cache hit/miss data: build caching now lives in gosmopolitan's `cmd/go`, out of this process's view — see [CACHE.md](CACHE.md).
 
-The result is emitted four ways at the end of the run:
+The result is emitted ways at the end of the run:
 
 - **Console section** (always on, compact):
 

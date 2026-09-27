@@ -35,13 +35,14 @@ while read -r key _; do
 	fi
 
 	git config "submodule.$name.branch" "$branch"
-	if git submodule update --init --remote -- "$path"; then
-		# The branch head names its own submodules, and cmd/dist reads
-		# src/cmd/vendor as plain source. Each one is checked out at the
-		# commit this head records, which is what make.bash compiles.
-		git -C "$path" submodule update --init --recursive
-		echo "fork: $path at $branch $(git -C "$path" rev-parse --short=12 HEAD)" >&2
-	else
-		echo "fork: $path stays where it is: cannot reach $url" >&2
+	# A shallow submodule clone fetches one branch, and --remote reads only the tracking ref.
+	# The head names its own submodules, and make.bash compiles the commits it records.
+	if ! git submodule update --init -- "$path" ||
+		! git -C "$path" fetch --depth=1 origin "+refs/heads/$branch:refs/remotes/origin/$branch" ||
+		! git submodule update --remote -- "$path" ||
+		! git -C "$path" submodule update --init --recursive; then
+		echo "fork: cannot put $path on $branch from $url" >&2
+		exit 1
 	fi
+	echo "fork: $path at $branch $(git -C "$path" rev-parse --short=12 HEAD)" >&2
 done < <(git config -f .gitmodules --get-regexp '^submodule\..*\.path$' || true)
