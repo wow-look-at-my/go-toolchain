@@ -244,9 +244,10 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 	return nil
 }
 
-// perRunEnv names the GitHub Actions variables that differ between runs of the same commit's tests.
+// perRunEnv names the GitHub Actions variables that differ between runs of
+// the same commit's tests.
 var perRunEnv = []string{
-	"GITHUB_SHA", "GITHUB_REF", "GITHUB_REF_NAME", "GITHUB_RUN_ID", "GITHUB_RUN_NUMBER", "GITHUB_RUN_ATTEMPT",
+	"GITHUB_SHA", "GITHUB_REF", "GITHUB_REF_NAME", "GITHUB_RUN_NUMBER",
 	"GITHUB_STEP_SUMMARY", "GITHUB_OUTPUT", "GITHUB_ENV", "GITHUB_PATH", "GITHUB_STATE",
 }
 

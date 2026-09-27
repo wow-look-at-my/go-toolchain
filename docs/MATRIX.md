@@ -27,7 +27,7 @@ go-toolchain matrix
 
 **Choosing the platforms.** `--cosmo-platforms` takes `os/arch` pairs and defaults to `linux/amd64,darwin/arm64,windows/amd64`. `all` covers everything the fork can emit.
 
-A narrower set is **not** automatically a smaller binary, and the default set saves nothing. An APE carries one payload per ARCHITECTURE, and those three platforms still need both — darwin/arm64 boots the arm64 image, linux/amd64 and windows/amd64 the amd64 one. Measured saving for the default set: **0%**. Only collapsing to a single architecture drops a payload (**-46.9%**). The win of the default is one artifact instead of six, not fewer bytes.
+A narrower set is **not** automatically a smaller binary, and the default set saves nothing. An APE carries one payload per ARCHITECTURE, and those platforms still need both. Darwin/arm64 boots the arm64 image, linux/amd64 and windows/amd64 the amd64 one. Measured saving for the default set: **0%**. Only collapsing to a single architecture drops a payload (**-46.9%**). The win of the default is one artifact instead of six, not fewer bytes.
 
 Accepted: `linux/amd64`, `linux/arm64`, `darwin/arm64`, `windows/amd64`. `darwin/amd64` (Intel-mac runtime never proven on real hardware) and `windows/arm64` (amd64-only PE payload) are refused — a published platform set says where the binary runs. So an unproven host cannot be in it.
 
@@ -46,13 +46,13 @@ go-toolchain matrix --targets wasm/js,wasm/wasip1
 
 **Build semantics.** The cosmo build always runs with `CGO_ENABLED=0` (cosmopolitan has no cgo. `--cgo` warns and is ignored for this target) and without `GOARCH` (fat, covering amd64+arm64, is the fork's default output).
 
-**Reproducible across build hosts.** Every build passes `-trimpath` and `-ldflags=-buildid=`, so the same source compiles to the same bytes wherever it is built. Two inputs vary between runners and each flag closes one. `-trimpath` drops the paths: where the source was checked out, and where the toolchain was installed. `-ldflags=-buildid=` empties the linked binary's Go build ID, which is the only channel the toolchain's own identity reaches the output.
+**Reproducible across build hosts.** Every build passes `-trimpath` and `-ldflags=-buildid=`, so the same source compiles to the same bytes wherever it is built. Inputs vary between runners and each flag closes one. `-trimpath` drops the paths: where the source was checked out, and where the toolchain was installed. `-ldflags=-buildid=` empties the linked binary's Go build ID, which is the only channel the toolchain's own identity reaches the output.
 
-Measured on the fork, same source. Two checkout paths differ by 200 bytes without `-trimpath`, and a differing tool ID differs by about 160 bytes with `-trimpath` alone. Both are the Go build-ID note and the GNU build-ID note, one pair per payload — never code. With both flags the builds are byte-identical.
+Measured on the fork, same source. Checkout paths differ by bytes without `-trimpath`, and a differing tool ID differs by about bytes with `-trimpath` alone. Both are the Go build-ID note and the GNU build-ID note, one pair per payload — never code. With both flags the builds are byte-identical.
 
 The cost is that `go tool buildid` on a shipped artifact returns empty. Only the final link is affected: a cached package archive keeps the stamp the cache poison guards read, so [CACHE.md](CACHE.md) is untouched. Action IDs still differ per host, so this buys identical bytes and never a cross-host cache hit.
 
-`-buildid=` is the tail of a longer `-ldflags` value. The revision stamp and whatever the caller put in `GOFLAGS` come ahead of it, and [VCS-STAMP.md](VCS-STAMP.md) covers why the order is what it is. Neither part varies by host — the stamp is the commit, which every runner in a CI run shares — so the `identical` job still holds.
+`-buildid=` is the tail of a longer `-ldflags` value. The revision stamp and whatever the caller put in `GOFLAGS` come ahead of it. [VCS-STAMP.md](VCS-STAMP.md) covers why the order is what it is. Neither part varies by host — the stamp is the commit, which every runner in a CI run shares — so the `identical` job still holds.
 
 **An APE keeps its bytes when it runs.** The kernel cannot exec the file as it stands, so the bootstrap stages a copy under `$TMPDIR` and writes the host's native header into THAT. The artifact keeps its checksum, which is what makes comparing one host's APE against another's meaningful at all. Measured: running a built APE twice leaves its sha256 unchanged. Depth: gosmopolitan's `docs/APE-STAGING.md`.
 
