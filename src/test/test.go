@@ -269,7 +269,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 		}
 	}
 	if coverFile != "" {
-		// A cached result replays its cover profile fragment, keyed by the covered packages' build IDs.
+		// No -count: the fork keys the coverprofile on the coverage metadata, so a cached run cannot replay a stale profile.
 		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...")
 	}
 	switch {
