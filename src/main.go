@@ -1,10 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/wow-look-at-my/go-toolchain/src/cmd"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/logx"
 )
 
@@ -44,7 +44,7 @@ func isCacheProgInvocation() bool {
 func main() {
 	// Ahead of every mode, the linked go command included, so a local run cannot inherit a CI pin.
 	if err := cmd.CheckCIOnlyEnv(); err != nil {
-		fmt.Fprintln(os.Stderr, "go-toolchain:", err)
+		logger.Error("go-toolchain: %v", err)
 		os.Exit(1)
 	}
 
