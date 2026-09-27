@@ -98,24 +98,24 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
       run: bash "$ACTION_PATH/.github/scripts/provision-bwrap.sh"
 
+    - name: Download go-toolchain
+      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
+      uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
+      with:
+        project: go-toolchain
+        path: ${{ runner.temp }}/go-toolchain-bin/go-toolchain
+
     - name: Install go-toolchain
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
+      env:
+        BIN_DIR: ${{ runner.temp }}/go-toolchain-bin
       run: |
         set -euo pipefail
-        URL="https://dl.pazer.build/go-toolchain?os=${RUNNER_OS}&arch=${RUNNER_ARCH}"
-        # The `if` keeps `set -e` from skipping the probe and source-build fallback.
-        if curl -fL --compressed --connect-timeout 20 --max-time 120 -o /tmp/go-toolchain "${URL}"; then
-          chmod +x /tmp/go-toolchain
-          # Run it while still writable in /tmp. see docs/ACTION.md
-          /tmp/go-toolchain version || true
-          sudo cp /tmp/go-toolchain /usr/local/bin/go-toolchain
-        else
-          echo "::warning::Download from buildhost failed (curl exit $?): ${URL}"
-        fi
-        # Capture the probe output: it names an HTTP 404, a missing PATH entry, or a crash.
-        if ! probe=$(go-toolchain version 2>&1); then
-          echo "buildhost go-toolchain (${URL}) not usable; probe output:"
+        echo "${BIN_DIR}" >> "$GITHUB_PATH"
+        # Capture the probe output: it names a crash or an unrunnable binary.
+        if ! probe=$("${BIN_DIR}/go-toolchain" version 2>&1); then
+          echo "buildhost go-toolchain not usable; probe output:"
           echo "${probe}"
           # A silent source build hides a buildhost outage. see docs/ACTION.md
           if [ "${{ inputs.allow-source-build }}" != "true" ]; then
@@ -124,7 +124,7 @@ runs:
           fi
           echo "::warning::buildhost binary not usable; building from source (allow-source-build=true)"
           (cd "${{ github.action_path }}" && GOTOOLCHAIN=auto go install ./src)
-          sudo cp "$(go env GOPATH)/bin/src" /usr/local/bin/go-toolchain
+          cp "$(go env GOPATH)/bin/src" "${BIN_DIR}/go-toolchain"
         fi
 
     - name: Install provided binary
