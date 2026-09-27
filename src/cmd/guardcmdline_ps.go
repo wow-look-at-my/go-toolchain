@@ -17,7 +17,7 @@ import (
 )
 
 // psCmdlineBin is absolute so the read does not depend on PATH.
-const psCmdlineBin = "/bin/ps"
+var psCmdlineBin = "/bin/ps"
 
 // psCmdlineTimeout bounds a lookup. ps answers at once or not at all, and
 // this runs ahead of every other thing the process does.

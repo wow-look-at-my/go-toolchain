@@ -1,10 +1,7 @@
 package cmd
 
-// The bug this pins: readCmdline lived in a `_darwin.go` file next to a
-// `!darwin` /proc reader. GOOS=cosmo excludes the first and selects the
-// second, so the published APE asked a Mac for /proc, read nothing, and
-// acquitted every captured run the guard exists to refuse -- while the
-// GOOS=darwin unit tests, which do select the sysctl reader, stayed green.
+// The bug this pins: a `_darwin.go` readCmdline beside a `!darwin` /proc
+// reader, which GOOS=cosmo resolves to the /proc side.
 
 import (
 	"os"
@@ -46,9 +43,10 @@ func guardCmdlineDefiners(t *testing.T, decl string) []string {
 	return out
 }
 
-// Exactly one definition per platform: none and the guard has no argv to read,
+// A single definition per platform: none and the guard has no argv to read,
 // several and the build is ambiguous.
 func TestGuardCmdlineReaderBuildsForEachPlatform(t *testing.T) {
+	t.Serial()
 	files := guardCmdlineDefiners(t, "func readCmdline(")
 	for goos, tags := range claudeGuardTagSets {
 		selected := claudeGuardSelected(t, files, goos, tags)
@@ -60,6 +58,7 @@ func TestGuardCmdlineReaderBuildsForEachPlatform(t *testing.T) {
 // The ps reader is what the APE has on a Mac, so it must be selected for
 // cosmo. A GOOS=linux build never needs it and must not carry it.
 func TestGuardCmdlinePSReaderSharedWithCosmo(t *testing.T) {
+	t.Serial()
 	files := guardCmdlineDefiners(t, "func readCmdlinePS(")
 	for _, goos := range []string{"darwin", "cosmo"} {
 		selected := claudeGuardSelected(t, files, goos, claudeGuardTagSets[goos])
@@ -73,10 +72,24 @@ func TestGuardCmdlinePSReaderSharedWithCosmo(t *testing.T) {
 // The /proc reader is linked into the APE for its linux host, alongside the ps
 // reader it picks between at run time.
 func TestGuardCmdlineProcReaderBuildsEverywhere(t *testing.T) {
+	t.Serial()
 	files := guardCmdlineDefiners(t, "func readCmdlineProc(")
 	for goos, tags := range claudeGuardTagSets {
 		selected := claudeGuardSelected(t, files, goos, tags)
 		assert.Len(t, selected, 1,
 			"GOOS=%s must select exactly one readCmdlineProc, got %v", goos, selected)
+	}
+}
+
+// The ancestry walk starts at this process, so the pid it starts from has to
+// exist in every build: a platform split there is the same silent no-op the
+// reader split above was.
+func TestGuardCmdlineSelfPIDBuildsEverywhere(t *testing.T) {
+	t.Serial()
+	files := guardCmdlineDefiners(t, "func selfPID(")
+	for goos, tags := range claudeGuardTagSets {
+		selected := claudeGuardSelected(t, files, goos, tags)
+		assert.Len(t, selected, 1,
+			"GOOS=%s must select exactly one selfPID, got %v", goos, selected)
 	}
 }
