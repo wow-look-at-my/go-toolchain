@@ -64,10 +64,26 @@ func buildSelfPasses(r runner.CommandRunner, job buildJob, work string, onFirstO
 		if same {
 			return out, nil
 		}
-		goCmd = []string{out, "go"}
+		if goCmd, err = passGoCommand(out); err != nil {
+			return "", fmt.Errorf("pass %d of the self-hosted build: %w", pass, err)
+		}
 		onFirstOutput = nil
 	}
 	return "", fmt.Errorf("the self-hosted build reached no fixed point in %d passes", selfBuildPasses)
+}
+
+// passGoCommand answers the go command of a pass output: a link named go
+// beside it, since the binary is the go command only under that name.
+func passGoCommand(out string) ([]string, error) {
+	dir := filepath.Join(filepath.Dir(out), "bin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	link := filepath.Join(dir, "go"+hostExeSuffix())
+	if err := placeLink(out, link); err != nil {
+		return nil, err
+	}
+	return []string{link}, nil
 }
 
 // sameFile reports whether the files hold the same bytes.

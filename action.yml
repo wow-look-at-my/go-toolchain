@@ -167,7 +167,7 @@ runs:
         build-mode: manual
         queries: security-and-quality
 
-    # A dependency's //go:generate directives run when it is fetched, and a missing generator fails the build. A runner with no go of its own uses the pipeline's go: GO_TOOLCHAIN_LINKED_GO tells the pipeline binary to act as the go command.
+    # A dependency's //go:generate directives run when it is fetched, and a missing generator fails the build. A runner with no go of its own uses the pipeline's go: the pipeline binary is the go command under the name go.
     - name: Install the generators a dependency's directives need
       shell: bash
       run: |
@@ -175,8 +175,10 @@ runs:
         go=(go)
         if ! command -v go >/dev/null; then
           # The pipeline's go has no go.env beside it, so it carries no default module proxy or checksum database.
-          export GO_TOOLCHAIN_LINKED_GO=1 GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}" GOSUMDB="${GOSUMDB:-sum.golang.org}"
-          go=(go-toolchain go)
+          export GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}" GOSUMDB="${GOSUMDB:-sum.golang.org}"
+          mkdir -p "$RUNNER_TEMP/gt-go"
+          ln -sf "$(command -v go-toolchain)" "$RUNNER_TEMP/gt-go/go"
+          go=("$RUNNER_TEMP/gt-go/go")
         fi
         for pkg in \
           golang.org/x/tools/cmd/stringer@v0.49.0 \
