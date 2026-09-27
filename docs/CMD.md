@@ -12,7 +12,7 @@ Nor is "build somewhere else" a way out. `insideWorkspace()` checks the working 
 
 ## No self-update, but a passive update check
 
-The binary does not self-update: it is installed and updated from buildhost (the GitHub Action downloads it with `curl`. End users use a package manager such as Homebrew/npm/APT).
+The binary does not self-update: it is installed and updated from buildhost (the GitHub Action downloads it with the `buildhost-download` action. End users use a package manager such as Homebrew/npm/APT).
 
 It does run a passive **background update check** (`updatecheck.go`). `main.go`'s `StartUpdateCheck` starts a goroutine on every invocation except `version` (which reports its own staleness) and the `cacheprog` subprocess.
 

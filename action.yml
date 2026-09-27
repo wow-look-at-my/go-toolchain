@@ -98,25 +98,24 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
       run: bash "$ACTION_PATH/.github/scripts/provision-bwrap.sh"
 
+    - name: Download go-toolchain
+      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
+      uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
+      with:
+        project: go-toolchain
+        path: /tmp/go-toolchain
+
     - name: Install go-toolchain
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
       run: |
         set -euo pipefail
-        URL="https://dl.pazer.build/go-toolchain?os=${RUNNER_OS}&arch=${RUNNER_ARCH}"
-        # The `if` keeps `set -e` from skipping the probe and source-build fallback. A slow download that still moves must finish.
-        if curl -fL --compressed --connect-timeout 20 --speed-limit 1024 --speed-time 60 \
-          --retry 5 --retry-delay 5 --retry-all-errors -o /tmp/go-toolchain "${URL}"; then
-          chmod +x /tmp/go-toolchain
-          # Run it while still writable in /tmp. see docs/ACTION.md
-          /tmp/go-toolchain version || true
-          sudo cp /tmp/go-toolchain /usr/local/bin/go-toolchain
-        else
-          echo "::warning::Download from buildhost failed (curl exit $?): ${URL}"
-        fi
-        # Capture the probe output: it names an HTTP 404, a missing PATH entry, or a crash.
+        # Run it while still writable in /tmp. see docs/ACTION.md
+        /tmp/go-toolchain version || true
+        sudo cp /tmp/go-toolchain /usr/local/bin/go-toolchain
+        # Capture the probe output: it names a missing PATH entry or a crash.
         if ! probe=$(go-toolchain version 2>&1); then
-          echo "buildhost go-toolchain (${URL}) not usable; probe output:"
+          echo "buildhost go-toolchain not usable; probe output:"
           echo "${probe}"
           # A silent source build hides a buildhost outage. see docs/ACTION.md
           if [ "${{ inputs.allow-source-build }}" != "true" ]; then

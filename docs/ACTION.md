@@ -68,7 +68,7 @@ A consumer therefore drops its own bubblewrap step. `dats/bwrap.dats` covers the
 
 ## 1c. Installing the binary
 
-The download goes straight to buildhost's `dl` endpoint with curl, and no npm is involved. `--compressed` advertises `Accept-Encoding`, zstd included where curl was built with it, so buildhost streams the stored zstd blob as-is and curl decompresses client-side. The server never pays the decompression cost. Where curl lacks zstd it just gets the plain binary. buildhost normalizes platform aliases natively (`RUNNER_OS` Linux/macOS/Windows, `RUNNER_ARCH` X64/ARM64), so those values pass through verbatim. It serves the branch tip `no-store`, so no cache-buster is needed. Download, the one pre-install run, and the copy into `/usr/local/bin` are one step. Nothing in the org's action set can write there (the runner is not root), and dats' sandbox mounts only the standard paths. So a split will only move the `sudo cp` into a second step.
+The download is buildhost's own `buildhost-download` action, which resolves the runner's platform, retries a registry blip. The download fails the step when the binary cannot be fetched. It writes to `/tmp/go-toolchain`. The next step makes the pre-install run and copies the file into `/usr/local/bin`. Nothing in the org's action set can write there (the runner is not root), and dats' sandbox mounts only the standard paths.
 
 **The URL carries no `branch=` pin.** buildhost's bare "latest" resolves against the project's default branch. A pin will name a buildhost branch, not a git one, and will have to be kept in step with an operator setting the API.
 
