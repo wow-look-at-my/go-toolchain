@@ -9,10 +9,10 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.12.1
-	github.com/wow-look-at-my/ansi-writer v0.0.0
-	github.com/wow-look-at-my/dats v0.0.0
-	github.com/wow-look-at-my/go-containers v0.0.0
-	github.com/wow-look-at-my/slopfix v0.0.0 // go-toolchain:generate=2cc79e031ecc
+	github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174
+	github.com/wow-look-at-my/dats v0.0.0-20260910122754-5dfcc0b24b09
+	github.com/wow-look-at-my/go-containers v0.0.0-20260913115023-d3bbbdd0286d
+	github.com/wow-look-at-my/slopfix v0.0.0-20260926175549-1a3727a562ce // go-toolchain:generate=2cc79e031ecc
 	golang.org/x/mod v0.41.0
 	golang.org/x/sys v0.48.0
 	golang.org/x/tools v0.49.0
@@ -43,9 +43,9 @@ require (
 	github.com/pjbgf/sha1cd v0.6.0 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
-	github.com/wow-look-at-my/go-regex-compiler v0.0.0 // indirect
-	github.com/wow-look-at-my/go-tree-sitter v0.0.0 // indirect; go-toolchain:generate=a0022f830ef0
-	github.com/wow-look-at-my/yaml-fixed v0.0.0 // indirect
+	github.com/wow-look-at-my/go-regex-compiler v0.0.0-20260902104208-38ed47ff4d77 // indirect
+	github.com/wow-look-at-my/go-tree-sitter v0.0.0-20260924031121-ec84433268ed // indirect; go-toolchain:generate=a0022f830ef0
+	github.com/wow-look-at-my/yaml-fixed v0.0.0-20260806231905-d99b869b77a1 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/yuin/goldmark v1.8.6 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
@@ -92,4 +92,4 @@ replace dario.cat/mergo v1.0.0 => github.com/imdario/mergo v1.0.0
 // The analyzers type-check the fork's stdlib. Stock x/tools reads a parameter
 // default as a syntax error and cannot decode the fork's export data, so both
 // the export-data path and the source fallback die on every package.
-replace golang.org/x/tools => github.com/wow-look-at-my/gosmopolitan_tools v0.0.0
+replace golang.org/x/tools => github.com/wow-look-at-my/gosmopolitan_tools v0.0.0-20260920035531-824084d2645f
