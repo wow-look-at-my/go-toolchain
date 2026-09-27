@@ -29,10 +29,17 @@ func stubForkToolchain(t *testing.T) string {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "fake-goroot")
 	require.NoError(t, os.MkdirAll(root, 0o755))
+<<<<<<< HEAD
+	exe := filepath.Join(root, "go-toolchain")
+	require.NoError(t, os.WriteFile(exe, []byte("fake go-toolchain"), 0o755))
+	oldCmd, oldRoot := activeGoCmd, activeGoroot
+	activeGoCmd = []string{exe, "go"}
+=======
 	exe := filepath.Join(root, "go")
 	require.NoError(t, os.WriteFile(exe, []byte("fake go link"), 0o755))
 	oldCmd, oldRoot := activeGoCmd, activeGoroot
 	activeGoCmd = []string{exe}
+>>>>>>> origin/master
 	activeGoroot = root
 	t.Cleanup(func() {
 		activeGoCmd, activeGoroot = oldCmd, oldRoot
@@ -42,7 +49,11 @@ func stubForkToolchain(t *testing.T) string {
 
 // isForkBuild recognizes a build the stubbed go command runs.
 func isForkBuild(cfg runner.Config, fakeGoroot string) bool {
+<<<<<<< HEAD
+	return cfg.Name == filepath.Join(fakeGoroot, "go-toolchain") && isGoBuild(cfg)
+=======
 	return cfg.Name == filepath.Join(fakeGoroot, "go") && isGoBuild(cfg)
+>>>>>>> origin/master
 }
 
 // setupCosmoMatrixTest points the matrix flags at the given targets, stubs
@@ -140,7 +151,11 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 		}
 	}
 	if assert.NotNil(t, cosmoCfg, "expected a build via this binary's go command") {
+<<<<<<< HEAD
+		assert.Equal(t, "go", cosmoCfg.Args[0], "the go command is this binary under its go subcommand")
+=======
 		assert.Equal(t, "build", cosmoCfg.Args[0], "the go command is the go link, with no subcommand of its own")
+>>>>>>> origin/master
 		goos, _ := cosmoCfg.Env.Get("GOOS")
 		assert.Equal(t, "cosmo", goos)
 		goarch, _ := cosmoCfg.Env.Get("GOARCH")
@@ -191,7 +206,11 @@ func TestRunReleaseWithRunnerInvalidTargets(t *testing.T) {
 // call site can reintroduce a per-platform binary or another compiler.
 func TestRunBuildRefusesAnythingButThePortableTargets(t *testing.T) {
 	t.Serial()
+<<<<<<< HEAD
+	goCmd := []string{filepath.Join(t.TempDir(), "go-toolchain"), "go"}
+=======
 	goCmd := []string{filepath.Join(t.TempDir(), "go")}
+>>>>>>> origin/master
 	for _, tc := range []struct {
 		name    string
 		job     buildJob
@@ -256,7 +275,11 @@ func TestRunBuildAcceptsTheAPEAndWasm(t *testing.T) {
 				goarch:     p.Arch,
 				srcPath:    ".",
 				outputPath: filepath.Join(t.TempDir(), "out"),
+<<<<<<< HEAD
+				goCmd:      []string{filepath.Join(t.TempDir(), "go-toolchain"), "go"},
+=======
 				goCmd:      []string{filepath.Join(t.TempDir(), "go")},
+>>>>>>> origin/master
 				goroot:     filepath.Join(t.TempDir(), "fork-goroot"),
 			}
 			require.NoError(t, runBuild(mock, job, nil))

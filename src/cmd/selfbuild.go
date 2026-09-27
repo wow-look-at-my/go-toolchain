@@ -64,14 +64,20 @@ func buildSelfPasses(r runner.CommandRunner, job buildJob, work string, onFirstO
 		if same {
 			return out, nil
 		}
+<<<<<<< HEAD
+		goCmd = []string{out, "go"}
+=======
 		if goCmd, err = passGoCommand(out); err != nil {
 			return "", fmt.Errorf("pass %d of the self-hosted build: %w", pass, err)
 		}
+>>>>>>> origin/master
 		onFirstOutput = nil
 	}
 	return "", fmt.Errorf("the self-hosted build reached no fixed point in %d passes", selfBuildPasses)
 }
 
+<<<<<<< HEAD
+=======
 // passGoCommand answers the go command of a pass output: a link named go
 // beside it, since the binary is the go command only under that name.
 func passGoCommand(out string) ([]string, error) {
@@ -86,6 +92,7 @@ func passGoCommand(out string) ([]string, error) {
 	return []string{link}, nil
 }
 
+>>>>>>> origin/master
 // sameFile reports whether the files hold the same bytes.
 func sameFile(first, second string) (bool, error) {
 	sumFirst, err := fileHash(first)

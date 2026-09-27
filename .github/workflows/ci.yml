@@ -58,6 +58,9 @@ jobs:
             echo "linked=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+<<<<<<< HEAD
+          if GO_TOOLCHAIN_LINKED_GO=1 sh "$RUNNER_TEMP/gt-bootstrap" go version; then
+=======
           # The release is the go command under the name go. An older one runs its own version command there instead, which prints no "go version" line.
           goroot_bin="$RUNNER_TEMP/gt-bootstrap-goroot/bin"
           mkdir -p "$goroot_bin"
@@ -66,6 +69,7 @@ jobs:
           said="$(sh "$goroot_bin/go" version 2>&1 || true)"
           printf '%s\n' "$said"
           if [[ "$said" == "go version "* ]]; then
+>>>>>>> origin/master
             echo "linked=true" >> "$GITHUB_OUTPUT"
           else
             echo "the previous release links no go command; bootstrapping from the fork checkout"
@@ -131,11 +135,22 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ steps.release.outputs.linked }}" = "true" ]; then
+<<<<<<< HEAD
+            go="$RUNNER_TEMP/gt-bootstrap-go"
+            printf '#!/bin/sh\nGO_TOOLCHAIN_LINKED_GO=1 exec sh "%s" go "$@"\n' "$RUNNER_TEMP/gt-bootstrap" > "$go"
+            chmod +x "$go"
+            # A dependency's generate directive starts `go` by name, and this GOROOT is the APE itself, so $GOROOT/bin holds nothing and the runner's own go answers instead. It reads GOROOT as a directory and dies. The APE under the name go, earliest on PATH, is the go command those directives get.
+            goroot_bin="$RUNNER_TEMP/gt-bootstrap-goroot/bin"
+            mkdir -p "$goroot_bin"
+            cp "$RUNNER_TEMP/gt-bootstrap" "$goroot_bin/go"
+            chmod +x "$goroot_bin/go"
+=======
             # The release step put the APE under the name go, which is the go command. A shell starts it: the binfmt handler is not registered yet.
             goroot_bin="$RUNNER_TEMP/gt-bootstrap-goroot/bin"
             go="$RUNNER_TEMP/gt-bootstrap-go"
             printf '#!/bin/sh\nexec sh "%s" "$@"\n' "$goroot_bin/go" > "$go"
             chmod +x "$go"
+>>>>>>> origin/master
           else
             go="$PWD/_gosmopolitan/bin/go"
             goroot_bin="$PWD/_gosmopolitan/bin"
@@ -477,8 +492,11 @@ jobs:
           binary: build/go-toolchain
           # A build of this module compiles the fork's standard library from its checkout, in passes. see docs/CI.md
           timeout: '30'
+<<<<<<< HEAD
+=======
           # The embedded dats sandboxes every suite command and refuses to run without one of these.
           apt-depends: 'bubblewrap | docker.io'
+>>>>>>> origin/master
 
   # Each non-linux host builds this repo's APE with the linux-built binary, so a difference in the output is the host and nothing else. see docs/CI.md
   build-everywhere:

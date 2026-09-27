@@ -11,7 +11,11 @@ import (
 // links. Both the default build phase and the matrix path resolve it through
 // here rather than each assembling their own half of it.
 type forkBuildEnv struct {
+<<<<<<< HEAD
+	// goCmd starts the go command: this executable under its go subcommand.
+=======
 	// goCmd starts the go command: the go link to this executable.
+>>>>>>> origin/master
 	goCmd []string
 	// goroot is the GOROOT the go command reads its standard library from.
 	goroot string

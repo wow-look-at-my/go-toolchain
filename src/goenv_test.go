@@ -12,6 +12,16 @@ import (
 
 func TestEnsureDirectFallback(t *testing.T) {
 	t.Serial()
+<<<<<<< HEAD
+	// No "direct" present: append "|direct" so any proxy error falls through.
+	assert.Equal(t, "https://proxy.example.com|direct", ensureDirectFallback("https://proxy.example.com"))
+	// Existing "|direct" stays as-is.
+	assert.Equal(t, "https://proxy.example.com|direct", ensureDirectFallback("https://proxy.example.com|direct"))
+	// Trailing ",direct" upgrades to "|direct" so a server error falls through, not just a missing module.
+	assert.Equal(t, "https://proxy.example.com|direct", ensureDirectFallback("https://proxy.example.com,direct"))
+	assert.Equal(t, "https://a.com,https://b.com|direct", ensureDirectFallback("https://a.com,https://b.com,direct"))
+	assert.Equal(t, "https://a.com,https://b.com|direct", ensureDirectFallback("https://a.com,https://b.com|direct"))
+=======
 	// No "direct" present: append ",direct" so a module the proxy lacks resolves.
 	assert.Equal(t, "https://proxy.example.com,direct", ensureDirectFallback("https://proxy.example.com"))
 	// Existing ",direct" stays as-is.
@@ -20,6 +30,7 @@ func TestEnsureDirectFallback(t *testing.T) {
 	assert.Equal(t, "https://proxy.example.com,direct", ensureDirectFallback("https://proxy.example.com|direct"))
 	assert.Equal(t, "https://a.com,https://b.com,direct", ensureDirectFallback("https://a.com,https://b.com|direct"))
 	assert.Equal(t, "https://a.com,https://b.com,direct", ensureDirectFallback("https://a.com,https://b.com,direct"))
+>>>>>>> origin/master
 }
 
 // The org secret still carries GO_PROXY_CONFIG, and the proxy it names is

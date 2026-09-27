@@ -159,9 +159,20 @@ func TestRenderGanttMinimumWidth(t *testing.T) {
 }
 
 func TestSanitizeLabel(t *testing.T) {
+<<<<<<< HEAD
+<<<<<<< HEAD
+	assert.Equal(t, "foobar", sanitizeLabel("foo:bar"))
+	assert.Equal(t, "abc", sanitizeLabel("a;b;c"))
+=======
+	t.Serial()
+	assert.Equal(t, "foo bar", sanitizeLabel("foo:bar"))
+	assert.Equal(t, "a b c", sanitizeLabel("a;b;c"))
+>>>>>>> origin/master
+=======
 	t.Serial()
 	assert.Equal(t, "foobar", sanitizeLabel("foo:bar"))
 	assert.Equal(t, "abc", sanitizeLabel("a;b;c"))
+>>>>>>> origin/master
 	assert.Equal(t, "no hash", sanitizeLabel("no #hash"))
 	assert.Equal(t, "vet compile", sanitizeLabel("vet: compile"))
 }

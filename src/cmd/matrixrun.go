@@ -45,6 +45,15 @@ func runReleaseInto(r runner.CommandRunner, sd *summary.SummaryData) (err error)
 	warnCGOUnavailable(hasCosmo, hasWasm)
 	forkEnv, err := resolveForkBuildEnv(hasCosmo)
 	if err != nil {
+<<<<<<< HEAD
+		return err
+	}
+	apePlatforms := forkEnv.coverage
+
+	// Run tests with coverage before building (same as the default command)
+	if _, _, err := RunTestsWithCoverage(r, false); err != nil {
+=======
+>>>>>>> origin/master
 		return err
 	}
 	apePlatforms := forkEnv.coverage
