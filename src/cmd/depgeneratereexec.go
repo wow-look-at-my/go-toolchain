@@ -30,8 +30,7 @@ func reexecAfterDepGenerate() error {
 		return err
 	}
 	st.done()
-	// The rebuilt binary is the fixed point, so the child skips that re-exec too.
-	code := runSelfWith(bin, depGenerateReexecEnv, selfReexecEnv)
+	code := runSelfWith(bin, depGenerateReexecEnv)
 	_ = os.RemoveAll(dir)
 	os.Exit(code)
 	return nil

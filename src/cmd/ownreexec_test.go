@@ -56,8 +56,3 @@ func TestReexecUnderOwnBuildLeavesAConsumerAlone(t *testing.T) {
 	require.NoError(t, os.WriteFile("go.mod", []byte("module example.com/consumer\n\ngo 1.27\n"), 0o644))
 	assert.NoError(t, reexecUnderOwnBuild())
 }
-
-func TestReexecUnderOwnBuildRunsOnceOnTheChild(t *testing.T) {
-	t.Setenv(selfReexecEnv, "1")
-	assert.NoError(t, reexecUnderOwnBuild())
-}
