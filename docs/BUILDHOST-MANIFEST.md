@@ -4,7 +4,7 @@
 
 buildhost's publish action discovers artifacts by filename, matching `<binary>_<os>_<arch>[.exe]`. That grammar names exactly one platform per file. So a binary that runs on three of them has no way to say so.
 
-The old workaround was to copy the APE onto each per-platform name. The publish action groups files by SHA-256, so the bytes only ever crossed the wire once — but each name still became its own artifact row. The registry showed the same binary three times, and no page ever said the three were one file.
+The workaround was to copy the APE onto each per-platform name. The publish action groups files by SHA-256, so the bytes only ever crossed the wire once — but each name still became its own artifact row. The registry showed the same binary times, and no page ever said the three were one file.
 
 A filename cannot carry the set either: the regex components are `[a-z]+` and `[a-z0-9]+`, so `linux/amd64+darwin/arm64` has nowhere to go.
 
@@ -26,8 +26,8 @@ go-toolchain writes `buildhost-artifacts.json` at the root of the directory it p
 ```
 
 - `schema` — must be 1. buildhost fails the publish on any other value rather than ignoring the file.
-- `file` — path relative to the published directory. Must exist, and must begin with the APE magic. `apeManifestEntries` checks both before writing, so a broken manifest is caught where the artifact names are still in hand.
-- `platforms` — `os/arch` pairs, at least one. The FIRST is the row's canonical slot: what appears in the row's os/arch columns, and what `dl` canonicalizes every covered platform's redirect to. So all three platforms resolve to one identical `static` URL, one digest, one ETag.
+- `file` — path relative to the published directory. Must exist, and must begin with the APE magic. `apeManifestEntries` checks both before writing. As a result, a broken manifest is caught where the artifact names are still in hand.
+- `platforms` — `os/arch` pairs, at least one. The FIRST is the row's canonical slot: what appears in the row's os/arch columns, and what `dl` canonicalizes every covered platform's redirect to. So all platforms resolve to one identical `static` URL, one digest, one ETag.
 - `filename` — what the download is served as. Without it a consumer will receive a file called `go-toolchain`.
 
 ## Two fields that are deliberately absent
