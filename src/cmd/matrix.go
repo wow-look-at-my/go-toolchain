@@ -73,6 +73,8 @@ type buildJob struct {
 	cosmoPlatforms string
 	// selfHosted marks this pipeline's own binary, which is built in passes and carries its standard library.
 	selfHosted bool
+	// recordSums lets the go command write go.sum entries the build needs, for a build that runs before go mod tidy.
+	recordSums bool
 }
 
 type buildResult struct {

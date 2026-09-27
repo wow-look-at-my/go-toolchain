@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -124,6 +125,26 @@ func TestRunBuildIsReproducibleAcrossHosts(t *testing.T) {
 			assert.Contains(t, calls[0].Args, reproducibleLDFlags,
 				"without an emptied build ID the note records which fork build compiled this, and no two hosts share one")
 		})
+	}
+}
+
+// A build that runs before go mod tidy writes the sums it needs; every other
+// build reads go.sum as tidy left it.
+func TestRunBuildRecordsSumsOnlyWhenTheJobAsks(t *testing.T) {
+	t.Serial()
+	for _, recordSums := range []bool{false, true} {
+		mock := runner.NewMock()
+		mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+			writeMockBuildOutput(cfg, "bin")
+			return runner.MockProcess(nil, nil), nil
+		}
+		job := cosmoJob(t, tmpOut(t))
+		job.recordSums = recordSums
+
+		require.NoError(t, runBuild(mock, job, nil))
+		calls := mock.Calls()
+		require.Len(t, calls, 1)
+		assert.Equal(t, recordSums, slices.Contains(calls[0].Args, "-mod=mod"))
 	}
 }
 

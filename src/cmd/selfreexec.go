@@ -43,6 +43,8 @@ func buildSelfFixedPoint(pkg string) (bin, dir string, err error) {
 		return "", "", err
 	}
 	job := env.apeJob(pkg, filepath.Join(dir, "go-toolchain"+hostExeSuffix()))
+	// This runs before go mod tidy, while an org dependency's head may need sums go.sum lacks.
+	job.recordSums = true
 	bin, err = buildSelfPasses(runner.New(), job, dir, nil)
 	if err != nil {
 		_ = os.RemoveAll(dir)
