@@ -103,18 +103,18 @@ runs:
       uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
       with:
         project: go-toolchain
-        path: /tmp/go-toolchain
+        path: ${{ runner.temp }}/go-toolchain-bin/go-toolchain
 
     - name: Install go-toolchain
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
+      env:
+        BIN_DIR: ${{ runner.temp }}/go-toolchain-bin
       run: |
         set -euo pipefail
-        # Run it while still writable in /tmp. see docs/ACTION.md
-        /tmp/go-toolchain version || true
-        sudo cp /tmp/go-toolchain /usr/local/bin/go-toolchain
-        # Capture the probe output: it names a missing PATH entry or a crash.
-        if ! probe=$(go-toolchain version 2>&1); then
+        echo "${BIN_DIR}" >> "$GITHUB_PATH"
+        # Capture the probe output: it names a crash or an unrunnable binary.
+        if ! probe=$("${BIN_DIR}/go-toolchain" version 2>&1); then
           echo "buildhost go-toolchain not usable; probe output:"
           echo "${probe}"
           # A silent source build hides a buildhost outage. see docs/ACTION.md
@@ -124,7 +124,7 @@ runs:
           fi
           echo "::warning::buildhost binary not usable; building from source (allow-source-build=true)"
           (cd "${{ github.action_path }}" && GOTOOLCHAIN=auto go install ./src)
-          sudo cp "$(go env GOPATH)/bin/src" /usr/local/bin/go-toolchain
+          cp "$(go env GOPATH)/bin/src" "${BIN_DIR}/go-toolchain"
         fi
 
     - name: Install provided binary
