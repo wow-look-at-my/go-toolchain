@@ -15,9 +15,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// fakeAPE is what a test writes where a real build leaves a fat APE. It
-// carries the magic, because the manifest and buildhost both decide APE-ness
-// by reading it: a stand-in without it is a stand-in for a library module.
+// fakeAPE stands in for a fat APE, with the magic the manifest reads.
 const fakeAPE = apeMagic + "FAT-APE"
 
 func TestApeManifestEntries(t *testing.T) {

@@ -2,6 +2,5 @@
 
 package hostos
 
-// cosmoTarget reports the build target, which runtime.GOOS on this fork
-// does not: it names the host at run time.
+// cosmoTarget names the build target; runtime.GOOS on this fork names the host.
 const cosmoTarget = true

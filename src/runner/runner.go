@@ -138,8 +138,7 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 		}
 	}
 
-	// The pipes are ours, not StdoutPipe's: exec closes those at Wait, and this
-	// process must outlive that to bound a reader itself. See drainGrace.
+	// Our own pipes, not StdoutPipe's, which Wait closes before drainGrace can bound a reader.
 	stdoutR, stdoutW, err := os.Pipe()
 	if err != nil {
 		return nil, err
@@ -163,9 +162,7 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 	stdoutW.Close()
 	stderrW.Close()
 
-	// Both streams are read from the moment the child starts. A caller that
-	// reads a single stream to its end before the other, or reads neither
-	// until Wait, never leaves the child blocked on a full pipe.
+	// Both streams drain from the start, so no read order blocks the child on a full pipe.
 	outR, outW := io.Pipe()
 	errR, errW := io.Pipe()
 	p := &process{cmd: cmd, stdout: newSpool(), stderr: newSpool(), quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, exited: make(chan struct{})}
@@ -191,11 +188,8 @@ func relay(src *os.File, dst *io.PipeWriter) {
 // drainGrace is how long a relay keeps going after the command exits.
 var drainGrace = 5 * time.Second
 
-// reap waits for the command, then ends any read still waiting on EOF.
-// A grandchild that inherited the child's stdout holds the OS pipe open, so
-// EOF never arrives there. That read sits inside a blocking syscall, which no
-// deadline and no close can interrupt, so the bound belongs on the io.Pipe
-// above it. The relay goroutine stays parked on a process that is already gone.
+// reap waits for the command, then ends any read still waiting on EOF. A
+// grandchild can hold the OS pipe open.
 func (p *process) reap(writers ...*io.PipeWriter) {
 	p.waitErr = p.cmd.Wait()
 	close(p.exited)
@@ -265,8 +259,7 @@ func (p *process) Wait() error {
 		}
 		io.Copy(w, p.stdout)
 	}
-	// Wait reports only once both spools have seen their end: reap closes the
-	// relays after the grace, releasing a stream a grandchild still holds open.
+	// reap ends both spools after the grace, even when a grandchild holds a stream open.
 	p.stdout.drained()
 	p.stderr.drained()
 	<-p.exited

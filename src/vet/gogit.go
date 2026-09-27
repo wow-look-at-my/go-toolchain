@@ -27,8 +27,7 @@ func checkFileCommittedGoGit(filename string) error {
 	fileDir := filepath.Dir(filename)
 	repo, err := git.PlainOpenWithOptions(fileDir, &git.PlainOpenOptions{
 		DetectDotGit: true,
-		// A linked worktree's .git is a file naming a gitdir under the parent's
-		// .git/worktrees; its refs and config live in the commondir beside it.
+		// A linked worktree keeps its refs and config in the commondir.
 		EnableDotGitCommonDir: true,
 	})
 	if err != nil {

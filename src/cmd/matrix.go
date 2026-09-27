@@ -85,10 +85,7 @@ type buildResult struct {
 }
 
 // runMatrixModules cross-compiles every module in the tree, the way the
-// default pipeline gates every module. A repository whose root carries no
-// go.mod is a tree of modules, not a broken one -- before this, matrix tidied
-// the root, found nothing, and died on "no go.mod found" while the same tree
-// built fine under a bare go-toolchain.
+// default pipeline gates every module.
 func runMatrixModules(r runner.CommandRunner) error {
 	return runMatrixModulesInto(r, nil)
 }
