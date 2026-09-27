@@ -6,6 +6,8 @@
 
 Runs first. It resolves every org module once with the fork's released go command and exposes the result as the `pins` job output. `host-build`, `bootstrap-scratch`, `build`, `build-everywhere` and `smoke` each need it and set `GOORGPIN` from it at job level. So every job builds the same commit of each org dependency. See [ORG-PINS.md](ORG-PINS.md#one-resolution-per-ci-run-goorgpin-srccmdorgpinenvgo).
 
+It resolves the fork the same way, as the `fork` output: the gosmopolitan branch named like this checkout, else the fork's default branch. Each building job sets `GO_TOOLCHAIN_FORK_COMMIT` from it. `checkout-fork-branch.sh` and `resolveForkCommit` (`src/cmd/forksource.go`) both build that commit instead of the head they see. Without it, the bot's base merges move the fork branch mid-run, and `identical` compares binaries built from different fork source.
+
 ## host-build
 
 Builds go-toolchain from source with the previous release as the bootstrap (the passes and the from-scratch fallback are described under build-everywhere and identical below). Its cache-validation step runs `build/go-toolchain` again over the same tree and holds the warm build to a time ceiling.

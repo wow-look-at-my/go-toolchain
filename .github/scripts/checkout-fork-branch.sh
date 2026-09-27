@@ -26,8 +26,21 @@ while read -r key _; do
 	*) continue ;;
 	esac
 
-	# `.` means "the branch named like this", which git resolves but
-	# cannot fall back from. master is that fallback.
+	# CI resolves the fork once per run, so every job builds the same commit.
+	if [[ "$path" == _gosmopolitan && -n "${GO_TOOLCHAIN_FORK_COMMIT:-}" ]]; then
+		commit=$GO_TOOLCHAIN_FORK_COMMIT
+		if ! git submodule update --init -- "$path" ||
+			! git -C "$path" fetch --quiet --depth=1 origin "$commit" ||
+			! git -C "$path" checkout --quiet --detach "$commit" ||
+			! git -C "$path" submodule update --init --recursive; then
+			echo "fork: cannot put $path at $commit, the commit this run resolved" >&2
+			exit 1
+		fi
+		echo "fork: $path at $commit, the commit this run resolved" >&2
+		continue
+	fi
+
+	# `.` means "the branch named like this", which git resolves but cannot fall back from. master is that fallback.
 	branch=$(git config -f .gitmodules --get "submodule.$name.branch" || true)
 	[[ "$branch" == "." || -z "$branch" ]] && branch=master
 	if [[ -n "$here" ]] && git ls-remote --exit-code --heads "$url" "refs/heads/$here" >/dev/null 2>&1; then

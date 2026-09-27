@@ -27,6 +27,17 @@ func writeForkBranchScript(t *testing.T) string {
 	return record
 }
 
+// Every job of a CI run builds the fork commit the run resolved once. The branch head can move mid-run.
+func TestResolveForkCommitTakesTheCommitTheRunResolved(t *testing.T) {
+	const commit = "0e3da9968fa436db42ed7eab3407eafae637681f"
+	t.Setenv(forkCommitEnv, commit)
+	mock := runner.NewMock()
+	got, err := resolveForkCommit(mock)
+	require.NoError(t, err)
+	assert.Equal(t, commit, got)
+	assert.Empty(t, mock.Calls(), "a resolved commit asks the remote nothing")
+}
+
 func TestBranchForkSubmodulesNamesTheBranch(t *testing.T) {
 	record := writeForkBranchScript(t)
 	for _, args := range [][]string{

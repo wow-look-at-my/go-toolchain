@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       pins: ${{ steps.pins.outputs.pins }}
+      fork: ${{ steps.fork.outputs.commit }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -86,11 +87,33 @@ jobs:
             for (const pin of sorted) core.info(pin);
             core.setOutput("pins", sorted.join(" "));
 
+      # The fork follows a branch too, and the bot merges master into it mid-run. src/cmd/forksource.go resolves it the same way.
+      - name: Resolve the fork commit once for the whole run
+        id: fork
+        uses: wow-look-at-my/actions@typescript#latest
+        with:
+          script: |
+            const branch = `refs/heads/${github.ref_name}`;
+            const listed = String(await $`git ls-remote https://github.com/wow-look-at-my/gosmopolitan HEAD ${branch}`);
+            const refs = new Map<string, string>();
+            for (const line of listed.split("\n")) {
+              const [commit, ref] = line.trim().split(/\s+/);
+              if (commit && ref) refs.set(ref, commit);
+            }
+            const commit = refs.get(branch) ?? refs.get("HEAD");
+            if (!commit) {
+              core.setFailed(`gosmopolitan named neither ${branch} nor HEAD`);
+              return;
+            }
+            core.info(`gosmopolitan ${refs.has(branch) ? branch : "HEAD"} at ${commit}`);
+            core.setOutput("commit", commit);
+
   host-build:
     needs: org-pins
     runs-on: ubuntu-latest
     env:
       GOORGPIN: ${{ needs.org-pins.outputs.pins }}
+      GO_TOOLCHAIN_FORK_COMMIT: ${{ needs.org-pins.outputs.fork }}
     steps:
       # No persisted credentials: the header checkout leaves in the workspace names THIS repository, so every git question about another is asked as the wrong identity.
       - uses: actions/checkout@v7
@@ -357,6 +380,7 @@ jobs:
     timeout-minutes: 60
     env:
       GOORGPIN: ${{ needs.org-pins.outputs.pins }}
+      GO_TOOLCHAIN_FORK_COMMIT: ${{ needs.org-pins.outputs.fork }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -490,6 +514,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GOORGPIN: ${{ needs.org-pins.outputs.pins }}
+      GO_TOOLCHAIN_FORK_COMMIT: ${{ needs.org-pins.outputs.fork }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -559,6 +584,7 @@ jobs:
       # NT needs the suffix to exec what it copies.
       GT_APE: ${{ matrix.origin == 'windows' && 'gt-ape.exe' || 'gt-ape' }}
       GOORGPIN: ${{ needs.org-pins.outputs.pins }}
+      GO_TOOLCHAIN_FORK_COMMIT: ${{ needs.org-pins.outputs.fork }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -750,6 +776,7 @@ jobs:
     timeout-minutes: 30
     env:
       GOORGPIN: ${{ needs.org-pins.outputs.pins }}
+      GO_TOOLCHAIN_FORK_COMMIT: ${{ needs.org-pins.outputs.fork }}
     steps:
       # Only for the dats fixtures in .github/dats-fixtures/ -- this job otherwise runs no repo code.
       - uses: actions/checkout@v7
