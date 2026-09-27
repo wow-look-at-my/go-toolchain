@@ -246,7 +246,7 @@ func runReleaseInto(r runner.CommandRunner, sd *summary.SummaryData) (err error)
 		}
 	}
 
-	// Host symlinks are for local use. An upload in CI copies each in full.
+	// Create _host and bare symlinks for the current platform.
 	if os.Getenv("CI") == "" && len(jobs) > 0 {
 		if err := createHostSymlinks(hostTargets, outputDir); err != nil {
 			return err

@@ -15,7 +15,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// fakeAPE stands in for a fat APE, with the magic the manifest reads.
+// fakeAPE is what a test writes where a real build leaves a fat APE.
 const fakeAPE = apeMagic + "FAT-APE"
 
 func TestApeManifestEntries(t *testing.T) {

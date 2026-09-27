@@ -194,7 +194,7 @@ func updateForkSubmodules(r runner.CommandRunner) error {
 	return branchForkSubmodules(r)
 }
 
-// forkBranchScript picks each org submodule's commit; the gitlink is the offline fallback.
+// forkBranchScript is the fork's own answer to which commit an org submodule stands at.
 const forkBranchScript = "src/submodulebranch.bash"
 
 // branchForkSubmodules runs that script, naming this checkout's branch for it.

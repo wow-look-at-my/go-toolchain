@@ -8,9 +8,8 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// ensureDirectFallback appends ",direct", which falls through on not-found
-// only. A pipe falls through on any error, and the git zip hashes differently
-// from the proxy zip. A trailing "|direct" becomes ",direct".
+// ensureDirectFallback appends ",direct" so a module the proxy does not carry
+// still resolves.
 func ensureDirectFallback(goproxy string) string {
 	if strings.HasSuffix(goproxy, "|direct") {
 		return strings.TrimSuffix(goproxy, "|direct") + ",direct"
@@ -101,7 +100,7 @@ func configureGoEnv() {
 		return
 	}
 
-	// Clear the declined GOSUMDB, so no child reads it.
+	// A GOSUMDB this run declined still sits in the environment every child reads.
 	os.Unsetenv("GOSUMDB")
 	// GONOSUMDB, not GOSUMDB=off, so toolchain auto-downloads still work.
 	os.Setenv("GONOSUMDB", "*")

@@ -11,7 +11,7 @@ import (
 // maxWarnings is the pipeline's DISTINCT-warning budget. see docs/WARNINGS-GATE.md
 const maxWarnings = 15
 
-// warningsUncappedUntil lifts the budget until this date. After it, maxWarnings applies again.
+// warningsUncappedUntil lifts the budget while CI reports comment repairs instead of applying them.
 var warningsUncappedUntil = time.Date(2026, 9, 21, 0, 0, 0, 0, time.UTC)
 
 // warningsBudget answers the budget in force now.

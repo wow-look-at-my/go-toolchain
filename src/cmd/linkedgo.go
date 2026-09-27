@@ -66,7 +66,8 @@ func goProgramPath(argv0 string) (string, error) {
 	return filepath.Abs(path)
 }
 
-// isGoName reports that path names a program called go, under either separator.
+// isGoName reports that path names a program called go, under either
+// separator: this binary is a single program on every host.
 func isGoName(path string) bool {
 	base := path[strings.LastIndexAny(path, `/\`)+1:]
 	return strings.TrimSuffix(base, ".exe") == "go"

@@ -77,7 +77,8 @@ func RunWithProgress(fix bool, progress ProgressFunc) (bool, error) {
 	return fmtChanged || semanticChanged, err
 }
 
-// loadMode type-checks own source and reads dependencies as this compiler's export data.
+// loadMode type-checks the module's own source and reads each dependency as
+// the export data the compiler in this binary wrote.
 func loadMode() packages.LoadMode {
 	return packages.LoadSyntax | packages.NeedModule
 }
@@ -225,7 +226,7 @@ func moduleHasGoFiles(tagCfg buildtags.Config) bool {
 		if !strings.HasSuffix(path, ".go") {
 			return nil
 		}
-		// An excluded file does not count. A file MatchFile cannot parse does.
+		// MatchFile reads the constraints, so an excluded file does not count.
 		match, merr := ctx.MatchFile(filepath.Dir(path), filepath.Base(path))
 		if match || merr != nil {
 			found = true
@@ -496,7 +497,7 @@ func checkFileCommittedByName(filename string) error {
 	if err == nil {
 		return nil
 	}
-	// go-git can call a committed file dirty in a linked worktree, so git decides.
+	// A dirty verdict is confirmed against the git CLI before it stops the fix.
 	return checkFileCommittedExec(filename)
 }
 

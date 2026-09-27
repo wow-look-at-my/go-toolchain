@@ -138,7 +138,7 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 		}
 	}
 
-	// The pipes are ours, not StdoutPipe's: exec closes those at Wait, and this.
+	// The pipes are ours, not StdoutPipe's: exec closes those at Wait.
 	stdoutR, stdoutW, err := os.Pipe()
 	if err != nil {
 		return nil, err
@@ -258,7 +258,7 @@ func (p *process) Wait() error {
 		}
 		io.Copy(w, p.stdout)
 	}
-	// Wait reports only once both spools have seen their end: reap closes.
+	// Wait reports only once both spools have seen their end: reap closes the relays after the grace.
 	p.stdout.drained()
 	p.stderr.drained()
 	<-p.exited
