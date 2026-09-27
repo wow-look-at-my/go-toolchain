@@ -13,7 +13,6 @@ require (
 	github.com/wow-look-at-my/dats v0.0.0
 	github.com/wow-look-at-my/go-containers v0.0.0
 	github.com/wow-look-at-my/slopfix v0.0.0 // go-toolchain:generate=2cc79e031ecc
-	github.com/wow-look-at-my/slopfmt v0.0.0
 	go.opentelemetry.io/otel v1.45.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.45.0
 	go.opentelemetry.io/otel/sdk v1.45.0
