@@ -250,6 +250,18 @@ var perRunEnv = []string{
 	"GITHUB_STEP_SUMMARY", "GITHUB_OUTPUT", "GITHUB_ENV", "GITHUB_PATH", "GITHUB_STATE",
 }
 
+// forkRunEnv gives the go command under go test the run that perRunEnv.
+const forkRunEnv = "GOSMOPOLITAN_RUN"
+
+// forkRun answers this job's run as owner/repo/run-id/attempt, or "" outside a run.
+func forkRun() string {
+	repo, id, attempt := os.Getenv("GITHUB_REPOSITORY"), os.Getenv("GITHUB_RUN_ID"), os.Getenv("GITHUB_RUN_ATTEMPT")
+	if repo == "" || id == "" || attempt == "" {
+		return ""
+	}
+	return repo + "/" + id + "/" + attempt
+}
+
 // runTestsOnce executes go test for a single build-tag configuration.
 func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutput func(),
 	timeline TimelineRecorder, tagCfg buildtags.Config, only []string,
@@ -287,6 +299,9 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 	var stderrBuf bytes.Buffer
 	stderrTee := io.MultiWriter(&stderrBuf, os.Stderr)
 	cmd := runner.Cmd("go", args...).WithStderrWriter(stderrTee)
+	if run := forkRun(); run != "" {
+		cmd = cmd.WithEnv(forkRunEnv, run)
+	}
 	for _, name := range perRunEnv {
 		cmd = cmd.WithEnv(name, "")
 	}
