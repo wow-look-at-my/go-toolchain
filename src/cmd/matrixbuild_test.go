@@ -30,11 +30,7 @@ func wasmJob(t *testing.T, outputPath string) buildJob {
 		goarch:     wasmArch,
 		srcPath:    ".",
 		outputPath: outputPath,
-<<<<<<< HEAD
-		goCmd:      []string{filepath.Join(t.TempDir(), "go-toolchain"), "go"},
-=======
 		goCmd:      []string{filepath.Join(t.TempDir(), "go")},
->>>>>>> origin/master
 		goroot:     filepath.Join(t.TempDir(), "fork-goroot"),
 	}
 }
@@ -87,13 +83,8 @@ func TestRunBuildNoStderrOnSuccess(t *testing.T) {
 	assert.FileExists(t, job.outputPath, "the commit moved the build onto the target name")
 }
 
-<<<<<<< HEAD
-// The compiler is this binary under its go subcommand, so the command line
-// runBuild starts is the job's go command followed by the build.
-=======
 // The compiler is the go link to this binary, so the command line runBuild
 // starts is the job's go command followed by the build.
->>>>>>> origin/master
 func TestRunBuildStartsTheGoCommandOfTheJob(t *testing.T) {
 	t.Serial()
 	mock := runner.NewMock()
@@ -107,11 +98,7 @@ func TestRunBuildStartsTheGoCommandOfTheJob(t *testing.T) {
 	calls := mock.Calls()
 	require.Len(t, calls, 1)
 	assert.Equal(t, job.goCmd[0], calls[0].Name)
-<<<<<<< HEAD
-	assert.Equal(t, []string{"go", "build"}, calls[0].Args[:2])
-=======
 	assert.Equal(t, "build", calls[0].Args[0])
->>>>>>> origin/master
 }
 
 // The APE claims to run on every host, and that claim is honest only if every

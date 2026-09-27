@@ -166,19 +166,6 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 	// Both streams are read from the moment the child starts. A caller that
 	// reads a single stream to its end before the other, or reads neither
 	// until Wait, never leaves the child blocked on a full pipe.
-<<<<<<< HEAD
-	p := &process{cmd: cmd, stdout: newSpool(), stderr: newSpool(), quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter}
-	go p.stdout.fill(stdout)
-	// The console still sees each stderr line as it arrives; the spool keeps a copy for Stderr.
-	if live := cfg.liveStderr(); live != nil {
-		go p.stderr.fill(io.TeeReader(stderr, &firstOutputWriter{target: live, hadOutput: &p.hadOutput, callback: cfg.OnFirstOutput}))
-	} else {
-		go p.stderr.fill(stderr)
-	}
-	return p, nil
-}
-
-=======
 	outR, outW := io.Pipe()
 	errR, errW := io.Pipe()
 	p := &process{cmd: cmd, stdout: newSpool(), stderr: newSpool(), quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, exited: make(chan struct{})}
@@ -218,7 +205,6 @@ func (p *process) reap(writers ...*io.PipeWriter) {
 	}
 }
 
->>>>>>> origin/master
 // liveStderr names where stderr goes as it arrives, or nil to only hold it.
 func (c *Config) liveStderr() io.Writer {
 	switch {
@@ -258,11 +244,8 @@ type process struct {
 	hadOutput    atomic.Bool
 	onFirst      func()
 	stdoutWriter io.Writer
-<<<<<<< HEAD
-=======
 	exited       chan struct{} // closed when reap has the exit status
 	waitErr      error         // read only after exited is closed
->>>>>>> origin/master
 }
 
 func (p *process) Wait() error {
@@ -282,19 +265,12 @@ func (p *process) Wait() error {
 		}
 		io.Copy(w, p.stdout)
 	}
-<<<<<<< HEAD
-	// cmd.Wait closes the pipes, so both spools must have seen their end earliest.
-	p.stdout.drained()
-	p.stderr.drained()
-	p.err = p.cmd.Wait()
-=======
 	// Wait reports only once both spools have seen their end: reap closes the
 	// relays after the grace, releasing a stream a grandchild still holds open.
 	p.stdout.drained()
 	p.stderr.drained()
 	<-p.exited
 	p.err = p.waitErr
->>>>>>> origin/master
 	p.done = true
 	return p.err
 }

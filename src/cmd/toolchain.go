@@ -13,11 +13,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-<<<<<<< HEAD
-// activeGoCmd starts the go command this pipeline builds with: this executable, under its go subcommand.
-=======
 // activeGoCmd starts the go command this pipeline builds with: the go link to this executable.
->>>>>>> origin/master
 var activeGoCmd []string
 
 // activeGoroot is this run's GOROOT: the fork checkout here, this executable anywhere else.
@@ -146,20 +142,12 @@ func placeLink(exe, name string) error {
 // useSelfAsPipelineToolchain points this process and its children at the go
 // link and the GOROOT.
 func useSelfAsPipelineToolchain(exe, linkDir, goroot string) {
-<<<<<<< HEAD
-	activeGoCmd = []string{exe, "go"}
-=======
 	activeGoCmd = []string{filepath.Join(linkDir, "go"+hostExeSuffix())}
->>>>>>> origin/master
 	activeGoroot = goroot
 	goLinkDir = linkDir
 	os.Setenv("PATH", pathWithFirst(linkDir, os.Getenv("PATH"), hostos.GOOS()))
 	os.Setenv("GOROOT", goroot)
 	os.Setenv("GOTOOLCHAIN", "local")
-<<<<<<< HEAD
-	os.Setenv(linkedGoEnv, "1")
-=======
->>>>>>> origin/master
 }
 
 // pathWithFirst puts dir ahead of rest, with the list separator of hostGOOS

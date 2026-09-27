@@ -220,32 +220,17 @@ tests:
 		"!stderr":
 			- "cosmo-bootstrap"
 
-<<<<<<< HEAD
-	# The pipeline is all or nothing: the go command and the build tools it
-	# links answer only a process a pipeline run started. From a shell they
-	# are not commands.
-	- desc: the linked go command is not a command outside a pipeline run
-=======
 	# Only a program named go is the go command. go-toolchain has no go
 	# subcommand, and "tool" reaches only the tools the go command links.
 	- desc: go-toolchain is never the go command under its own name
->>>>>>> origin/master
 	  cmd: '{shared.gt.exe} {matrix.args}'
 	  exit: 1
 	  timeout: 30s
 	  matrix:
-<<<<<<< HEAD
-		args: ["go version", "go build ./...", "go test ./...", "tool compile -V=full"]
-	  inputs:
-		env:
-			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-			GO_TOOLCHAIN_LINKED_GO: ""
-=======
 		args: ["go version", "go build ./...", "go test ./...", "tool nosuchtool"]
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
->>>>>>> origin/master
 	  outputs:
 		stderr:
 			- "unknown command"

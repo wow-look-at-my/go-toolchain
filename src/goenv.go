@@ -8,10 +8,6 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-<<<<<<< HEAD
-// a direct download: pipe falls back on any error, comma only on not-found. A
-// trailing ",direct" is upgraded; any other "direct" value is untouched.
-=======
 // ensureDirectFallback appends ",direct" so a module the proxy does not carry
 // still resolves. Comma falls through on not-found only; pipe would fall
 // through on any error, including a 502.
@@ -25,7 +21,6 @@ import (
 // through to git cannot both verify. Pipe made proxy health decide which.
 //
 // A trailing "|direct" is downgraded; any other "direct" value is untouched.
->>>>>>> origin/master
 func ensureDirectFallback(goproxy string) string {
 	if strings.HasSuffix(goproxy, "|direct") {
 		return strings.TrimSuffix(goproxy, "|direct") + ",direct"
