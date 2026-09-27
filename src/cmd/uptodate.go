@@ -107,6 +107,8 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 	// The fork checkout is the standard library a build of this module compiles.
 	fmt.Fprintf(h, "gosmopolitan:%s\n", resolvedForkCommit)
 	fmt.Fprintf(h, "output:%s\n", outputDir)
+	// A moved org dependency is a new input, and the pins name it.
+	fmt.Fprintf(h, "orgpins:%s\n", os.Getenv(orgPinEnv))
 	fmt.Fprintf(h, "flags:%s\n", flagFingerprint())
 
 	// Folds in every var except shell noise, so flipping an env-gated test counts as a different run.
