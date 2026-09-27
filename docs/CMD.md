@@ -31,14 +31,6 @@ There is deliberately no flag that bypasses the check. A skip that fires when so
 
 Still untracked: a file a test reads at run time that lives outside `testdata` and under no `//go:embed` directive.
 
-## The agent output guard
-
-`claudeguard.go` (+ `claudeguard_proc.go` / `claudeguard_tty_*.go` / `claudeguard_other.go`): the root `PersistentPreRunE` aborts with exit 1 (deleting the module's build outputs) when go-toolchain runs under an AI coding agent AND its stdout is hidden.
-
-WHICH agents, and how to spot one, is `github.com/wow-look-at-my/is-this-an-agent`, not this repo. Add an agent there.
-
-Unconditional, no opt-out. `cacheprog` and `version` are exempt because neither prints a build result. `install`/`release` skip only the build cache. See `docs/AGENT-OUTPUT-GUARD.md` for the roster, the stdout classifier and the `linux||cosmo` build-tag requirement.
-
 ## cacheprog installs its logger first
 
 `runCacheProg` (`cacheprog.go`) installs the stderr-only logger (`logger.InitSubprocess`) as its FIRST action, BEFORE config parsing, because the subprocess's stdout is the GOCACHEPROG protocol channel cmd/go parses.
@@ -53,7 +45,7 @@ Fat APE builds use the gosmopolitan fork, whose `unix` build tag matches cosmo w
 
 ## The matrix cosmo target
 
-`targets.go` + `cosmotargets.go` + `cosmobootstrap.go`. `matrix` resolves its platforms in two cases:
+`targets.go` + `cosmotargets.go`. `matrix` resolves its platforms in two cases:
 
 - **No target flags — the default.** ONE `GOOS=cosmo` fat APE built with the gosmopolitan fork (artifact `<name>`, no `.exe`), covering `--cosmo-platforms`. One file, three platforms, one published artifact.
 - **`--targets`.** An exact, validated list containing `cosmo` and/or the wasm targets (`wasm/js`, `wasm/wasip1`) — nothing else. The fat APE is the command's only native output. So a native `os/arch` pair is rejected with a pointer to `--cosmo-platforms`, which is how the APE's own host coverage is chosen.
@@ -68,11 +60,9 @@ Do not read this as a size knob. Payloads are per ARCHITECTURE, and the default 
 
 An older fork ignores an unknown `GOCOSMO*` variable silently, which will emit a full-coverage APE while the run reported a slimmed one. `cosmoPlatformsEnvValue` (`cosmoplatforms.go`) therefore probes support first — `go env GOCOSMOPLATFORMS` with a sentinel value, which only an aware toolchain echoes back. The artifact is still correct there: a superset APE runs on every platform claimed, and for the default set it is not even larger.
 
-The toolchain is resolved by `EnsureCosmoToolchain` (`cosmobootstrap.go`, seam `ensureCosmoToolchainFunc`), which runs BEFORE the test phase so config errors fail fast. The key is `v<N>` parsed from the dl endpoint's redirect `Location` (`probeCosmoVersion`, a redirect-stopping HEAD), falling back to a branch-keyed dir.
+The compiler is this binary. `EnsureGoVersion` (`toolchain.go`) links a `go` name to the executable, puts that directory ahead of `PATH`, and sets `GOROOT` and `GOTOOLCHAIN=local`. Outside this module `GOROOT` is the executable, which carries the fork's standard library. Inside it `GOROOT` is the `gosmopolitan` submodule (`forksource.go`). The submodule is at the head of the fork branch that matches this checkout's branch name. If no such branch exists, it uses the default branch. `go-toolchain version` names the fork commit the binary links. The three APEs `identical` compares (`go-toolchain verify-identical`, `src/cmd/apeidentity.go`) come from one compiler because each host runs the same binary.
 
-`GO_TOOLCHAIN_COSMO_VERSION` pins that release. buildhost reads `v` and `branch` as alternatives. So a pinned URL carries `v=<N>` and no branch, and the pin keys the cache directly instead of probing. `go-toolchain version cosmo` (`ResolveCosmoVersion`) prints the release this host will resolve, without downloading it. `--require-release` (`cosmoReleasePattern`, `^v[0-9]`) turns the branch-key fallback into a failing exit code, since that fallback means each host will then resolve its own answer. CI uses the pair: `host-build` resolves once (with `--require-release`) and hands the answer to each `build-everywhere` leg. So the three APEs `identical` compares (via `go-toolchain verify-identical`, `src/cmd/apeidentity.go`) come from one compiler even when a run spans a gosmopolitan publish.
-
-The cosmo build runs `<goroot>/bin/go` with `GOTOOLCHAIN=local`, `GOROOT`, a prefixed `PATH`, `CGO_ENABLED=0` always (`--cgo` warns), and `GOARCH`/`GOCOSMOFAT` cleared (fat is the fork default).
+The cosmo build runs the go command with `CGO_ENABLED=0` always (`--cgo` warns), and `GOARCH`/`GOCOSMOFAT` cleared (fat is the fork default).
 
 ## Fork-build cache isolation
 

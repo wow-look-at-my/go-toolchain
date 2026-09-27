@@ -25,7 +25,12 @@ func resolveLinks(path string) string {
 // (regression-tested by TestCheckFileCommittedByName_ManyFilesIndex).
 func checkFileCommittedGoGit(filename string) error {
 	fileDir := filepath.Dir(filename)
-	repo, err := git.PlainOpenWithOptions(fileDir, &git.PlainOpenOptions{DetectDotGit: true})
+	repo, err := git.PlainOpenWithOptions(fileDir, &git.PlainOpenOptions{
+		DetectDotGit: true,
+		// A linked worktree's .git is a file naming a gitdir under the parent's
+		// .git/worktrees; its refs and config live in the commondir beside it.
+		EnableDotGitCommonDir: true,
+	})
 	if err != nil {
 		return fmt.Errorf("cannot auto-fix %s: not in a git repo: %w", filename, err)
 	}

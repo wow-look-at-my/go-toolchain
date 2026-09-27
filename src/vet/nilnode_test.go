@@ -10,12 +10,11 @@ import (
 
 // A nilable AST field handed straight to ast.Inspect is the shape that panics.
 // The interface is not nil -- it holds a nil pointer -- so the callback's own
-// `n == nil` guard never runs, and ast.Walk dereferences the field first.
+// `n == nil` guard never runs, and ast.Walk dereferences the field.
 func TestInspectPanicsOnATypedNilNode(test *testing.T) {
 	var missing *ast.BlockStmt
 
-	// Compared with ==, which is the comparison a callback's guard performs.
-	// Reflection-based helpers call this nil and would hide the whole defect.
+	// Compared with ==, as a callback's guard does; reflection calls this nil.
 	assert.False(test, ast.Node(missing) == nil, "a nil pointer in an interface is not a nil interface")
 	assert.Panics(test, func() {
 		ast.Inspect(missing, func(node ast.Node) bool { return node != nil })

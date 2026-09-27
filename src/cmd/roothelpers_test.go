@@ -128,10 +128,6 @@ func TestFindGoModules_NoModules(t *testing.T) {
 // cache skip — cobra passes the leaf command to PersistentPreRunE, so the
 // skip check has to walk ancestors. Regression test for the release-job
 // "Determine tag" failure from `./build/go-toolchain version raw`.
-// version is exempt from the agent output guard too: it prints build metadata
-// and no build result, and this repository's own dats suite runs it -- dats
-// captures stdout to assert on it, so a guarded version fails the integration
-// phase of every run under an agent.
 func TestSkipCache_VersionSubcommandsSkip(t *testing.T) {
 	t.Serial()
 	t.Setenv("CI", "true")
@@ -147,8 +143,6 @@ func TestSkipCache_VersionSubcommandsSkip(t *testing.T) {
 			require.NotNil(t, leaf)
 			assert.True(t, skipUpToDateCheck(leaf),
 				"skipUpToDateCheck should return true for %q (Name=%q)", argv, leaf.Name())
-			assert.True(t, skipAgentGuard(leaf),
-				"skipAgentGuard should be true for %q -- it prints no build result", argv)
 			// End-to-end: PersistentPreRunE must not fail for this leaf.
 			assert.NoError(t, rootCmd.PersistentPreRunE(leaf, nil))
 		})

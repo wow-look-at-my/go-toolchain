@@ -24,6 +24,13 @@ func ReadModulePath(root string) string {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "module ") {
+			// A trailing comment is not part of the path. The generate
+			// approval rides on this line, so taking the rest of it whole
+			// hands every consumer a path with a space in it, and go then
+			// refuses each package under it as a malformed import path.
+			if at := strings.Index(line, "//"); at >= 0 {
+				line = line[:at]
+			}
 			return strings.TrimSpace(strings.TrimPrefix(line, "module"))
 		}
 	}
@@ -35,14 +42,26 @@ func skipDir(name string) bool {
 	return strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata" || name == "node_modules"
 }
 
-// IsNestedModule reports whether dir holds its own go.mod. Walkers must skip these dirs:
-// their files are not part of this module's build.
+// IsNestedModule reports whether dir holds its own go.mod or is another
+// repository's working tree.
 func IsNestedModule(dir string) bool {
 	if dir == "." {
 		return false
 	}
+	if IsGitSubmodule(dir) {
+		return true
+	}
 	_, err := os.Stat(filepath.Join(dir, "go.mod"))
 	return err == nil
+}
+
+// IsGitSubmodule reports whether dir is a git submodule's working tree.
+func IsGitSubmodule(dir string) bool {
+	if dir == "." {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(dir, ".git"))
+	return err == nil && info.Mode().IsRegular()
 }
 
 // FindMainPackages returns import paths of all main packages, found by walking the module

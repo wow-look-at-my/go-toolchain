@@ -261,6 +261,44 @@ func TestIsUpToDateStaleAfterChange(t *testing.T) {
 	assert.False(t, isUpToDate(runner.NewMock()))
 }
 
+// Losing the outputs is what the CI cache-validation step does on purpose. The
+// tree still went green, so vet and the tests are not asked again -- see
+// docs/CI.md.
+func TestDeletedOutputsLeaveTheInputsUnchanged(t *testing.T) {
+	t.Serial()
+	chdirTemp(t)
+
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	os.MkdirAll("src", 0755)
+	os.WriteFile("src/main.go", []byte("package main\nfunc main() {}\n"), 0644)
+	os.MkdirAll("build", 0755)
+	os.WriteFile("build/example.com", []byte("binary"), 0755)
+	saveFingerprint(runner.NewMock())
+	require.True(t, isUpToDate(runner.NewMock()))
+
+	require.NoError(t, os.RemoveAll("build"))
+	assert.False(t, isUpToDate(runner.NewMock()), "the outputs are gone, so a build still has to run")
+	assert.False(t, outputsPresent(runner.NewMock()))
+	assert.True(t, inputsUnchanged(runner.NewMock()), "nothing the tests read has moved")
+}
+
+// An edited source moves both answers, so the suite runs again.
+func TestAnEditedSourceMovesTheInputs(t *testing.T) {
+	t.Serial()
+	chdirTemp(t)
+
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	os.MkdirAll("src", 0755)
+	os.WriteFile("src/main.go", []byte("package main\nfunc main() {}\n"), 0644)
+	os.MkdirAll("build", 0755)
+	os.WriteFile("build/example.com", []byte("binary"), 0755)
+	saveFingerprint(runner.NewMock())
+
+	os.WriteFile("src/main.go", []byte("package main\nfunc main() { println(\"x\") }\n"), 0644)
+	assert.False(t, inputsUnchanged(runner.NewMock()))
+	assert.True(t, outputsPresent(runner.NewMock()), "the outputs are still there, and now stale")
+}
+
 func TestSaveFingerprint(t *testing.T) {
 	t.Serial()
 	chdirTemp(t)

@@ -170,7 +170,7 @@ func resolveGoImportMeta(modulePath string) (vcsURL, importPrefix string, err er
 }
 
 // parseGoImportMeta extracts the VCS repo URL and import prefix from HTML
-// containing a go-import meta tag.  The expected format is:
+// containing a go-import meta tag. The expected format is.
 //
 //	<meta name="go-import" content="prefix vcs repo-url">
 func parseGoImportMeta(html, modulePath string) (repoURL, importPrefix string, err error) {

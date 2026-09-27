@@ -26,12 +26,12 @@ func hostLinkName(name string) string {
 func wasmJob(t *testing.T, outputPath string) buildJob {
 	t.Helper()
 	return buildJob{
-		goos:           "wasip1",
-		goarch:         wasmArch,
-		srcPath:        ".",
-		outputPath:     outputPath,
-		forkGoroot:     filepath.Join(t.TempDir(), "fork-goroot"),
-		cacheNamespace: "deadbeef00c0ffee",
+		goos:       "wasip1",
+		goarch:     wasmArch,
+		srcPath:    ".",
+		outputPath: outputPath,
+		goCmd:      []string{filepath.Join(t.TempDir(), "go-toolchain"), "go"},
+		goroot:     filepath.Join(t.TempDir(), "fork-goroot"),
 	}
 }
 
@@ -83,15 +83,10 @@ func TestRunBuildNoStderrOnSuccess(t *testing.T) {
 	assert.FileExists(t, job.outputPath, "the commit moved the build onto the target name")
 }
 
-// The compiler is a file on disk, and on a windows host that file is go.exe.
-// runBuild is where everything compiles, so a path spelled without the suffix
-// fails to exec every build on that host.
-func TestRunBuildExecsGoExeOnWindowsHost(t *testing.T) {
+// The compiler is this binary under its go subcommand, so the command line
+// runBuild starts is the job's go command followed by the build.
+func TestRunBuildStartsTheGoCommandOfTheJob(t *testing.T) {
 	t.Serial()
-	oldHost := cosmoHostPlatformFunc
-	cosmoHostPlatformFunc = func() (string, string) { return "windows", "amd64" }
-	t.Cleanup(func() { cosmoHostPlatformFunc = oldHost })
-
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		writeMockBuildOutput(cfg, "bin")
@@ -102,7 +97,8 @@ func TestRunBuildExecsGoExeOnWindowsHost(t *testing.T) {
 	require.NoError(t, runBuild(mock, job, nil))
 	calls := mock.Calls()
 	require.Len(t, calls, 1)
-	assert.Equal(t, filepath.Join(job.forkGoroot, "bin", "go.exe"), calls[0].Name)
+	assert.Equal(t, job.goCmd[0], calls[0].Name)
+	assert.Equal(t, []string{"go", "build"}, calls[0].Args[:2])
 }
 
 // The APE claims to run on every host, and that claim is honest only if every
@@ -180,7 +176,7 @@ func TestRunBuild(t *testing.T) {
 	goroot, _ := cfg.Env.Get("GOROOT")
 	assert.Equal(t, "wasip1", goos)
 	assert.Equal(t, wasmArch, goarch)
-	assert.Equal(t, job.forkGoroot, goroot)
+	assert.Equal(t, job.goroot, goroot)
 
 	// -o is the .tmp- spelling, never the target file itself.
 	hasOutput := false

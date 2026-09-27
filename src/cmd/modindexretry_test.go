@@ -106,6 +106,9 @@ func TestDisableGoModuleIndexMergesExistingGODEBUG(t *testing.T) {
 	t.Setenv("GODEBUG", "")
 	disableGoModuleIndex()
 	require.Equal(t, "goindex=0", os.Getenv("GODEBUG"))
+
+	disableGoModuleIndex()
+	require.Equal(t, "goindex=0", os.Getenv("GODEBUG"), "a second call adds nothing: the value is hashed into every test result")
 }
 
 func TestTailBufferKeepsBoundedTail(t *testing.T) {

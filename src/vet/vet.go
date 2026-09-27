@@ -74,25 +74,10 @@ func RunWithProgress(fix bool, progress ProgressFunc) (bool, error) {
 	return fmtChanged || semanticChanged, err
 }
 
-// RunFromSource type-checks every dependency from SOURCE. The default reads
-// export data, which is faster and can be rejected. Depth: docs/CI.md
-func RunFromSource(fix bool, progress ProgressFunc) (bool, error) {
-	loadDepsFromSource = true
-	defer func() { loadDepsFromSource = false }()
-	return RunWithProgress(fix, progress)
-}
-
-// loadDepsFromSource is set only for the duration of RunFromSource.
-var loadDepsFromSource bool
-
-// NeedModule populates pkg.Module, which bannedoutput scopes its ban by.
-// NeedDeps drops export data, so no importer is in the path.
+// loadMode type-checks the module's own source and reads each dependency as
+// the export data the compiler in this binary wrote. Depth: docs/CI.md
 func loadMode() packages.LoadMode {
-	mode := packages.LoadSyntax | packages.NeedModule
-	if loadDepsFromSource {
-		mode |= packages.NeedDeps
-	}
-	return mode
+	return packages.LoadSyntax | packages.NeedModule
 }
 
 // RunOnPattern executes all analyzers on packages matching pattern.
@@ -217,6 +202,7 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 	filesChanged := false
 
 	report("type-check " + tagCfg.String())
+	// The fork's default target, cosmo, is the a single every artifact and test binary builds for.
 	cfg := &packages.Config{
 		Mode:  loadMode(),
 		Tests: true,
@@ -231,6 +217,12 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 		f, err := parser.ParseFile(fset, filename, src, parser.AllErrors|parser.ParseComments)
 		task.End()
 		return f, err
+	}
+
+	// Which go command answers the loader, and what it reads as GOROOT.
+	if goPath, lookErr := exec.LookPath("go"); lookErr == nil {
+		goroot, _ := exec.Command(goPath, "env", "GOROOT").Output()
+		logger.Info("vet: go command %s, GOROOT %s", goPath, strings.TrimSpace(string(goroot)))
 	}
 
 	loadStart := time.Now()
@@ -446,18 +438,21 @@ func checkFileCommittedByName(filename string) error {
 	if err == nil {
 		return nil
 	}
-	// If go-git detected uncommitted changes, trust that result
-	if strings.Contains(err.Error(), "uncommitted changes") {
-		return err
-	}
-	// go-git failed for infrastructure reasons; fall back to git CLI
+	// A dirty verdict is confirmed against the git CLI before it stops the fix.
+	// In a linked worktree go-git v5 calls a committed file dirty where git
+	// calls the whole tree clean, and taking the library's word for it refused
+	// the autofix with no way past: committing cannot clear a verdict about a
+	// file that is already committed. Which files it misreads is known, and why
+	// is not, so git decides.
 	return checkFileCommittedExec(filename)
 }
 
 // checkFileCommittedExec checks file status by shelling out to the git CLI.
 // Used as a fallback when go-git encounters bugs or unsupported repo features.
+// The file's directory is the working directory, which cosmo spells for the
+// host, and the pathspec is the base name, which needs no spelling at all.
 func checkFileCommittedExec(filename string) error {
-	cmd := exec.Command("git", "status", "--porcelain", "--", filename)
+	cmd := exec.Command("git", "status", "--porcelain", "--", filepath.Base(filename))
 	cmd.Dir = filepath.Dir(filename)
 	out, err := cmd.Output()
 	if err != nil {

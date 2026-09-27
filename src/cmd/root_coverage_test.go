@@ -97,9 +97,9 @@ func TestRunWithRunnerGenerateSkip(t *testing.T) {
 }
 
 // newNoTestFilesMock simulates `go test ./...` on a module with no test
-// files: the package appears in the JSON stream only as a skip
-// ("?   pkg [no test files]"), the run exits clean, and the coverage profile
-// stays empty (just "mode: set") because no test binary ever ran.
+// files: the package appears in the JSON stream only as a skip ("? pkg [no
+// test files]"), the run exits clean, and the coverage profile stays empty
+// (just "mode: set") because no test binary ever ran.
 func newNoTestFilesMock() *runner.Mock {
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {

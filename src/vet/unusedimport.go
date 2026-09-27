@@ -4,14 +4,12 @@ import (
 	"bytes"
 	"fmt"
 	"go/ast"
-	"go/build"
 	"go/parser"
 	"go/printer"
 	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 )
@@ -39,44 +37,6 @@ func removeImport(f *ast.File, imp *ast.ImportSpec) {
 			break
 		}
 	}
-}
-
-// packageNameCache caches import path -> package name lookups.
-var (
-	packageNameCache   = make(map[string]string)
-	packageNameCacheMu sync.RWMutex
-)
-
-// importName returns the local name for an import.
-func importName(imp *ast.ImportSpec) string {
-	if imp.Name != nil {
-		return imp.Name.Name
-	}
-	importPath := strings.Trim(imp.Path.Value, `"`)
-
-	// Check the cache before parsing
-	packageNameCacheMu.RLock()
-	if name, ok := packageNameCache[importPath]; ok {
-		packageNameCacheMu.RUnlock()
-		return name
-	}
-	packageNameCacheMu.RUnlock()
-
-	// Use go/build to get the actual package name
-	pkg, err := build.Import(importPath, ".", 0)
-	if err == nil && pkg.Name != "" {
-		packageNameCacheMu.Lock()
-		packageNameCache[importPath] = pkg.Name
-		packageNameCacheMu.Unlock()
-		return pkg.Name
-	}
-
-	// Fallback: use last path component
-	name := filepath.Base(importPath)
-	packageNameCacheMu.Lock()
-	packageNameCache[importPath] = name
-	packageNameCacheMu.Unlock()
-	return name
 }
 
 // FixUnusedRangeVars scans all Go files and blanks unused range loop variables.

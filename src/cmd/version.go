@@ -115,45 +115,13 @@ func init() {
 			logger.Output("goos: %s, goarch: %s", runtime.GOOS, runtime.GOARCH)
 		},
 	})
-	var requireRelease bool
-	cosmoCmd := &cobra.Command{
-		Use:   "cosmo",
-		Short: "Print the gosmopolitan release this host would build against",
-		RunE:  func(cmd *cobra.Command, args []string) error { return runVersionCosmo(requireRelease) },
-	}
-	cosmoCmd.Flags().BoolVar(&requireRelease, "require-release", false, "Fail if the resolved version is not a real numbered buildhost release")
-	versionCmd.AddCommand(cosmoCmd)
 	rootCmd.AddCommand(versionCmd)
-}
-
-// runVersionCosmo prints the resolved gosmopolitan version and, with
-// requireRelease, fails when it is a branch-key fallback rather than a real
-// numbered release -- CI's guarantee that every host resolves the same
-// compiler (docs/CI.md).
-func runVersionCosmo(requireRelease bool) error {
-	if !requireRelease {
-		logger.Output("%s", ResolveCosmoVersion())
-		return nil
-	}
-
-	// Strict: an unreachable buildhost is not a missing release.
-	v, err := resolveCosmoReleaseStrict()
-	if err != nil {
-		// rawStderr, not logger.Error: the caller captures stdout as the version value.
-		fmt.Fprintf(rawStderr, "::error::could not reach buildhost to resolve the gosmopolitan release: %v\n", err)
-		return fmt.Errorf("resolving the gosmopolitan release: %w", err)
-	}
-	logger.Output("%s", v)
-	if !cosmoReleasePattern.MatchString(v) {
-		fmt.Fprintf(rawStderr, "::error::buildhost did not name a gosmopolitan release (got %q), so each host would resolve its own\n", v)
-		return fmt.Errorf("resolved version %q is not a real gosmopolitan release", v)
-	}
-	return nil
 }
 
 type versionOutput struct {
 	Version       string `json:"version"`
 	Commit        string `json:"commit"`
+	Gosmopolitan  string `json:"gosmopolitan"`
 	CommitDate    string `json:"commit_date,omitempty"`
 	BuildDate     string `json:"build_date,omitempty"`
 	LatestCommit  string `json:"latest_commit,omitempty"`
@@ -163,8 +131,9 @@ type versionOutput struct {
 func runVersionJSON(cmd *cobra.Command, args []string) {
 	commit := resolvedCommit()
 	out := versionOutput{
-		Version: resolvedVersion(),
-		Commit:  commit,
+		Version:      resolvedVersion(),
+		Commit:       commit,
+		Gosmopolitan: linkedForkCommit(),
 	}
 
 	if ts, ok := resolvedTimestamp(); ok {
@@ -197,6 +166,7 @@ func runVersion(cmd *cobra.Command, args []string) {
 func printVersionInfo() {
 	logger.Output("Version:     %s", resolvedVersion())
 	logger.Output("Commit:      %s", resolvedCommit())
+	logger.Output("Gosmopolitan: %s", linkedForkCommit())
 
 	if ts, ok := resolvedTimestamp(); ok {
 		logger.Output("Commit date: %s", time.Unix(ts, 0).UTC().Format(time.RFC3339))

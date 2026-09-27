@@ -5,16 +5,16 @@
 // tests cannot share a process at all, and each kind announces itself in the
 // source:
 //
-//   ResetWarnCount   the warnings budget counts a whole run, so its counters
+//   ResetWarnCount the warnings budget counts a whole run, so its counters
 //                    are process-wide and a test that resets them owns them
-//   analysistest.    x/tools chdirs into the fixture, and nothing here can
-//                    pass it a directory instead
-//   os.Chdir         the test moves the process, which moves it for every
+//                    analysistest. x/tools chdirs into the fixture, and
+//                    nothing here can pass it a directory instead os.Chdir
+//                    the test moves the process, which moves it for every
 //                    test beside it. Prefer giving the code under test a
 //                    root argument; reach for this only where the suite is
-//                    short enough that running it serially costs nothing.
-//   a package global the test assigns a variable its own package reads, so
-//                    every test reading it sees the write
+//                    short enough that running it serially costs nothing. a
+//                    package global the test assigns a variable its own
+//                    package reads, so every test reading it sees the write
 //
 // A test already holding the barrier is skipped. t.Chdir and t.Setenv take it
 // themselves, so a test spelling either is already serial and needs no

@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/wow-look-at-my/go-toolchain/src/hostos"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
@@ -25,6 +25,17 @@ type generateDirective struct {
 	File    string // path to the .go file containing the directive
 	Line    int    // line number of the directive
 	Command string // the command to execute (after "//go:generate ")
+	// Label replaces File in the hash, so a version bump changing no directive needs no fresh approval.
+	Label   string
+	ReadDir string
+}
+
+// hashKey names the directive for the approval hash.
+func (d generateDirective) hashKey() string {
+	if d.Label != "" {
+		return d.Label
+	}
+	return d.File
 }
 
 // runGenerate executes all //go:generate directives with clean output handling.
@@ -37,13 +48,16 @@ func runGenerate(quiet bool, expectedHash string) error {
 	if err != nil {
 		return fmt.Errorf("failed to find generate directives: %w", err)
 	}
+	// A dependency ships its directive and not its output, so the build runs the directives it still owes.
+	deps, err := depGenerateDirectives()
+	if err != nil {
+		return fmt.Errorf("failed to read dependency generate directives: %w", err)
+	}
+	pending := pendingDepDirectives(deps)
 
-	if len(directives) == 0 {
+	if len(directives) == 0 && len(pending) == 0 {
 		return nil
 	}
-
-	// Compute hash of all directives
-	hash := computeDirectivesHash(directives)
 
 	// Allow explicit skip
 	if expectedHash == "skip" {
@@ -53,44 +67,70 @@ func runGenerate(quiet bool, expectedHash string) error {
 		return nil
 	}
 
-	// If no hash provided or hash mismatch, show commands and stop
-	if expectedHash == "" || expectedHash != hash {
+	if len(directives) > 0 {
+		if err := runOwnDirectives(directives, quiet, expectedHash); err != nil {
+			return err
+		}
+	}
+
+	if len(pending) == 0 {
+		return nil
+	}
+	if err := checkDepApprovals(deps, pending); err != nil {
+		return err
+	}
+	return satisfyDepDirectives(pending)
+}
+
+// runOwnDirectives runs this tree's directives when expectedHash approves them,
+// and otherwise shows them and names the go.mod line that would.
+func runOwnDirectives(directives []generateDirective, quiet bool, expectedHash string) error {
+	hash := computeDirectivesHash(directives)
+	if expectedHash != hash {
+		line := approvedModuleLine(".", hash)
 		if !quiet {
 			logger.Info("%s", colorYellow+"    Generate commands detected (not executed):"+colorReset)
 			for _, d := range directives {
 				logger.Info("\t%s:%d: %s%s%s", d.File, d.Line, colorYellow, d.Command, colorReset)
 			}
-			logger.Info("\n%sTo run these commands, add: --generate %s%s", colorYellow, hash, colorReset)
+			logger.Info("\n%sTo run these commands, record the approval on the module line in go.mod: %s%s", colorYellow, line, colorReset)
+			logger.Info("%sOr for a single run: --generate %s%s", colorYellow, hash, colorReset)
 		}
-		return fmt.Errorf("generate commands require approval: --generate %s", hash)
+		return fmt.Errorf("generate commands require approval: in go.mod, write %s", line)
 	}
-
-	// Hash matches, execute directives
 	for _, d := range directives {
 		if err := executeDirective(d, quiet); err != nil {
 			return err
 		}
 	}
-
 	return nil
 }
 
-// computeDirectivesHash computes a stable hash of all generate directives.
-// The hash includes file paths, line numbers, and commands to detect any changes.
+// computeDirectivesHash hashes directives by file path, line number and command.
 func computeDirectivesHash(directives []generateDirective) string {
+	return hashDirectives(directives, true)
+}
+
+// hashDirectives hashes directives by file and command, in file order, and by
+// line number too when withLine is set.
+func hashDirectives(directives []generateDirective, withLine bool) string {
 	// Sort directives for stable ordering
 	sorted := make([]generateDirective, len(directives))
 	copy(sorted, directives)
 	sort.Slice(sorted, func(i, j int) bool {
-		if sorted[i].File != sorted[j].File {
-			return sorted[i].File < sorted[j].File
+		if sorted[i].hashKey() != sorted[j].hashKey() {
+			return sorted[i].hashKey() < sorted[j].hashKey()
 		}
 		return sorted[i].Line < sorted[j].Line
 	})
 
 	h := sha256.New()
 	for _, d := range sorted {
-		fmt.Fprintf(h, "%s:%d:%s\n", d.File, d.Line, d.Command)
+		if withLine {
+			fmt.Fprintf(h, "%s:%d:%s\n", d.hashKey(), d.Line, d.Command)
+			continue
+		}
+		fmt.Fprintf(h, "%s:%s\n", d.hashKey(), d.Command)
 	}
 
 	// Return the hex prefix below - enough to be unique, short enough to type
@@ -106,8 +146,8 @@ func findGenerateDirectives(root string) ([]generateDirective, error) {
 			return err
 		}
 		if d.IsDir() {
-			// Skip vendor directories
-			if d.Name() == "vendor" {
+			// Vendored code and another module's tree carry their own directives.
+			if d.Name() == "vendor" || gomod.IsNestedModule(path) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -219,13 +259,23 @@ func isShellCommand(command string) bool {
 // executeDirective runs a single generate directive
 func executeDirective(d generateDirective, quiet bool) error {
 	dir := filepath.Dir(d.File)
+	// A directive in the module cache writes beside a file the cache keeps read
+	// only, so the write is what needs the mode, not the read.
+	if inModCache(dir) {
+		return withWritableDir(dir, func() error { return runDirective(d, dir, quiet) })
+	}
+	return runDirective(d, dir, quiet)
+}
+
+// runDirective is executeDirective a single time the directory is ready to be written.
+func runDirective(d generateDirective, dir string, quiet bool) error {
 
 	if !quiet {
 		logger.Info("\t%s", d.Command)
 	}
 
-	// A directive's tool must RUN here, so it targets the host. Depth: docs/PIPELINE.md
-	env := append(os.Environ(), "GOOS="+hostos.GOOS(), "GOARCH="+runtime.GOARCH)
+	// A directive's tool must RUN here, so it is an APE: the a single target the linked go command has, and a single that runs on every host.
+	env := append(os.Environ(), "GOOS=cosmo", "GOARCH="+runtime.GOARCH)
 	env = append(env,
 		"GOFILE="+filepath.Base(d.File),
 		fmt.Sprintf("GOLINE=%d", d.Line),

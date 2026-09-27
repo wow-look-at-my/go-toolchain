@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 )
 
 // A hand-rolled chdir in a test leaves the whole package standing in a removed
@@ -29,7 +30,7 @@ func TestNoTestCallsOsChdir(t *testing.T) {
 			return err
 		}
 		if d.IsDir() {
-			if d.Name() == "testdata" || d.Name() == "build" || strings.HasPrefix(d.Name(), ".") {
+			if d.Name() == "testdata" || d.Name() == "build" || strings.HasPrefix(d.Name(), ".") || gomod.IsNestedModule(path) {
 				return filepath.SkipDir
 			}
 			return nil

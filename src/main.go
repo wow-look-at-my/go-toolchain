@@ -12,6 +12,10 @@ func init() {
 	if isCacheProgInvocation() {
 		return
 	}
+	// The go command and its tools take the environment as it is.
+	if _, linked := cmd.LinkedGoArgs(os.Args); linked {
+		return
+	}
 
 	// Let Go auto-download the toolchain go.mod requires.
 	os.Setenv("GOTOOLCHAIN", "auto")
@@ -37,6 +41,12 @@ func isCacheProgInvocation() bool {
 }
 
 func main() {
+	// This binary is the go command: a child that starts go by name, or the
+	// pipeline starting itself under the go subcommand, lands here.
+	if code, linked := cmd.RunLinkedGo(os.Args); linked {
+		os.Exit(code)
+	}
+
 	// Install the elapsed-duration pipeline. Skip it for GOCACHEPROG: its
 	// stdout is a JSON protocol pipe that must stay undecorated.
 	if !isCacheProgInvocation() {
@@ -62,6 +72,9 @@ func main() {
 // already reports its own staleness.
 func shouldCheckForUpdate() bool {
 	if isCacheProgInvocation() {
+		return false
+	}
+	if _, linked := cmd.LinkedGoArgs(os.Args); linked {
 		return false
 	}
 	for _, arg := range os.Args[1:] {

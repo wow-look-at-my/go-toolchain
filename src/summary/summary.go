@@ -23,6 +23,25 @@ type SummaryData struct {
 	Benchmarks *bench.BenchmarkReport
 	BenchComp  *bench.Comparison
 	Timeline   []TimelineEntry
+	Artifacts  []ArtifactSize
+}
+
+// ArtifactSize is a built binary and its size on disk.
+type ArtifactSize struct {
+	Name  string
+	Bytes int64
+}
+
+// writeArtifactSizes lists each built artifact with its size in megabytes.
+func writeArtifactSizes(sb *strings.Builder, artifacts []ArtifactSize) {
+	if len(artifacts) == 0 {
+		return
+	}
+	sb.WriteString("| Artifact | Size |\n|---|---:|\n")
+	for _, artifact := range artifacts {
+		fmt.Fprintf(sb, "| %s | %.1f MB |\n", artifact.Name, float64(artifact.Bytes)/(1<<20))
+	}
+	sb.WriteString("\n")
 }
 
 // Write generates a markdown summary and appends it to $GITHUB_STEP_SUMMARY.
@@ -86,6 +105,8 @@ func GenerateMarkdown(data *SummaryData) string {
 	if len(data.TestCases) > 0 {
 		writeTestTable(&sb, data.TestCases, commitSHA, repo, modulePath)
 	}
+
+	writeArtifactSizes(&sb, data.Artifacts)
 
 	// Benchmark results
 	if data.Benchmarks != nil && data.Benchmarks.HasResults() {

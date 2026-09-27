@@ -8,7 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 )
 
 // writeTargetProbe stages a directive that records the GOOS and GOARCH its
@@ -22,14 +21,14 @@ func writeTargetProbe(t *testing.T, dir string) string {
 	return testFile
 }
 
-// A directive builds a tool and then runs it on this machine. The fork
-// defaults to GOOS=cosmo, which yields an APE that go run cannot exec, so the
-// directive gets the host target instead of what the pipeline inherited.
-func TestExecuteDirectiveTargetsTheHost(t *testing.T) {
+// A directive builds a tool and then runs it on this machine, so the tool is
+// an APE for this machine's architecture, whatever target the pipeline
+// inherited.
+func TestExecuteDirectiveBuildsAnAPE(t *testing.T) {
 	// Not parallel: the inherited target is what this test replaces.
 	dir := t.TempDir()
 	testFile := writeTargetProbe(t, dir)
-	t.Setenv("GOOS", "cosmo")
+	t.Setenv("GOOS", "linux")
 	t.Setenv("GOARCH", "riscv64")
 
 	d := generateDirective{File: testFile, Line: 1, Command: "sh probe.sh"}
@@ -37,7 +36,7 @@ func TestExecuteDirectiveTargetsTheHost(t *testing.T) {
 
 	got, err := os.ReadFile(filepath.Join(dir, "target.txt"))
 	require.NoError(t, err)
-	assert.Equal(t, hostos.GOOS()+" "+runtime.GOARCH, string(got))
+	assert.Equal(t, "cosmo "+runtime.GOARCH, string(got))
 }
 
 // A directive that names its own target keeps it: the host values are the

@@ -109,7 +109,7 @@ func GetTimeline() *summary.Timeline {
 }
 
 // step tracks progress for a build step, printed as "⇒ label..." then
-// " done.". Sub-steps print "    label Xs" instead.
+// " done.". Sub-steps print " label Xs" instead.
 type step struct {
 	label  string
 	thread string
@@ -134,7 +134,7 @@ func logStepOn(label, thread string) *step {
 	return &step{label: label, thread: thread, start: time.Now()}
 }
 
-// logSubStep creates a sub-step that prints "    label Xs" only on completion,
+// logSubStep creates a sub-step that prints " label Xs" only on completion,
 // for recording sub-phases (e.g. vet phases) with their own timing.
 func logSubStep(label, thread string) *step {
 	if activeWatchdog != nil {

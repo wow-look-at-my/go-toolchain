@@ -8,7 +8,7 @@ The first step runs `wow-look-at-my/actions@no-all-builds-job#latest`, which fai
 
 Since `no-all-builds-job#3` the guard scans **the run's jobs** (Actions API) and **the head commit's check runs** (Checks API), and it **fails closed** when it cannot scan. The calling workflow's token therefore has to grant `actions: read` and `checks: read` — private repos 403 without them. Public-repo reads pass scope-less. Both are in the documented consumer permissions block.
 
-That `actions: read` is the guard's requirement, not autorelease's.
+That `actions: read` is the guard's requirement, not the publish's.
 
 ## 1b. The comment-wall guard
 
@@ -42,8 +42,7 @@ Registering is idempotent. An entry that is already present and enabled is left 
 
 ## 1b3. The APE binfmt handler
 
-`.github/scripts/register-ape-binfmt.sh` writes one `binfmt_misc` entry on a
-Linux runner:
+`.github/scripts/register-ape-binfmt.sh` writes one `binfmt_misc` entry on a Linux runner:
 
 ```
 :APE:M::\x4d\x5a\x71\x46\x70\x44\x3d\x27::/bin/sh:
@@ -57,13 +56,21 @@ Registering is idempotent. An entry that is already present and enabled is left 
 
 `dats/binfmt.dats` covers the contract. The script names its outcome, reaches the same outcome twice, and never fails the job. It registers nothing itself, because the sandbox grants no root. Where an entry does exist it asserts the magic and the interpreter, so a mistyped byte cannot pass.
 
-## 1b4. The sandbox backend for the dats phase
+## 1b4. The sandbox backend
 
-`.github/scripts/provision-bwrap.sh` runs on a Linux runner before the build. The dats phase sandboxes every suite command, and the backend it picks decides what those commands can reach. Without bubblewrap it falls back to docker, which runs the suites in a container with no host Go for the bootstrap.
+On a Linux runner, `wow-look-at-my/actions@cached-apt#latest` installs `bubblewrap` before the build. A cache hit skips apt. `.github/scripts/check-bwrap.sh` then proves that `bwrap` builds a sandbox. The dats phase sandboxes every suite command. Without bubblewrap it falls back to docker, which runs the suites in a container with no host Go for the bootstrap.
 
-The script reads the working directory. A module with no `dats/` directory pays nothing. A host where `bwrap` already builds a sandbox pays one probe. Otherwise the script installs bubblewrap with apt, turns off Ubuntu 24.04's `apparmor_restrict_unprivileged_userns`, and probes again. A host where the probe still fails fails the job here, with its own error. It never degrades to the docker fallback unnoticed. The step is skipped on macOS and Windows, which have other backends or none.
+The go command also confines a dependency's generate directive. It stops the build when it cannot. So a module needs `bwrap` for what its dependencies generate, whether or not it has suites of its own.
 
-A consumer therefore drops its own bubblewrap step. `dats/bwrap.dats` covers the contract. A module with no suites is left alone. A module with suites gets a usable backend or an error a caller can act on.
+The install therefore runs on every Linux run, with no condition. A module's own tree says nothing about what its dependencies generate. The check script installs nothing. It probes once. On a failed probe it turns off Ubuntu 24.04's `apparmor_restrict_unprivileged_userns`, turns on `unprivileged_userns_clone`, and probes again. A missing `bwrap` or a probe that still fails fails the job here, with its own error. It never degrades unnoticed. Both steps are skipped on macOS and Windows, which have other backends or none.
+
+cached-apt restores files, not dpkg state, and runs no maintainer script. The bubblewrap postinst only applies `kernel.unprivileged_userns_clone`. The check script sets that sysctl itself before its second probe.
+
+A consumer therefore drops its own bubblewrap step. `dats/bwrap.dats` covers the contract: a usable backend, or an error a caller can act on.
+
+The action cannot change `runs-on`. The wow-linux pool is an unprivileged container: seccomp denies `unshare(CLONE_NEWUSER)`, and no sysctl lifts a filter the container started with. A consumer whose runner fails the check sets `runs-on` to a runner where `bwrap` builds a sandbox.
+
+Do not copy `wow-look-at-my/dats/action.yml` into the consumer workflow. Do not `uses: wow-look-at-my/dats` for this either: that action downloads and runs the dats CLI. go-toolchain links `dats.Run` in-process. A second CLI run drifts from the linked version without helping the linked phase.
 
 ## 1c. Installing the binary
 
@@ -79,55 +86,25 @@ The probe captures its output rather than discarding it. So the real reason the 
 
 A caller-provided `binary:` is staged through `/tmp` and pre-run once for the same APE reason. Staging also keeps the caller's own file byte-identical. For a native binary this changes nothing.
 
+## 1d. The generators a dependency needs
+
+A dependency's `//go:generate` directives run when the dependency is fetched. A missing generator therefore fails the build. The step installs stringer, goyacc and gotext before the pipeline runs.
+
+It uses the runner's `go` when there is one. A self-hosted runner often has none. The step then runs go-toolchain as the go command, with `GO_TOOLCHAIN_LINKED_GO=1 go-toolchain go`. That go builds for `GOOS=cosmo`. Its `go install` writes into `$GOPATH/bin/cosmo_amd64` and ignores `GOBIN`. The step puts that directory on `PATH` beside `$GOPATH/bin`.
+
+That go has no `go.env` beside it. So without help it has an empty proxy list and fails with "GOPROXY list is not the empty string, but contains no entries". The step gives it Go's standard `GOPROXY` and `GOSUMDB` unless the runner already sets them. The generators are public modules, so the public checksum database discloses nothing.
+
 ## 1e. The CodeQL permission check
 
 `wow-look-at-my/actions@has-permission` reads `security-events` off the running workflow file, and fails the build where the grant is missing. Reading the declared block needs no token and spends no API call.
 
-## 2. Linux dats sandbox prelude
-
-dats always sandboxes (bwrap on Linux, seatbelt on macOS, docker as fallback)
-and there is no opt-out. After checkout-independent setup (secrets, git
-config, installing the binary) and **before** the step that runs go-toolchain
-on the consumer repo, the action on Linux:
-
-1. Looks for non-hidden `*.dats` under `dats/` (same gate as `hasDatsSuites` in
-   `src/cmd/datsphase.go`). No suites: skip silently — the dats phase is a
-   no-op anyway.
-2. Installs bubblewrap if `bwrap` is missing (`apt-get install bubblewrap`).
-3. Probes bwrap with the same one-liner dats uses. Success: done.
-4. Failure: does **not** `sudo sysctl`. That would weaken host-kernel userns
-   policy (`apparmor_restrict_unprivileged_userns` /
-   `unprivileged_userns_clone`; the latter is even the wrong direction), and
-   wow-linux's block is seccomp, not those sysctls.
-5. If `docker info` works: log that bwrap is blocked and dats will fall back
-   to docker; succeed. (Only runners that have a daemon — dind / some
-   GitHub-hosted.)
-6. If neither: fail the job with `::error::` naming the dind pool. Suites are
-   never silently skipped.
-
-macOS seatbelt needs neither bwrap nor this step; Windows is skipped.
-
-The action cannot change `runs-on`. Consumers with `dats/` on the wow-linux
-fleet set that one line:
-
-{% raw %}
-```yaml
-runs-on: ${{ vars.CI_RUNNER_DIND }}
-```
-{% endraw %}
-
-Do not copy `wow-look-at-my/dats/action.yml` into the consumer workflow, and
-do not `uses: wow-look-at-my/dats` for this: that action downloads and runs
-the dats CLI (`args` required). go-toolchain links `dats.Run` in-process; a
-second CLI run would drift versions and not help the linked phase.
-
-## 3. Secrets, then the build
+## 2. Secrets, then the build
 
 Fetches secrets over OIDC, then runs `go-toolchain matrix`.
 
 **What the target inputs build.** With `targets` unset — the default — the run produces ONE fat APE covering `cosmo-platforms` (`linux/amd64,darwin/arm64,windows/amd64`), published as a single multi-platform artifact. The fat APE is the action's only native output. `targets` adds wasm artifacts alongside it (`wasm/js`, `wasm/wasip1`), or replaces it entirely with wasm alone by leaving `cosmo` out of the list. There is no input that copies the APE onto per-platform artifact names. The APE publishes under its own name, once.
 
-## 4. Handing off `build/`
+## 3. Handing off `build/`
 
 Every run ends by cache-uploading `build/` for downstream jobs.
 
@@ -166,13 +143,15 @@ The dots make the suffixes collision-proof against job ids. A job id cannot cont
 
 A downstream job cache-downloads with NO name, which self-discovers the current run's hand-off. That is the preferred mode when the run saves only one hand-off. And it needs no knowledge of the producing job's id. A run carrying several hand-offs needs an explicit `go-build-<uploader job id>.b<build>`, or `go-build-<uploader job id>.m<index>.b<build>` such as `go-build-build.m2.broot`, because discovery will otherwise be ambiguous. A matrix producer is always such a case, because each leg saves its own name.
 
-## 5. Autorelease, and the permissions it needs
+## 4. Autorelease, and the permissions it needs
 
-`autorelease` (on by default) publishes the workspace `build/` **directly** to buildhost, through `wow-look-at-my/buildhost`'s buildhost-publish action and its local `path` input — no GitHub Actions artifact is involved.
+Autorelease publishes the workspace `build/` **directly** to buildhost, through `wow-look-at-my/buildhost`'s buildhost-publish action and its local `path` input — no GitHub Actions artifact is involved. No input turns it off. Every executable binary the action builds publishes.
+
+**A build with no executable binary publishes nothing.** buildhost-publish fails on a directory that holds nothing it can upload. The action therefore reads `build/` first. It skips the publish when no name matches `buildhost-artifacts.json` or `<binary>_{os}_{arch}`. Two builds take that path. The first is a library module with no main package. The second is a wasm-only build under the `GO_TOOLCHAIN_WASM_PUBLISH=0` opt-out, whose `.wasm`-suffixed names stay outside the upload set. This check copies buildhost-publish's own file rule. The two disagree only after that rule changes.
 
 **`autorelease_args` is parsed, not spread.** A composite `with:` block is static YAML. So those args cannot be spread into the publish step dynamically. Each recognized key is parsed into a step output and mapped onto an explicit buildhost-publish input. An unknown key fails loudly, because a typo must never be silently ignored. An empty input leaves every output empty, and buildhost-publish treats an empty input as absent. So the publish stays byte-identical.
 
-**The grants are read before the build.** A missing `id-token: write`, `deployments: write` or `artifact-metadata: write` used to surface as `Resource not accessible by integration` AFTER the whole build had run. `wow-look-at-my/actions@has-permission` now reads each one in the first seconds. It reads the running workflow file and resolves the scope the way GitHub does. The job's own `permissions:` block, then the workflow-level block when the job declares none. A missing grant fails the step that reads it. And the error names the grant and the block it came from. The check only runs where `autorelease` is on.
+**The grants are read only where a publish happens.** A missing grant otherwise surfaces at the end of the publish. The error there is `Resource not accessible by integration`. `wow-look-at-my/actions@has-permission` reads `id-token: write`, `deployments: write` and `artifact-metadata: write` the moment the action finds a binary to publish. A build that publishes nothing needs none of the three. It reads the running workflow file and resolves the scope the way GitHub does. The job's own `permissions:` block, then the workflow-level block when the job declares none. A missing grant fails the step that reads it. And the error names the grant and the block it came from.
 
 It replaced a set of empty-body `POST` probes that read a 403 off the live API. Reading the declared block needs no token, spends no API call, and cannot be confused by a failure that has nothing to do with permissions. It also removed a fork-PR carve-out. The old `id-token` check read `ACTIONS_ID_TOKEN_REQUEST_URL` out of the environment, which GitHub withholds on an external fork PR whatever the workflow declares. So that case had to be skipped by name. The declared block is the same on a fork.
 

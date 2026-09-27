@@ -9,11 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 
 	dats "github.com/wow-look-at-my/dats"
 	datsrunner "github.com/wow-look-at-my/dats/runner"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
@@ -25,6 +27,10 @@ var datsRunFunc = dats.Run
 
 // datsBuildDirEnv names the env var pointing suite commands at the staged binaries dir.
 const datsBuildDirEnv = "GO_TOOLCHAIN_DATS_BUILD_DIR"
+
+// datsForkCommitEnv names the env var carrying the gosmopolitan commit the
+// run's build linked, empty outside this module.
+const datsForkCommitEnv = "GO_TOOLCHAIN_DATS_GOSMOPOLITAN"
 
 // datsArtifact names a built binary to hand to dats suites.
 type datsArtifact struct {
@@ -79,10 +85,6 @@ const datsStageDir = ".dats-stage"
 // The dir must sit INSIDE the module root, as an absolute path: dats
 // sandboxes every command, reaching only the working directory (read-only)
 // plus declared paths.
-//
-// Staged binaries are READ-ONLY. A self-rewriting binary (the cosmo APE)
-// must be copied to the sandbox's own writable temp space by the suite that
-// runs it (`cp` into `$(mktemp -d)`, per dats/README.md).
 func stageDatsArtifacts(artifacts []datsArtifact) (string, error) {
 	root, err := os.Getwd()
 	if err != nil {
@@ -145,25 +147,16 @@ func runDatsOnly() error {
 	return err
 }
 
-// datsSandboxHint is appended when dats.Run fails because no sandbox backend
-// is usable. dats itself says "install bubblewrap, or start docker"; that is
-// incomplete for a consumer on wow-linux, where bwrap is blocked by seccomp
-// and there is no docker daemon. The GitHub Action is the one place the Linux
-// prelude lives (install bwrap, probe it, fall back to docker, else fail
-// naming the dind pool). This hint points at that rather than duplicating it,
-// and it does not mention sysctl: the action never weakens kernel userns
-// policy.
+// datsSandboxHint follows a dats.Run error that finds no usable sandbox backend.
+// On wow-linux seccomp blocks bwrap and no docker daemon runs, so the fix is a different runs-on.
 const datsSandboxHint = "dats always sandboxes and there is no opt-out. " +
-	"wow-look-at-my/go-toolchain@v1 installs and probes bubblewrap before the " +
-	"pipeline when this tree has dats/ suites; it does not sysctl the host " +
-	"kernel (wow-linux's block is seccomp). If this runner has neither " +
-	"working bwrap nor docker, set the job's runs-on to a runner with a " +
-	"docker daemon (e.g. vars.CI_RUNNER_DIND). Do not copy dats/action.yml " +
-	"into the consumer workflow."
+	"The wow-look-at-my/go-toolchain action installs bubblewrap on every Linux run " +
+	"and proves that it builds a sandbox before the pipeline. If this runner has " +
+	"neither working bwrap nor docker, set the job's runs-on to a runner that has " +
+	"one, such as a runner with a docker daemon (vars.CI_RUNNER_DIND). " +
+	"Do not copy dats/action.yml into the consumer workflow."
 
-// loudSandboxErr rewrites an unusable-sandbox error from dats.Run so a
-// consumer hears about the action prelude and the dind pool. Other errors
-// pass through unchanged.
+// loudSandboxErr adds datsSandboxHint to an unusable-sandbox error. Other errors pass through unchanged.
 func loudSandboxErr(err error) error {
 	if err == nil {
 		return nil
@@ -193,6 +186,33 @@ func datsSandbox() dats.Sandbox {
 	logger.Error("dats suites run UNSANDBOXED on this host: %v", err)
 	logger.Error("every suite still runs and every assertion still holds; what is gone is the isolation between a command and this machine")
 	return dats.Sandbox{Mode: datsrunner.SandboxNone}
+}
+
+// datsBackendFix names what gives a host of this GOOS a dats sandbox backend.
+func datsBackendFix(goos string) string {
+	switch goos {
+	case "linux":
+		return "install bubblewrap: apt-get install bubblewrap"
+	case "darwin":
+		return "make /usr/bin/sandbox-exec usable, or start a docker daemon"
+	default:
+		return "start a docker daemon that runs linux containers"
+	}
+}
+
+// datsBackendPreflight fails at the start of a run when a dir holds suites
+// and no sandbox backend is usable, not after the build. It asks the probe
+// that datsSandbox asks, so both cannot disagree. A host that can never
+// sandbox passes: the dats phase runs its suites on the host, loudly.
+func datsBackendPreflight(dirs []string) error {
+	if !slices.ContainsFunc(dirs, hasDatsSuites) {
+		return nil
+	}
+	err := datsSandboxProbe()
+	if err == nil || errors.Is(err, datsrunner.ErrNoBackendOnHost) {
+		return nil
+	}
+	return fmt.Errorf("dats suites need a sandbox backend, and none is usable on this host: %w\nfix: %s", err, datsBackendFix(hostos.GOOS()))
 }
 
 // runDatsPhase runs the module's dats suites (if any) against the binaries
@@ -243,6 +263,8 @@ func runDatsPhase(quiet bool, artifacts []datsArtifact) error {
 		Sandbox: datsSandbox(),
 		Env: []string{
 			datsBuildDirEnv + "=" + buildDir,
+			// The commit the build stamped, for a suite to hold `version` to.
+			datsForkCommitEnv + "=" + resolvedForkCommit,
 		},
 	})
 	if err != nil {

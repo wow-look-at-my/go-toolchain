@@ -69,8 +69,7 @@ var nodeSymbols = map[string]byte{
 // sequence of abstract tokens, stripping all concrete identifiers,
 // literals, and type names while preserving structural shape.
 func Linearize(node ast.Node) []Token {
-	// A nilable AST field wraps into an interface that is not nil, so the
-	// callback's own guard below never runs and ast.Walk dereferences first.
+	// A nil field in an interface is not nil, and ast.Walk would dereference it.
 	if held := reflect.ValueOf(node); node == nil || (held.Kind() == reflect.Pointer && held.IsNil()) {
 		return nil
 	}

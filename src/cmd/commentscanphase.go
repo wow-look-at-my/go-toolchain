@@ -1,92 +1,79 @@
 package cmd
 
 import (
-	"io/fs"
-	"os"
-	"path/filepath"
-	"strings"
+	"time"
 
-	"github.com/wow-look-at-my/go-containers/set"
-	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
-	"github.com/wow-look-at-my/slopfix/commentnumbers"
+	"github.com/wow-look-at-my/slopfix/commentfix"
 )
 
-// commentScanSkipDirs hold text nobody here authored.
-var commentScanSkipDirs = set.Of("vendor", "node_modules", "testdata")
-
-// commentScanMaxFileBytes is where a file stops being prose and becomes a blob.
-const commentScanMaxFileBytes = 1 << 20
-
-// runCommentScanPhase reports every number stated in a comment, anywhere in the
-// tree. Nothing resolves an import or starts a compiler, so it must stay ahead
-// of every other phase: that is what it buys. Warnings only, and the budget is
-// what fails the build. Depth: docs/COMMENT-SCAN.md
-func runCommentScanPhase(root string) {
-	st := logStep("comment scan")
-	for _, path := range commentScanFiles(root) {
-		src, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		for _, hit := range commentNumberFindings(path, string(src)) {
-			logger.WarnFile(path, "%s:%d:%d: %q is a number in a comment: %s",
-				path, hit.Line, hit.Col, hit.Number, commentnumbers.Remedy)
-		}
-	}
-	st.done()
+// commentScan is the comment repair, running beside phases that do not
+// read it. Depth: docs/COMMENT-SCAN.md
+type commentScan struct {
+	done   chan struct{}
+	result commentfix.TreeResult
+	took   time.Duration
 }
 
-// commentNumberFindings keeps a finding per line rather than per number,
-// because the repair is a rewrite of the line whatever it counts.
-func commentNumberFindings(path, src string) []commentnumbers.Hit {
-	seen := set.New[int]()
-	var out []commentnumbers.Hit
-	for _, hit := range commentnumbers.Check(path, src) {
-		if seen.Contains(hit.Line) {
-			continue
-		}
-		seen.Add(hit.Line)
-		out = append(out, hit)
-	}
-	return out
+// activeCommentScan is the sweep this run started, if it reached a module.
+var activeCommentScan *commentScan
+
+// startCommentScan sweeps root on a goroutine and answers a handle. The
+// caller must have found a go.mod: a repair is a write. The sweep is safe
+// beside tidy and generate, but NOT beside vet.
+func startCommentScan(root string) *commentScan {
+	scan := &commentScan{done: make(chan struct{})}
+	start := time.Now()
+	go func() {
+		defer close(scan.done)
+		scan.result = commentfix.FixTree(root)
+		scan.took = time.Since(start)
+	}()
+	return scan
 }
 
-// commentScanFiles returns every file under root the rule reads.
-func commentScanFiles(root string) []string {
-	// Where the root is not a module, the modules below it are the whole tree.
-	_, err := os.Stat(filepath.Join(root, "go.mod"))
-	rootIsModule := err == nil
-	var out []string
-	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if commentScanSkipDir(root, path, d.Name(), rootIsModule) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !commentnumbers.Supported(path) {
-			return nil
-		}
-		if info, err := d.Info(); err == nil && info.Size() > commentScanMaxFileBytes {
-			return nil
-		}
-		out = append(out, path)
-		return nil
-	})
-	return out
+// waitForCommentScan joins the sweep this run started and reports what it did.
+// With no sweep running it returns straight away.
+func waitForCommentScan() {
+	scan := activeCommentScan
+	activeCommentScan = nil
+	if scan == nil {
+		return
+	}
+	<-scan.done
+	scan.report()
 }
 
-// commentScanSkipDir reports whether the walk stops at this directory.
-func commentScanSkipDir(root, path, name string, rootIsModule bool) bool {
-	if path == root {
-		return false
+// report prints what the sweep did after the fact. The phase ran beside other
+// output and cannot narrate itself while it works.
+func (c *commentScan) report() {
+	result := c.result
+	if result.Skipped != "" {
+		logger.Output("⇒ comment scan: %s", result.Skipped)
 	}
-	if strings.HasPrefix(name, ".") || name == outputDir || commentScanSkipDirs.Contains(name) {
-		return true
+	if len(result.Repaired) > 0 {
+		logger.Output("⇒ comment scan: repaired %d of %d files %s",
+			len(result.Repaired), result.Read, fmtDuration(c.took))
 	}
-	return rootIsModule && gomod.IsNestedModule(path)
+	// Each rewrite prints as a diff under its rule, so the author sees every edit.
+	for _, rewrite := range result.Rewrites {
+		logger.Output("   [%s] %s\n%s", rewrite.Rule, rewrite.Path, rewrite.Diff)
+	}
+	for _, rejected := range result.Rejected {
+		logger.WarnFile(rejected.Path, "%s", rejected)
+	}
+	// A cut sentence is gone from the tree, so this is the only record of it.
+	for _, removal := range result.Removed {
+		logger.Output("   %s: the comment repair cut %q", removal.Path, removal.Text)
+	}
+	// An ste finding has no repair by design, so these are what the sweep
+	// leaves for the author rather than a sign the rule and its repair parted.
+	for _, finding := range result.Findings {
+		logger.WarnFile(finding.Path, "%s:%d:%d: %q is a number in a comment: %s",
+			finding.Path, finding.Line, finding.Col, finding.Number, commentfix.Remedy)
+	}
+	if tl := GetTimeline(); tl != nil {
+		end := time.Now()
+		tl.Record("comment scan", "comment-scan", end.Add(-c.took), end, false)
+	}
 }
