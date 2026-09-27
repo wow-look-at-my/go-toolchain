@@ -360,7 +360,7 @@ func TestRunDatsPhaseUnusableSandboxNamesDindPool(t *testing.T) {
 	assert.Contains(t, got, "dats suites failed")
 	assert.Contains(t, got, "no usable sandbox backend")
 	assert.Contains(t, got, "CI_RUNNER_DIND")
-	assert.Contains(t, got, "does not sysctl")
+	assert.Contains(t, got, "runs-on")
 	assert.Contains(t, got, "dats/action.yml")
 }
 
