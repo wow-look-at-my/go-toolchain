@@ -4,7 +4,7 @@ go-toolchain ships no cache server of its own. The gosmopolitan fork's `cmd/go` 
 
 ## What this repo still does
 
-Nothing. The CI cache-config check moved into gosmopolitan itself (`cmd/go/internal/cache`'s `validateCIShared`, called from `initDefaultCache`) — it now fails outright, with no downgrade-to-warning knob, whenever CI is set and `GO_BUILDCACHE_CONFIG` is not. `GO_BUILDCACHE_CONFIG` (base64 JSON: `endpoint`, `bucket`, `username`, `password` — the deprecated S3-style `key_id`/`access_key`/`region` spellings still parse, with a warning) reaches gosmopolitan's `cmd/go` through plain environment inheritance, since every `go build`/`go test` invocation is a child process of this binary.
+Nothing. The CI cache-config check moved into gosmopolitan itself (`cmd/go/internal/cache`'s `validateCIShared`, called from `initDefaultCache`). It now fails outright, with no downgrade-to-warning knob, whenever CI is set and `GO_BUILDCACHE_CONFIG` is not. `GO_BUILDCACHE_CONFIG` (base64 JSON: `endpoint`, `bucket`, `username`, `password` — the deprecated S3-style `key_id`/`access_key`/`region` spellings still parse, with a warning) reaches gosmopolitan's `cmd/go` through plain environment inheritance, since every `go build`/`go test` invocation is a child process of this binary.
 
 ## History
 

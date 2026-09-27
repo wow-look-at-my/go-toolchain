@@ -6,9 +6,9 @@ Every Warn/WarnFile actually emitted (post level-filtering) is recorded process-
 
 ## The budget counts DISTINCT warnings
 
-Two emissions are the same warning when the recorded text is identical. And the budget counts that warning once. One root cause repeats once per file, per module, per package variant or per retry. The commonest repeat is structural: vet's auto-fixer rewrites the tree, and `runWithRunnerOnce` then re-runs the whole pipeline against the corrected code. So every warning of the first pass is emitted a second time. Before the fold, that alone doubled a dirty tree's count and can fail a run that a clean tree passed.
+Emissions are the same warning when the recorded text is identical. And the budget counts that warning once. One root cause repeats once per file, per module, per package variant or per retry. The commonest repeat is structural: vet's auto-fixer rewrites the tree, and `runWithRunnerOnce` then re-runs the whole pipeline against the corrected code. So every warning of the first pass is emitted a second time. Before the fold, that alone doubled a dirty tree's count and can fail a run that a clean tree passed.
 
-What stays distinct: `WarnFile` records the `<file>: ` prefix. So the same sentence about two files is two warnings, and a message naming the value it found keeps its own identity. What folds: byte-identical text, however far apart the two emissions are.
+What stays distinct: `WarnFile` records the `<file>: ` prefix. So the same sentence about files is warnings, and a message naming the value it found keeps its own identity. What folds: byte-identical text, however far apart the emissions are.
 
 Folding governs the COUNT only. Every warning still prints or annotates as it did. And the recap names the repeat count of each (`(emitted 5 times)`) beside a total. So a folded repeat is visible rather than hidden:
 
@@ -16,7 +16,7 @@ Folding governs the COUNT only. Every warning still prints or annotates as it di
 build failed: 17 distinct warnings emitted (threshold: 15), 34 emitted in total (a repeat counts once).
 ```
 
-An analyzer that deduplicates its own findings (`mapset`, `writeruns`, both keyed on `file:line`) is doing a different job. It keeps the site from PRINTING four times as go/packages loads a package four ways. That one is about the log. This one is about the budget.
+An analyzer that deduplicates its own findings (`mapset`, `writeruns`, both keyed on `file:line`) is doing a different job. It keeps the site from PRINTING times as go/packages loads a package ways. That one is about the log. This one is about the budget.
 
 ## The failure re-prints what it counted
 
@@ -32,7 +32,7 @@ build failed: 17 distinct warnings emitted (threshold: 15), 34 emitted in total 
 Routing:
 
 - **Local**: one red block on stderr (`logError` → `logger.Error`).
-- **GitHub Actions**: ONE `::error` annotation carrying the whole list — `gha.go` escapes the newlines (`%0A`). So the annotation keeps every line instead of truncating to the first. It is a single annotation on purpose: the individual warnings were already `::warning` annotations, and re-emitting them per line will double the run's annotation count.
+- **GitHub Actions**: ONE `::error` annotation carrying the whole list — `gha.go` escapes the newlines (`%0A`). So the annotation keeps every line instead of truncating to the first. It is a single annotation on purpose. The individual warnings were already `::warning` annotations, and re-emitting them per line will double the run's annotation count.
 - **`--json`**: the recap goes to `rawStderr` (the documented logger bypass), because stdout carries the JSON payload.
 
 The returned error is the one-line `build failed: N distinct warnings emitted (threshold: 15)`, so the process's final error line names one number.
