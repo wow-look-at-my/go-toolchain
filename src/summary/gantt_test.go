@@ -38,8 +38,8 @@ func TestRenderGanttSingleThread(t *testing.T) {
 	assert.Contains(t, result, "```mermaid")
 	assert.Contains(t, result, "gantt")
 	assert.Contains(t, result, "section main")
-	assert.Contains(t, result, "go mod tidy :done, t0, 0, 850")
-	assert.Contains(t, result, "go vet :done, t1, 850, 2400")
+	assert.Contains(t, result, "go mod tidy (850ms) :done, t0, 0, 850")
+	assert.Contains(t, result, "go vet (1.6s) :done, t1, 850, 2400")
 	assert.Contains(t, result, "```\n")
 	// Theme config
 	assert.Contains(t, result, "doneTaskBkgColor")
@@ -87,10 +87,10 @@ func TestRenderGanttRendersTheWholeDocument(t *testing.T) {
 		"    dateFormat x\n" +
 		"    axisFormat %S s\n" +
 		"    section main\n" +
-		"    go vet :done, t0, 0, 1000\n" +
-		"    go test :crit, t1, 1000, 2000\n" +
+		"    go vet (1.0s) :done, t0, 0, 1000\n" +
+		"    go test (1.0s) :crit, t1, 1000, 2000\n" +
 		"    section deps\n" +
-		"    Dep check :done, t2, 0, 3000\n" +
+		"    Dep check (3.0s) :done, t2, 0, 3000\n" +
 		"```\n"
 
 	assert.Equal(t, want, RenderGantt(entries))
@@ -129,7 +129,7 @@ func TestRenderGanttLabelSanitization(t *testing.T) {
 
 	result := RenderGantt(entries)
 	assert.NotContains(t, result, "bin:thing")
-	assert.Contains(t, result, "bin thing")
+	assert.Contains(t, result, "build/binthing")
 }
 
 func TestRenderGanttSortsWithinThread(t *testing.T) {
@@ -160,9 +160,10 @@ func TestRenderGanttMinimumWidth(t *testing.T) {
 
 func TestSanitizeLabel(t *testing.T) {
 	t.Serial()
-	assert.Equal(t, "foo bar", sanitizeLabel("foo:bar"))
-	assert.Equal(t, "a b c", sanitizeLabel("a;b;c"))
+	assert.Equal(t, "foobar", sanitizeLabel("foo:bar"))
+	assert.Equal(t, "abc", sanitizeLabel("a;b;c"))
 	assert.Equal(t, "no hash", sanitizeLabel("no #hash"))
+	assert.Equal(t, "vet compile", sanitizeLabel("vet: compile"))
 }
 
 func TestRenderGanttWorkerThreadOrder(t *testing.T) {
