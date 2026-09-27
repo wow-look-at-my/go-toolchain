@@ -91,18 +91,26 @@ func buildSelfPass(r runner.CommandRunner, job buildJob, goCmd []string, work st
 		return "", err
 	}
 	blob := filepath.Join(dir, "std.blob")
+	logger.Info("  pass %d: compiling the standard library for cosmo/amd64 and cosmo/arm64", pass)
+	stdStep := logSubStep(fmt.Sprintf("pass %d: standard library", pass), "main")
 	if err := writeStdBlob(r, blobWriter(goCmd, job.goroot), job.goroot, blob); err != nil {
+		stdStep.failed()
 		return "", err
 	}
+	stdStep.done()
 	passJob := job
 	passJob.goCmd = goCmd
 	passJob.apeAppend = blob
 	passJob.outputPath = filepath.Join(dir, filepath.Base(job.outputPath))
 	passJob.selfHosted = false
 	passJob.ldflags = joinLDFlags(passJob.ldflags, "-X "+forkCommitVar+"="+resolvedForkCommit)
+	logger.Info("  pass %d: building both payloads and merging the APE", pass)
+	buildStep := logSubStep(fmt.Sprintf("pass %d: build and merge", pass), "main")
 	if err := runBuild(r, passJob, onFirstOutput); err != nil {
+		buildStep.failed()
 		return "", err
 	}
+	buildStep.done()
 	logger.Info("  pass %d: %s, standard library %s", pass, fileSizeText(passJob.outputPath), fileSizeText(blob))
 	return passJob.outputPath, nil
 }
