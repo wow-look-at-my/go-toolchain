@@ -82,7 +82,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		}
 	}
 
-	waitForCommentScan()
+	waitForRepair()
 
 	var vetStep *step
 	if !quiet {

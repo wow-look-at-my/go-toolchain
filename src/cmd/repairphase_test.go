@@ -27,7 +27,7 @@ func TestTheSweepRepairsTheTreeAndReportsIt(t *testing.T) {
 	write(t, dir, "go.mod", "module x\n")
 	write(t, dir, "a.go", "package p\n\n// The walk holds 3 phases.\nfunc f() {}\n")
 
-	scan := startCommentScan(dir)
+	scan := startRepair(dir)
 	<-scan.done
 	require.Len(t, scan.result.Repaired, 1)
 	assert.Empty(t, scan.result.Findings, "slopfix repairs every finding it reports")
@@ -38,12 +38,31 @@ func TestTheSweepRepairsTheTreeAndReportsIt(t *testing.T) {
 	assert.Contains(t, string(src), "func f() {}", "the repair stays inside the comment")
 }
 
+// The sweep takes every rule slopfix carries, not the comment ones alone. A
+// document is outside what a comment repair can reach, so a rewrite here is
+// what separates this from a sweep that only warns about prose.
+func TestTheSweepRepairsProseOutsideComments(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "go.mod", "module x\n")
+	write(t, dir, "README.md", "# Title\n\nIt doesn't hold the lock, and it shouldn't.\n")
+
+	scan := startRepair(dir)
+	<-scan.done
+	require.Len(t, scan.result.Repaired, 1, "the document was rewritten")
+
+	body, err := os.ReadFile(filepath.Join(dir, "README.md"))
+	require.NoError(t, err)
+	assert.NotContains(t, string(body), "doesn't", "the contraction is expanded")
+	assert.NotContains(t, string(body), "shouldn't")
+	assert.Contains(t, string(body), "# Title", "the repair leaves the heading alone")
+}
+
 // The join is what the build waits on, and a run that started no sweep must
 // not wait at all. Every caller reaching no module is in that case.
 func TestJoiningWithoutASweepAnswersAtOnce(t *testing.T) {
 	t.Serial()
-	activeCommentScan = nil
-	assert.NotPanics(t, waitForCommentScan)
+	activeRepair = nil
+	assert.NotPanics(t, waitForRepair)
 }
 
 // The join is spent a single time. The test phase and the deferred join in run
@@ -54,8 +73,8 @@ func TestJoiningTwiceIsSafe(t *testing.T) {
 	write(t, dir, "go.mod", "module x\n")
 	write(t, dir, "a.go", "package p\n")
 
-	activeCommentScan = startCommentScan(dir)
-	waitForCommentScan()
-	assert.Nil(t, activeCommentScan)
-	assert.NotPanics(t, waitForCommentScan)
+	activeRepair = startRepair(dir)
+	waitForRepair()
+	assert.Nil(t, activeRepair)
+	assert.NotPanics(t, waitForRepair)
 }

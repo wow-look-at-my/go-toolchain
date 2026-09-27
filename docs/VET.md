@@ -195,4 +195,4 @@ The remedy is the standard library. So it costs a consumer no dependency. The se
 
 ## commentnumbers: moved out of vet
 
-The comment-number rule is not an analyzer. It reads a syntax tree of its own rather than a type-checked package, so it covers every language and runs beside the dependency work. See [COMMENT-SCAN.md](COMMENT-SCAN.md).
+The prose rules are not analyzers. They read a syntax tree of their own rather than a type-checked package, so they cover every language and run beside the dependency work. See [PROSE-REPAIR.md](PROSE-REPAIR.md).
