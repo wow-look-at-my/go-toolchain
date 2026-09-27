@@ -24,6 +24,9 @@ var forkCommit string
 // forkCommitVar is the linker's name for forkCommit.
 const forkCommitVar = ownModulePath + "/src/cmd.forkCommit"
 
+// forkCommitEnv names the fork commit a CI run resolved once for all its.
+const forkCommitEnv = "GO_TOOLCHAIN_FORK_COMMIT"
+
 // resolvedForkCommit is the commit the submodule stands at for this run.
 var resolvedForkCommit string
 
@@ -147,6 +150,10 @@ func forkHead(r runner.CommandRunner) (string, error) {
 // resolveForkCommit asks the fork's remote for the head of this checkout's
 // branch, or of the default branch, in a single ls-remote.
 func resolveForkCommit(r runner.CommandRunner) (string, error) {
+	if commit := os.Getenv(forkCommitEnv); commit != "" {
+		logger.Info("gosmopolitan: building %s, the commit this run resolved", commit)
+		return commit, nil
+	}
 	branch := currentBranch(r)
 	refs := []string{"HEAD"}
 	if branch != "" {
