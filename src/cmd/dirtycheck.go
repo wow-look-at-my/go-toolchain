@@ -32,9 +32,9 @@ func checkDirtyInCI() error {
 	return fmt.Errorf("working tree is dirty in CI (run `go-toolchain` locally, review the diff, commit, and push)")
 }
 
-// dropForkGitlink removes the fork submodule's status line. syncForkSource
-// moves that gitlink whenever the fork moves, which is not an uncommitted
-// change. Every other dirty path survives.
+// dropForkGitlink removes the fork submodule's own status line.
+// syncForkSource puts the checkout on the fork branch named like this, or on
+// its default branch, so the gitlink moves whenever the fork does.
 func dropForkGitlink(files string) string {
 	var kept []string
 	for line := range strings.SplitSeq(files, "\n") {

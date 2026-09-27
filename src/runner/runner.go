@@ -138,7 +138,7 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 		}
 	}
 
-	// Our own pipes, not StdoutPipe's, which Wait closes before drainGrace can bound a reader.
+	// The pipes are ours, not StdoutPipe's: exec closes those at Wait, and this.
 	stdoutR, stdoutW, err := os.Pipe()
 	if err != nil {
 		return nil, err
@@ -162,7 +162,7 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 	stdoutW.Close()
 	stderrW.Close()
 
-	// Both streams drain from the start, so no read order blocks the child on a full pipe.
+	// Both streams are read from the moment the child starts.
 	outR, outW := io.Pipe()
 	errR, errW := io.Pipe()
 	p := &process{cmd: cmd, stdout: newSpool(), stderr: newSpool(), quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, exited: make(chan struct{})}
@@ -188,8 +188,7 @@ func relay(src *os.File, dst *io.PipeWriter) {
 // drainGrace is how long a relay keeps going after the command exits.
 var drainGrace = 5 * time.Second
 
-// reap waits for the command, then ends any read still waiting on EOF. A
-// grandchild can hold the OS pipe open.
+// reap waits for the command, then ends any read still waiting on EOF.
 func (p *process) reap(writers ...*io.PipeWriter) {
 	p.waitErr = p.cmd.Wait()
 	close(p.exited)
@@ -259,7 +258,7 @@ func (p *process) Wait() error {
 		}
 		io.Copy(w, p.stdout)
 	}
-	// reap ends both spools after the grace, even when a grandchild holds a stream open.
+	// Wait reports only once both spools have seen their end: reap closes.
 	p.stdout.drained()
 	p.stderr.drained()
 	<-p.exited

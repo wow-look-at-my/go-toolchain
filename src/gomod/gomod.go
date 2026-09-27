@@ -24,7 +24,7 @@ func ReadModulePath(root string) string {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "module ") {
-			// The generate approval rides on this line as a comment, which is not part of the path.
+			// A trailing comment is not part of the path.
 			if at := strings.Index(line, "//"); at >= 0 {
 				line = line[:at]
 			}
