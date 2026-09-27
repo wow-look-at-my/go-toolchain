@@ -82,7 +82,6 @@ jobs:
 
       # The fork's last published release is the bootstrap compiler for its make.bash: its go command carries the cache client in process, so go_bootstrap compiles from the shared cache; a stock Go cannot reach it.
       - name: Take the fork's release
-        if: steps.release.outputs.linked != 'true'
         uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
         with:
           # No fmt: a GOROOT is stored as a tar.gz, and repackaging wraps it again.
@@ -92,7 +91,6 @@ jobs:
           executable: false
 
       - name: Install the fork's release as the bootstrap compiler
-        if: steps.release.outputs.linked != 'true'
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/bootstrap"
@@ -102,7 +100,6 @@ jobs:
 
       # The pipeline links the fork's go command, so the fork's own build is what earliest compiles it; it runs after the secrets because a CI run of the fork's go command refuses to build with no shared cache configured. see docs/CI.md
       - name: Build the bootstrap go command from the fork checkout
-        if: steps.release.outputs.linked != 'true'
         working-directory: _gosmopolitan/src
         run: ./make.bash
 
