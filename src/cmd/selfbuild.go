@@ -17,6 +17,9 @@ import (
 // span, which is how a go binary carries its standard library.
 const apeAppendEnv = "GOCOSMOAPPEND"
 
+// embedstdProgressEnv asks the fork's embedstd for a line per source file it compiles. An older embedstd ignores it.
+const embedstdProgressEnv = "GOEMBEDSTD_PROGRESS"
+
 // selfBuildPasses is the most passes a self-build makes.
 const selfBuildPasses = 3
 
@@ -135,18 +138,21 @@ func writeStdBlob(r runner.CommandRunner, goCmd []string, goroot, blob string) e
 	for _, word := range goCmd {
 		args = append(args, "-go", word)
 	}
+	// embedstd prints a line per source file it compiles, so a cold pass shows its progress.
+	var stderr bytes.Buffer
 	cmd := runner.Cmd(goCmd[0], args...).
 		WithEnv("GOTOOLCHAIN", "local").
 		WithEnv("GOROOT", goroot).
+		WithEnv(embedstdProgressEnv, "1").
+		WithStderrWriter(io.MultiWriter(&stderr, os.Stderr)).
 		WithQuiet()
 	proc, err := cmd.Run(r)
 	if err != nil {
 		return fmt.Errorf("embedding the standard library: %w", err)
 	}
 	stdout, _ := io.ReadAll(proc.Stdout())
-	stderr, _ := io.ReadAll(proc.Stderr())
 	if err := proc.Wait(); err != nil {
-		said := bytes.TrimSpace(bytes.Join([][]byte{stderr, stdout}, []byte("\n")))
+		said := bytes.TrimSpace(bytes.Join([][]byte{stderr.Bytes(), stdout}, []byte("\n")))
 		if len(said) == 0 {
 			said = []byte("it printed nothing on either stream")
 		}
