@@ -24,9 +24,6 @@ var forkCommit string
 // forkCommitVar is the linker's name for forkCommit.
 const forkCommitVar = ownModulePath + "/src/cmd.forkCommit"
 
-// forkCommitEnv names the fork commit a CI run resolved once for all its.
-const forkCommitEnv = "GO_TOOLCHAIN_FORK_COMMIT"
-
 // resolvedForkCommit is the commit the submodule stands at for this run.
 var resolvedForkCommit string
 
@@ -149,11 +146,24 @@ func forkHead(r runner.CommandRunner) (string, error) {
 
 // resolveForkCommit asks the fork's remote for the head of this checkout's
 // branch, or of the default branch, in a single ls-remote.
+// In CI the answer is the head this run attempt locked in buildhost, which
+// checkout-fork-branch.sh locks under the same name.
 func resolveForkCommit(r runner.CommandRunner) (string, error) {
-	if commit := os.Getenv(forkCommitEnv); commit != "" {
-		logger.Info("gosmopolitan: building %s, the commit this run resolved", commit)
-		return commit, nil
+	name, head, err := forkBranchHead(r)
+	if err != nil || !isGHA() {
+		return head, err
 	}
+	commit, err := lockedRunValue(forkModulePath+"@"+name, head)
+	if err != nil {
+		return "", err
+	}
+	logger.Info("gosmopolitan: building %s on %s, locked for this run", commit, name)
+	return commit, nil
+}
+
+// forkBranchHead answers the branch the fork follows and its head: the branch
+// named like this checkout, else master.
+func forkBranchHead(r runner.CommandRunner) (string, string, error) {
 	branch := currentBranch(r)
 	refs := []string{"HEAD"}
 	if branch != "" {
@@ -161,19 +171,19 @@ func resolveForkCommit(r runner.CommandRunner) (string, error) {
 	}
 	_, out, err := resolveGitURLAndRef(r, forkModulePath, refs...)
 	if err != nil {
-		return "", fmt.Errorf("asking %s for its branches: %w", forkModulePath, err)
+		return "", "", fmt.Errorf("asking %s for its branches: %w", forkModulePath, err)
 	}
 	found, _ := parseLsRemoteRefs(out)
 	if branch != "" {
 		if commit := found["refs/heads/"+branch]; commit != "" {
 			logger.Info("gosmopolitan: following the branch named like this checkout, %s, at %s", branch, commit)
-			return commit, nil
+			return branch, commit, nil
 		}
 	}
 	if commit := found["HEAD"]; commit != "" {
-		return commit, nil
+		return "master", commit, nil
 	}
-	return "", fmt.Errorf("%s named no HEAD", forkModulePath)
+	return "", "", fmt.Errorf("%s named no HEAD", forkModulePath)
 }
 
 // checkoutFork detaches the submodule at commit, fetching it earliest.

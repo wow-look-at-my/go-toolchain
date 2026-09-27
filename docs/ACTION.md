@@ -158,50 +158,9 @@ Each fails the build without its grant — the build runs to completion and then
 
 The case that does not register is a publish whose target server is loopback or plain http (buildhost's own e2e spawns one on `http://localhost:18080`). A deployment asserts "this publish is live at `<environment_url>`", which is false for a server nothing outside the runner can reach. That is a property of the target, not an opt-out — every publish to a real https server registers. And a failure there is fatal.
 
-## 5. One set of org pins for a multi-job workflow
+## 5. One head per run across several jobs
 
-The action takes `GOORGPIN` from the job's environment. A job that leaves it empty resolves each org module once, at the start of its own run ([ORG-PINS.md](ORG-PINS.md#one-resolution-per-ci-run-goorgpin-srccmdorgpinenvgo)). That serves a workflow with a single building job.
-
-A workflow with several building jobs resolves once for all of them. Otherwise an org dependency that gets a commit mid-run reaches each job at a different commit. One pin job runs the fork's go command and exposes the pins as a job output. A job output carries a string, so no artifact is involved. Each building job `needs:` the pin job and sets `GOORGPIN` at job level:
-
-```yaml
-jobs:
-  org-pins:
-    runs-on: ubuntu-latest
-    outputs:
-      pins: ${{ steps.pins.outputs.pins }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
-        with:
-          project: gosmopolitan
-          branch: master
-          path: ${{ runner.temp }}/gosmopolitan.tar.gz
-          executable: false
-      - run: mkdir -p "$RUNNER_TEMP/fork" && tar -xzf "$RUNNER_TEMP/gosmopolitan.tar.gz" -C "$RUNNER_TEMP/fork"
-      - id: pins
-        uses: wow-look-at-my/actions@typescript#latest
-        env:
-          GOTOOLCHAIN: local
-        with:
-          script: |
-            const go = path.join(process.env.RUNNER_TEMP ?? "", "fork", "go", "bin", "go");
-            const format = "{{if not .Main}}{{.Path}}={{.Version}}{{with .Replace}} {{.Path}}={{.Version}}{{end}}{{end}}";
-            const listed = String(await $`${go} list -mod=readonly -m -f ${format} all`);
-            const pins = listed.split(/\s+/).filter((e: string) => e.startsWith("github.com/wow-look-at-my/") && !e.endsWith("="));
-            core.setOutput("pins", [...new Set(pins)].sort().join(" "));
-
-  test:
-    needs: org-pins
-    runs-on: ubuntu-latest
-    env:
-      GOORGPIN: ${{ needs.org-pins.outputs.pins }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: wow-look-at-my/go-toolchain@master
-```
-
-A private org dependency also needs the `secret-server` and git configuration steps in the pin job. This repository's own `ci.yml` has them, in its `org-pins` job.
+A workflow needs nothing for this. The fork's go command locks each org module's branch head per run attempt in buildhost, and every job of the attempt builds it ([ORG-PINS.md](ORG-PINS.md#one-head-per-ci-run-the-buildhost-run-lock)). The job only needs `id-token: write`, which the action already requires.
 
 ---
 

@@ -21,11 +21,11 @@ func TestCheckCIOnlyEnvRefusesEachVariableOutsideCI(t *testing.T) {
 	}
 }
 
-func TestCheckCIOnlyEnvAllowsBothInCI(t *testing.T) {
+func TestCheckCIOnlyEnvRefusesACommitPinInCI(t *testing.T) {
 	t.Setenv("GITHUB_ACTIONS", "true")
 	t.Setenv("GOORGPIN", "github.com/wow-look-at-my/x=v0.0.0-20260101000000-abcdefabcdef")
-	t.Setenv("GO_TOOLCHAIN_FORK_COMMIT", "abc")
-	assert.NoError(t, CheckCIOnlyEnv())
+	t.Setenv("GO_TOOLCHAIN_FORK_COMMIT", "")
+	assert.Error(t, CheckCIOnlyEnv())
 }
 
 func TestCheckCIOnlyEnvAllowsAnUnsetEnvironment(t *testing.T) {

@@ -205,7 +205,7 @@ Debug output goes to stderr and info to stdout. Warnings and errors become `::wa
 - [docs/VCS-STAMP.md](docs/VCS-STAMP.md) — the revision stamp, and the `GOFLAGS` `-ldflags` a build used to discard
 - [docs/BUILD-OUTPUTS.md](docs/BUILD-OUTPUTS.md) — when `build/` artifacts are deleted
 - [docs/ACTION.md](docs/ACTION.md) — the composite GitHub Action
-- [docs/ORG-PINS.md](docs/ORG-PINS.md) — org dependencies: the pin check, and a single resolution per CI run (`GOORGPIN`)
+- [docs/ORG-PINS.md](docs/ORG-PINS.md) — org dependencies: the pin check, and the buildhost run lock
 - [docs/CI.md](docs/CI.md) — this repo's own CI workflow
 - [docs/WARNINGS-GATE.md](docs/WARNINGS-GATE.md), [docs/BUILDHOST-MANIFEST.md](docs/BUILDHOST-MANIFEST.md)
 
