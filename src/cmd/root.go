@@ -308,6 +308,13 @@ func findGoModules() []string {
 			if isForkSubmodulePath(path) {
 				return filepath.SkipDir
 			}
+			// A directory with its own .git is another repository, such as a
+			// submodule. That repository builds and tests its own modules.
+			if name != "." {
+				if _, err := os.Lstat(filepath.Join(path, ".git")); err == nil {
+					return filepath.SkipDir
+				}
+			}
 			return nil
 		}
 		if d.Name() == "go.mod" {
