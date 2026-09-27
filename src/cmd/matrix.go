@@ -91,6 +91,11 @@ type buildResult struct {
 // the root, found nothing, and died on "no go.mod found" while the same tree
 // built fine under a bare go-toolchain.
 func runMatrixModules(r runner.CommandRunner) error {
+	return runMatrixModulesInto(r, nil)
+}
+
+// runMatrixModulesInto is runMatrixModules recording each module's test phase into sd when it is not nil.
+func runMatrixModulesInto(r runner.CommandRunner, sd *summary.SummaryData) error {
 	modules := findGoModules()
 	if len(modules) == 0 {
 		// Suites without a module are the whole run, as in the default
@@ -122,7 +127,7 @@ func runMatrixModules(r runner.CommandRunner) error {
 				return fmt.Errorf("failed to enter %s: %w", modDir, err)
 			}
 		}
-		if err := runReleaseWithRunner(r); err != nil {
+		if err := runReleaseInto(r, sd); err != nil {
 			return err
 		}
 	}
@@ -149,7 +154,8 @@ func runRelease(cmd *cobra.Command, args []string) error {
 	initBuildProfile()
 	defer captureProfileTrace()
 	r := runner.New()
-	if err := runMatrixModules(r); err != nil {
+	var sd summary.SummaryData
+	if err := runMatrixModulesInto(r, &sd); err != nil {
 		return err
 	}
 
@@ -159,7 +165,7 @@ func runRelease(cmd *cobra.Command, args []string) error {
 
 	// Write GitHub Step Summary with timeline
 	if tl := GetTimeline(); tl != nil {
-		sd := summary.SummaryData{Timeline: tl.Entries()}
+		sd.Timeline = tl.Entries()
 		if writeErr := summary.Write(&sd); writeErr != nil {
 			logger.Warn("⇒ Warning: failed to write step summary: %v", writeErr)
 		}

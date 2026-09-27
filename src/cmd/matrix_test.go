@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
+	"github.com/wow-look-at-my/go-toolchain/src/summary"
 )
 
 // With no target flags the run takes the single-APE path, which needs the go
@@ -44,6 +45,26 @@ func TestRunReleaseWithRunnerSuccess(t *testing.T) {
 	}
 	err := runReleaseWithRunner(mock)
 	assert.Nil(t, err)
+}
+
+// The step summary a matrix run writes carries the coverage its test phase measured.
+func TestRunReleaseIntoRecordsTheTestPhase(t *testing.T) {
+	t.Serial()
+	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js"})
+	releaseParallel = 1
+
+	mock := newTestPassMock(0)
+	origHandler := mock.Handler
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if isForkBuild(cfg, fakeGoroot) {
+			writeBuildOutput(t, cfg, "WASM")
+			return runner.MockProcess(nil, nil), nil
+		}
+		return origHandler(cfg)
+	}
+	var sd summary.SummaryData
+	require.NoError(t, runReleaseInto(mock, &sd))
+	assert.NotNil(t, sd.Coverage, "the summary must carry the test phase's coverage")
 }
 
 func TestRunReleaseWithRunnerBuildFails(t *testing.T) {

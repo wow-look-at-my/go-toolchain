@@ -13,6 +13,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
+	"github.com/wow-look-at-my/go-toolchain/src/summary"
 )
 
 // libraryModulesAllowed lets a module with no main package pass through the
@@ -29,7 +30,13 @@ var (
 	matrixBuiltBinaries   int
 )
 
-func runReleaseWithRunner(r runner.CommandRunner) (err error) {
+func runReleaseWithRunner(r runner.CommandRunner) error {
+	return runReleaseInto(r, nil)
+}
+
+// runReleaseInto runs the matrix release and, when sd is not nil, records the
+// test cases and coverage into it for the step summary.
+func runReleaseInto(r runner.CommandRunner, sd *summary.SummaryData) (err error) {
 	setupCGOEnvironment()
 	// Same contract as staleoutputs.go: clear outputs up front, and again on failure.
 	if err := clearBuildOutputs(r); err != nil {
@@ -57,8 +64,13 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	apePlatforms := forkEnv.coverage
 
 	// Run tests with coverage before building (same as the default command)
-	if _, _, err := RunTestsWithCoverage(r, false); err != nil {
+	_, testResult, err := RunTestsWithCoverage(r, false)
+	if err != nil {
 		return err
+	}
+	if testResult != nil && sd != nil {
+		sd.TestCases = append(sd.TestCases, testResult.TestCases...)
+		sd.Coverage = &testResult.Coverage
 	}
 
 	if codeql.Enabled() {

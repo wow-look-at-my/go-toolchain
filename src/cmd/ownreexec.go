@@ -6,17 +6,12 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// Set on the child of a self re-exec.
-const selfReexecEnv = "GO_TOOLCHAIN_SELF_REEXEC"
-
 // reexecUnderOwnBuild hands a run of this module to the toolchain it builds.
 // Vet and the tests then answer about the compiler that ships, and every
 // object they compile is what the build phase and the next run ask for. It
-// returns when this binary already reproduces itself.
+// returns when this binary already reproduces itself. No marker skips the
+// check: the child proves it again, and its first pass reproduces it.
 func reexecUnderOwnBuild() error {
-	if os.Getenv(selfReexecEnv) != "" {
-		return nil
-	}
 	pkg, ok := ownMainPackage()
 	if !ok {
 		return nil
@@ -41,7 +36,7 @@ func reexecUnderOwnBuild() error {
 		logger.Info("  this binary reproduces itself, so the run stays with it")
 		return nil
 	}
-	code := runSelfWith(bin, selfReexecEnv)
+	code := runSelfWith(bin)
 	_ = os.RemoveAll(dir)
 	os.Exit(code)
 	return nil
