@@ -101,6 +101,11 @@ var rootCmd = &cobra.Command{
 				discardBuildOutputsFromCWD()
 				return fmt.Errorf("go bootstrap: %w", err)
 			}
+			// Before any phase starts a go command, so every one of them and each re-exec inherits the pins.
+			if err := pinOrgModules(findGoModules()); err != nil {
+				discardBuildOutputsFromCWD()
+				return err
+			}
 		}
 		if skipUpToDateCheck(cmd) {
 			return nil

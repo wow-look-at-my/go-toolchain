@@ -16,6 +16,12 @@ import (
 // parallelArg is the value runTestsOnce passes to both -p and -parallel.
 var parallelArg = strconv.Itoa(runtime.NumCPU())
 
+func TestPerRunEnvKeepsTheRunLockVariables(t *testing.T) {
+	for _, name := range []string{"GITHUB_REPOSITORY", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT"} {
+		assert.NotContains(t, perRunEnv, name, "the go command locks org module heads per CI run, and a CI build that names no run fails")
+	}
+}
+
 func TestRunTestsWithMock(t *testing.T) {
 	t.Serial()
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
