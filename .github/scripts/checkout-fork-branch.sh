@@ -36,9 +36,11 @@ while read -r key _; do
 
 	git config "submodule.$name.branch" "$branch"
 	# A shallow submodule clone fetches one branch, and --remote reads only the tracking ref.
+	# The head names its own submodules, and make.bash compiles the commits it records.
 	if ! git submodule update --init -- "$path" ||
 		! git -C "$path" fetch --depth=1 origin "+refs/heads/$branch:refs/remotes/origin/$branch" ||
-		! git submodule update --remote -- "$path"; then
+		! git submodule update --remote -- "$path" ||
+		! git -C "$path" submodule update --init --recursive; then
 		echo "fork: cannot put $path on $branch from $url" >&2
 		exit 1
 	fi
