@@ -80,15 +80,6 @@ jobs:
             echo "linked=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # With no go under the fork's bin, each pass embeds the bootstrap's own archives, the linker's included, so the host APE keeps the release's linker. build-everywhere does the same.
-      - name: Put the go command where GOROOT looks for it
-        if: steps.release.outputs.linked == 'true'
-        run: |
-          set -euo pipefail
-          mkdir -p _gosmopolitan/bin
-          cp "$RUNNER_TEMP/gt-bootstrap" _gosmopolitan/bin/go
-          chmod +x _gosmopolitan/bin/go
-
       # The fork's last published release is the bootstrap compiler for its make.bash: its go command carries the cache client in process, so go_bootstrap compiles from the shared cache; a stock Go cannot reach it.
       - name: Take the fork's release
         if: steps.release.outputs.linked != 'true'
