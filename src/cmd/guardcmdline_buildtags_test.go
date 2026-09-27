@@ -1,7 +1,15 @@
 package cmd
 
+<<<<<<< HEAD
 // The bug this pins: a `_darwin.go` readCmdline beside a `!darwin` /proc
 // reader, which GOOS=cosmo resolves to the /proc side.
+=======
+// The bug this pins: readCmdline lived in a `_darwin.go` file next to a
+// `!darwin` /proc reader. GOOS=cosmo excludes the first and selects the
+// second, so the published APE asked a Mac for /proc, read nothing, and
+// acquitted every captured run the guard exists to refuse -- while the
+// GOOS=darwin unit tests, which do select the sysctl reader, stayed green.
+>>>>>>> origin/claude/guardcmdline-recovered
 
 import (
 	"os"
@@ -43,10 +51,16 @@ func guardCmdlineDefiners(t *testing.T, decl string) []string {
 	return out
 }
 
+<<<<<<< HEAD
 // A single definition per platform: none and the guard has no argv to read,
 // several and the build is ambiguous.
 func TestGuardCmdlineReaderBuildsForEachPlatform(t *testing.T) {
 	t.Serial()
+=======
+// Exactly one definition per platform: none and the guard has no argv to read,
+// several and the build is ambiguous.
+func TestGuardCmdlineReaderBuildsForEachPlatform(t *testing.T) {
+>>>>>>> origin/claude/guardcmdline-recovered
 	files := guardCmdlineDefiners(t, "func readCmdline(")
 	for goos, tags := range claudeGuardTagSets {
 		selected := claudeGuardSelected(t, files, goos, tags)
@@ -58,6 +72,7 @@ func TestGuardCmdlineReaderBuildsForEachPlatform(t *testing.T) {
 // The ps reader is what the APE has on a Mac, so it must be selected for
 // cosmo. A GOOS=linux build never needs it and must not carry it.
 func TestGuardCmdlinePSReaderSharedWithCosmo(t *testing.T) {
+<<<<<<< HEAD
 	t.Serial()
 	files := guardCmdlineDefiners(t, "func psCmdline(")
 	for _, goos := range []string{"darwin", "cosmo"} {
@@ -67,10 +82,21 @@ func TestGuardCmdlinePSReaderSharedWithCosmo(t *testing.T) {
 	}
 	assert.Empty(t, claudeGuardSelected(t, files, "linux", claudeGuardTagSets["linux"]),
 		"psCmdline must not be selected for GOOS=linux, which reads /proc")
+=======
+	files := guardCmdlineDefiners(t, "func readCmdlinePS(")
+	for _, goos := range []string{"darwin", "cosmo"} {
+		selected := claudeGuardSelected(t, files, goos, claudeGuardTagSets[goos])
+		assert.Len(t, selected, 1,
+			"GOOS=%s must select exactly one readCmdlinePS, got %v", goos, selected)
+	}
+	assert.Empty(t, claudeGuardSelected(t, files, "linux", claudeGuardTagSets["linux"]),
+		"readCmdlinePS must not be selected for GOOS=linux, which reads /proc")
+>>>>>>> origin/claude/guardcmdline-recovered
 }
 
 // The /proc reader is linked into the APE for its linux host, alongside the ps
 // reader it picks between at run time.
+<<<<<<< HEAD
 func TestGuardCmdlineProcReaderSharedWithCosmo(t *testing.T) {
 	t.Serial()
 	files := guardCmdlineDefiners(t, "func procCmdline(")
@@ -93,5 +119,13 @@ func TestGuardCmdlineSelfPIDBuildsEverywhere(t *testing.T) {
 		selected := claudeGuardSelected(t, files, goos, tags)
 		assert.Len(t, selected, 1,
 			"GOOS=%s must select exactly one selfPID, got %v", goos, selected)
+=======
+func TestGuardCmdlineProcReaderBuildsEverywhere(t *testing.T) {
+	files := guardCmdlineDefiners(t, "func readCmdlineProc(")
+	for goos, tags := range claudeGuardTagSets {
+		selected := claudeGuardSelected(t, files, goos, tags)
+		assert.Len(t, selected, 1,
+			"GOOS=%s must select exactly one readCmdlineProc, got %v", goos, selected)
+>>>>>>> origin/claude/guardcmdline-recovered
 	}
 }

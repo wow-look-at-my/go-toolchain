@@ -4,11 +4,15 @@ package cmd
 
 import (
 	"os"
+<<<<<<< HEAD
 	"path/filepath"
+=======
+>>>>>>> origin/claude/guardcmdline-recovered
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+<<<<<<< HEAD
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 )
 
@@ -29,6 +33,16 @@ func TestParsePSCommandKeepsTheShellScriptWhole(t *testing.T) {
 // `out=$(go-toolchain` and nothing after it.
 func TestParsePSCommandKeepsASubstitutionWhole(t *testing.T) {
 	argv := parsePSCommand("/bin/sh -c cd /repo; out=$(go-toolchain 2>&1); echo done\n")
+=======
+)
+
+// The capture the guard has to convict on lives inside the shell's command
+// string, so a reader that split that string on spaces would see `out=$(go-toolchain)`
+// and nothing after it.
+func TestParsePSArgsKeepsTheCommandStringWhole(t *testing.T) {
+	argv, ok := parsePSArgs("/bin/sh -c cd /repo; out=$(go-toolchain 2>&1); echo done\n")
+	require.True(t, ok)
+>>>>>>> origin/claude/guardcmdline-recovered
 	require.Len(t, argv, 3)
 	assert.Equal(t, "/bin/sh", argv[0])
 	assert.Equal(t, "-c", argv[1])
@@ -39,6 +53,7 @@ func TestParsePSCommandKeepsASubstitutionWhole(t *testing.T) {
 	assert.True(t, capturesStdout(script), "the capture is inside the command string")
 }
 
+<<<<<<< HEAD
 func TestParsePSCommandOnAPlainExec(t *testing.T) {
 	argv := parsePSCommand("/usr/local/bin/go-toolchain matrix\n")
 	assert.Equal(t, []string{"/usr/local/bin/go-toolchain", "matrix"}, argv)
@@ -56,17 +71,34 @@ func TestParsePSCommandSplitsANonShell(t *testing.T) {
 func TestParsePSCommandOnEmptyOutput(t *testing.T) {
 	assert.Empty(t, parsePSCommand("\n"))
 	assert.Empty(t, parsePSCommand("   \n"), "ps printed no row")
+=======
+// A program that is not a shell keeps its arguments separate: the joining
+// above is a property of the flag that takes a script, not of ps.
+func TestParsePSArgsSplitsANonShell(t *testing.T) {
+	argv, ok := parsePSArgs("/usr/local/bin/go-toolchain matrix --targets cosmo")
+	require.True(t, ok)
+	assert.Equal(t, []string{"/usr/local/bin/go-toolchain", "matrix", "--targets", "cosmo"}, argv)
+
+	_, ok = parsePSArgs("   \n")
+	assert.False(t, ok, "ps printed no row")
+>>>>>>> origin/claude/guardcmdline-recovered
 }
 
 // The reader itself, against a real process. This is the read the APE makes
 // on a Mac, where /proc answers nothing.
+<<<<<<< HEAD
 func TestPSCmdlineReadsThisProcess(t *testing.T) {
 	t.Serial()
 	argv, ok := psCmdline(selfPID())
+=======
+func TestReadCmdlinePSReadsThisProcess(t *testing.T) {
+	argv, ok := readCmdlinePS(os.Getpid())
+>>>>>>> origin/claude/guardcmdline-recovered
 	require.True(t, ok, "the guard cannot classify anything without this")
 	require.NotEmpty(t, argv)
 	assert.NotEmpty(t, argv[0])
 
+<<<<<<< HEAD
 	_, ok = psCmdline(0)
 	assert.False(t, ok, "zero is not a pid")
 }
@@ -145,3 +177,8 @@ func TestPSCmdlineSaysWhenThereWasNoOutput(t *testing.T) {
 	assert.False(t, ok)
 	assert.Contains(t, probeDetail(), "printed nothing")
 }
+=======
+	_, ok = readCmdlinePS(0)
+	assert.False(t, ok, "zero is not a pid")
+}
+>>>>>>> origin/claude/guardcmdline-recovered
