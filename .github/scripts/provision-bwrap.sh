@@ -26,14 +26,8 @@ if command -v bwrap > /dev/null 2>&1 && probe > /dev/null 2>&1; then
 fi
 
 if ! command -v bwrap > /dev/null 2>&1; then
-	if ! command -v apt-get > /dev/null 2>&1; then
-		echo "::error::bubblewrap is not installed and there is no apt-get to install it. A dependency's generate directive and the dats suites both need a sandbox backend; install bwrap on this host."
-		exit 1
-	fi
-	if ! as_root apt-get update > /dev/null || ! as_root apt-get install -y bubblewrap > /dev/null; then
-		echo "::error::could not install bubblewrap. A dependency's generate directive and the dats suites both need a sandbox backend."
-		exit 1
-	fi
+	echo "::error::bubblewrap is not installed. The action installs it with cached-apt before this step. A dependency's generate directive and the dats suites both need a sandbox backend."
+	exit 1
 fi
 
 as_root sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 > /dev/null 2>&1 || true

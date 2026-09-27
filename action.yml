@@ -100,6 +100,11 @@ runs:
       run: bash "$ACTION_PATH/.github/scripts/register-ape-binfmt.sh"
 
     # A dependency's generate directive and the dats phase both run confined. see docs/ACTION.md
+    - name: Install bubblewrap
+      uses: wow-look-at-my/actions@cached-apt#latest
+      with:
+        packages: bubblewrap
+
     - name: Provision the sandbox backend (bubblewrap)
       if: runner.os == 'Linux'
       shell: bash
