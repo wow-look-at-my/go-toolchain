@@ -24,7 +24,7 @@ var generatedFileRe = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
 // isGeneratedFile reports whether r is a generated Go source file per the
 // canonical convention. It scans only the file header: leading `//go:build` /
 // `// +build` constraints, ordinary `//` line comments, `/* ... */` block
-// comments, and blank lines may precede the marker. Scanning stops at the first
+// comments, and blank lines may precede the marker. Scanning stops at the earliest
 // line that is non-blank, not a comment, and not a build constraint (normally
 // the `package` clause), so a marker appearing after that point does not count.
 func isGeneratedFile(r io.Reader) bool {
@@ -68,7 +68,7 @@ func isGeneratedFile(r io.Reader) bool {
 			continue
 		}
 
-		// First real (non-comment, non-blank) line — the header is over.
+		// A real (non-comment, non-blank) line — the header is over.
 		return false
 	}
 	return false
@@ -84,8 +84,9 @@ func isGeneratedPath(path string) bool {
 	return isGeneratedFile(f)
 }
 
-// checkFileLength walks all .go files under root and warns at 500 lines, errors
-// at 750 lines. Generated files (per isGeneratedFile) are skipped unless the
+// checkFileLength walks all .go files under root and warns past the warn
+// threshold, erroring past the error threshold (both below). Generated files
+// (per isGeneratedFile) are skipped unless the
 // --count-generated flag is set.
 func checkFileLength(root string) error {
 	var nWarn, nErr, nSkipped int

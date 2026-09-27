@@ -39,6 +39,8 @@ func runMapSet(pass *analysis.Pass) (any, error) {
 		}
 	}
 
+	var edits []fileEdit
+	inits := initializedVars(pass)
 	for _, file := range pass.Files {
 		ast.Inspect(file, func(n ast.Node) bool {
 			lit, ok := n.(*ast.CompositeLit)
@@ -50,6 +52,9 @@ func runMapSet(pass *analysis.Pass) (any, error) {
 				return true
 			}
 			report(lit.Pos(), "map[…]bool with every value true is a set, not a map: use %s.Of(…) instead", setPackage)
+			if obj := inits[lit]; setFixable(pass, obj) {
+				edits = append(edits, setRewrites(pass, obj, setFromMap)...)
+			}
 			return true
 		})
 	}
@@ -61,17 +66,21 @@ func runMapSet(pass *analysis.Pass) (any, error) {
 		}
 	}
 
-	for _, c := range mapSetCandidates(pass) {
-		if c.writes > 0 && !c.disqualified {
-			report(c.pos, "map[…]bool is only ever used as a set: use %s.Set instead", setPackage)
+	for obj, c := range mapSetCandidates(pass) {
+		if c.writes == 0 || c.disqualified {
+			continue
+		}
+		report(c.pos, "map[…]bool is only ever used as a set: use %s.Set instead", setPackage)
+		if setFixable(pass, obj) {
+			edits = append(edits, setRewrites(pass, obj, setFromMap)...)
 		}
 	}
 
-	return []*ASTFixes(nil), nil
+	return setFixesByFile(pass, edits), nil
 }
 
 // warnEmptyStructMaps warns about a map[K]struct{}: it already carries no value, so
-// which of the two spellings to write is the author's call. It never fails the run.
+// which spelling to write is the author's call. It never fails the run.
 func warnEmptyStructMaps(pass *analysis.Pass, file *ast.File) {
 	ast.Inspect(file, func(n ast.Node) bool {
 		mt, ok := n.(*ast.MapType)
@@ -83,10 +92,10 @@ func warnEmptyStructMaps(pass *analysis.Pass, file *ast.File) {
 	})
 }
 
-// warnAt emits one finding as a warning. go/packages loads a package up to
-// four ways (plain, internal test, external test, test main) and every variant
-// walks the same file, so a site spends one warning of the budget, not four.
-// Each check passes its own warned map, so two checks that report the same
+// warnAt emits a finding as a warning. go/packages loads a package several
+// ways (plain, internal test, external test, test main) and every variant
+// walks the same file, so a site spends a single warning of the budget.
+// Each check passes its own warned map, so separate checks that report the same
 // line both get to speak.
 func warnAt(warned *sync.Map, pass *analysis.Pass, pos token.Pos, format string, args ...any) {
 	p := pass.Fset.Position(pos)
@@ -169,7 +178,7 @@ func isTrueIdent(pass *analysis.Pass, expr ast.Expr) bool {
 	return true
 }
 
-// mapSetCandidate is one map[K]bool variable and what the package does to it.
+// mapSetCandidate is a map[K]bool variable and what the package does to it.
 type mapSetCandidate struct {
 	pos          token.Pos
 	writes       int
@@ -287,7 +296,7 @@ func mapSetUses(pass *analysis.Pass, file *ast.File, candidates map[types.Object
 	})
 }
 
-// classifyMapSetUse records one use against the candidate.
+// classifyMapSetUse records a use against the candidate.
 func classifyMapSetUse(pass *analysis.Pass, c *mapSetCandidate, id *ast.Ident, parent, grandparent ast.Node) {
 	switch p := parent.(type) {
 	case *ast.IndexExpr:
@@ -340,7 +349,7 @@ func classifyMapSetIndex(pass *analysis.Pass, c *mapSetCandidate, index *ast.Ind
 			c.writes++
 			return
 		}
-		// m[k] on the right: the two-name form reads present-and-false.
+		// m[k] on the right: the comma-ok form reads present-and-false.
 		if len(g.Lhs) == 2 && len(g.Rhs) == 1 {
 			c.disqualified = true
 		}

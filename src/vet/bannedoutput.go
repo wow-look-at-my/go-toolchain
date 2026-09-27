@@ -76,7 +76,7 @@ func checkFmtCall(pass *analysis.Pass, call *ast.CallExpr, fnName string) {
 		pass.Reportf(call.Pos(), "banned: fmt.%s writes to stdout; use logger.Info / logger.Output instead", fnName)
 
 	case "Fprintf", "Fprintln", "Fprint":
-		// Only ban when the first argument is os.Stdout or os.Stderr.
+		// Only ban when the leading argument is os.Stdout or os.Stderr.
 		if len(call.Args) < 1 {
 			return
 		}

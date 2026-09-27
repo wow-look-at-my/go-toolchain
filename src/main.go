@@ -4,12 +4,16 @@ import (
 	"os"
 
 	"github.com/wow-look-at-my/go-toolchain/src/cmd"
-	"github.com/wow-look-at-my/go-toolchain/src/logger"
+	"github.com/wow-look-at-my/go-toolchain/src/logx"
 )
 
 func init() {
 	// When invoked as GOCACHEPROG, skip all env setup — just serve the protocol.
 	if isCacheProgInvocation() {
+		return
+	}
+	// The go command and its tools take the environment as it is.
+	if _, linked := cmd.LinkedGoArgs(os.Args); linked {
 		return
 	}
 
@@ -36,36 +40,29 @@ func isCacheProgInvocation() bool {
 	return false
 }
 
-func needsGo() bool {
-	for _, arg := range os.Args[1:] {
-		if arg == "--" {
-			return true
-		}
-		switch arg {
-		case "version", "cacheprog":
-			return false
-		}
-	}
-	return true
-}
-
 func main() {
-	// Non-blocking update check; ReportUpdateCheck surfaces or kills it on exit.
+	// This binary is the go command: a child that starts go by name, or the
+	// pipeline starting itself under the go subcommand, lands here.
+	if code, linked := cmd.RunLinkedGo(os.Args); linked {
+		os.Exit(code)
+	}
+
+	// Install the elapsed-duration pipeline. Skip it for GOCACHEPROG: its
+	// stdout is a JSON protocol pipe that must stay undecorated.
+	if !isCacheProgInvocation() {
+		logx.Install()
+	}
+
+	// Check for a newer go-toolchain in the background; ReportUpdateCheck
+	// surfaces or kills it on every exit path, so it never blocks.
 	if shouldCheckForUpdate() {
 		cmd.StartUpdateCheck()
 	}
 
-	if needsGo() {
-		if err := cmd.EnsureGoVersion(); err != nil {
-			cmd.ReportUpdateCheck()
-			// Drop the previous run's binaries so a failed run can't be mistaken for one (see staleoutputs.go).
-			cmd.DiscardBuildOutputs()
-			logger.Error("go bootstrap: %v", err)
-			os.Exit(1)
-		}
-	}
+	// The toolchain resolves inside the root command, after cobra knows which command runs -- see skipToolchain.
 	err := cmd.Execute()
 	cmd.ReportUpdateCheck()
+	logx.Flush()
 	if err != nil {
 		os.Exit(1)
 	}
@@ -75,6 +72,9 @@ func main() {
 // already reports its own staleness.
 func shouldCheckForUpdate() bool {
 	if isCacheProgInvocation() {
+		return false
+	}
+	if _, linked := cmd.LinkedGoArgs(os.Args); linked {
 		return false
 	}
 	for _, arg := range os.Args[1:] {

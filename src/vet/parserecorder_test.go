@@ -11,10 +11,11 @@ import (
 	"github.com/wow-look-at-my/go-containers/set"
 )
 
-// x/tools calls ParseFile once per goroutine per file, so this is the shape the
+// x/tools calls ParseFile per goroutine per file, so this is the shape the
 // real loader uses. Unlocked, it dies with "fatal error: concurrent map
 // writes" -- a fatal error, not a panic, so no recover can hide it.
 func TestParseRecorderSurvivesConcurrentRecording(t *testing.T) {
+	t.Serial()
 	root := t.TempDir()
 	rec := &parseRecorder{files: set.New[string](), root: root}
 
@@ -39,6 +40,7 @@ func TestParseRecorderSurvivesConcurrentRecording(t *testing.T) {
 // A file outside the module root belongs to no package of this module, so it
 // must not land in the set Verify checks against.
 func TestParseRecorderSkipsFilesOutsideTheModule(t *testing.T) {
+	t.Serial()
 	root := t.TempDir()
 	rec := &parseRecorder{files: set.New[string](), root: filepath.Join(root, "mod")}
 

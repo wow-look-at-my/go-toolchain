@@ -1,34 +1,23 @@
 package cmd
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 
 	"github.com/wow-look-at-my/go-toolchain/src/build"
-	"github.com/wow-look-at-my/go-toolchain/src/cache"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/profile"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// hostRunnableArtifact returns the artifact in outDir that runs on this
-// host: the native <name>_<hostos>_<hostarch> build when it exists, else the
-// fat APE (which runs here by construction). Returned even when neither
-// exists, so callers report a missing artifact rather than a wrong one.
+// hostRunnableArtifact names the APE, which runs here by construction. Named
+// even when absent, so callers report a missing artifact instead of a wrong path.
 func hostRunnableArtifact(target build.Target, outDir string) string {
-	native := filepath.Join(outDir, build.BinaryName(target.OutputName, hostos.GOOS(), runtime.GOARCH))
-	if _, err := os.Stat(native); err == nil {
-		return native
-	}
-	ape := filepath.Join(outDir, build.BinaryName(target.OutputName, cosmoOS, cosmoFatArch))
-	if _, err := os.Stat(ape); err == nil {
-		return ape
-	}
-	return native
+	return filepath.Join(outDir, build.BinaryName(target.OutputName, cosmoOS, cosmoFatArch))
 }
 
 func createHostSymlinks(targets []build.Target, outDir string) error {
@@ -68,18 +57,41 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 	return nil
 }
 
-// runBuild compiles a single binary. If onFirstOutput is non-nil, it is
-// called when the compiler produces its first output (used for progress
-// indicators on the default build path).
-func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error {
-	// Last-chokepoint guard: a fork-toolchain job MUST carry a cache namespace
-	// (buildJob.cacheNamespace), so a call site that forgets to fingerprint the
-	// toolchain fails loudly instead of reopening cross-toolchain cache poisoning.
-	if job.forkGoroot != "" && job.cacheNamespace == "" {
-		return fmt.Errorf("fork-toolchain build for %s/%s has no cache namespace; refusing to share the un-namespaced cache (see forkToolchainCacheNamespace)", job.goos, job.goarch)
+// reproducibleLDFlags empties the linked binary's Go build ID. Depth: docs/MATRIX.md.
+const reproducibleLDFlags = "-buildid="
+
+// checkPortableJob allows only the fat APE and wasm, only through the fork.
+// It sits at the sole chokepoint that compiles anything, so a call site that
+// invents a target fails here instead of shipping a native binary.
+func checkPortableJob(job buildJob) error {
+	if len(job.goCmd) == 0 {
+		return fmt.Errorf("build for %s/%s names no go command: the fat APE and the wasm targets are the only outputs, and both compile with the fork this binary links", job.goos, job.goarch)
 	}
-	args := []string{"build"}
-	// Dump the action graph for the build profile (one file per invocation;
+	if job.goos == cosmoOS || (isWasmGOOS(job.goos) && job.goarch == wasmArch) {
+		return nil
+	}
+	return fmt.Errorf("refusing to build GOOS=%s GOARCH=%s: this pipeline builds the cosmo fat APE (one binary for every host) and the wasm targets, so a per-platform native binary has no build path", job.goos, job.goarch)
+}
+
+// runBuild compiles a single binary. If onFirstOutput is non-nil, it is
+// called as soon as the compiler produces output (used for progress
+// indicators on the default build path).
+//
+// The compiler never writes onto the target file (job.outputPath) directly:
+// its -o is the .tmp- spelling of that path (build.TmpPrefix), and only the
+// commit after the build succeeded moves the results onto the target name.
+// A failing or killed build can therefore never leave even a partial binary
+// at build/<name> for an agent or a later phase to pick up.
+func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error {
+	if err := checkPortableJob(job); err != nil {
+		return err
+	}
+	if job.selfHosted {
+		return buildSelf(r, job, onFirstOutput)
+	}
+	// -trimpath: without it the build IDs record where the build ran, so each runner ships a different APE.
+	args := append(append([]string{}, job.goCmd[1:]...), "build", "-trimpath")
+	// Dump the action graph for the build profile (a file per invocation;
 	// matrix targets each get their own). No-op when profiling is off.
 	if garg := profile.GraphArg(); garg != "" {
 		args = append(args, garg)
@@ -87,81 +99,62 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	if onFirstOutput != nil {
 		args = append(args, "-v") // print packages as they are compiled
 	}
+	// Ours goes last: the linker reads the final spelling, so a caller's flags cannot drop it.
+	ldflags := reproducibleLDFlags
 	if job.ldflags != "" {
-		args = append(args, "-ldflags", job.ldflags)
+		ldflags = job.ldflags + " " + ldflags
 	}
-	args = append(args, "-o", job.outputPath, job.srcPath)
-	goCmd := "go"
-	if job.forkGoroot != "" {
-		goCmd = filepath.Join(job.forkGoroot, "bin", "go")
-	}
-	cmd := runner.Cmd(goCmd, args...)
-	switch {
-	case job.forkGoroot != "" && job.goos == cosmoOS:
-		// GOOS=cosmo fat-APE build. GOARCH and GOCOSMOFAT are cleared: "fat"
-		// is a pseudo-arch, not a real GOARCH, and an inherited GOCOSMOFAT=0
-		// must not silently produce a thin binary. The cache namespace keys
-		// this build to this toolchain, since the fork's constant version
-		// stamp would otherwise collide action IDs across fork builds.
-		// GOCOSMOPLATFORMS is always assigned so the fork builds only the
-		// platforms needed.
+	args = append(args, "-ldflags", ldflags)
+	// -o is the temp spelling; the commit below is what makes the target exist.
+	args = append(args, "-o", build.TempOutputPath(job.outputPath), job.srcPath)
+	// An ambient GOOS is the last way to ask for a native binary, so every variable below is assigned. No output has cgo.
+	cmd := runner.Cmd(job.goCmd[0], args...).
+		WithEnv("GOTOOLCHAIN", "local").
+		WithEnv("GOROOT", job.goroot).
+		WithEnv("CGO_ENABLED", "0")
+	if job.goos == cosmoOS {
+		// "fat" is a pseudo-arch, and an inherited GOCOSMOFAT would silently
+		// produce a thin binary, so each is cleared.
 		cmd = cmd.WithEnv("GOOS", cosmoOS).
 			WithEnv("GOARCH", "").
 			WithEnv("GOCOSMOFAT", "").
 			WithEnv(cosmoPlatformsEnv, job.cosmoPlatforms).
-			WithEnv("GOTOOLCHAIN", "local").
-			WithEnv("GOROOT", job.forkGoroot).
-			WithEnv("PATH", filepath.Join(job.forkGoroot, "bin")+string(os.PathListSeparator)+os.Getenv("PATH")).
-			WithEnv("CGO_ENABLED", "0").
-			WithEnv(cache.KeyNamespaceEnv, job.cacheNamespace)
-	case job.forkGoroot != "":
-		// Wasm build (js/wasm or wasip1/wasm) via the gosmopolitan toolchain.
-		// The fork DEFAULTS to GOOS=cosmo, so GOOS and GOARCH are always
-		// pinned explicitly. CGO_ENABLED=0 always: wasm has no cgo. The cache
-		// namespace: same fork, same constant-version action-ID collisions,
-		// same isolation (see the cosmo case above).
-		cmd = cmd.WithEnv("GOOS", job.goos).
-			WithEnv("GOARCH", job.goarch).
-			WithEnv("GOTOOLCHAIN", "local").
-			WithEnv("GOROOT", job.forkGoroot).
-			WithEnv("PATH", filepath.Join(job.forkGoroot, "bin")+string(os.PathListSeparator)+os.Getenv("PATH")).
-			WithEnv("CGO_ENABLED", "0").
-			WithEnv(cache.KeyNamespaceEnv, job.cacheNamespace)
-	default:
-		if job.goos != "" {
-			cmd = cmd.WithEnv("GOOS", job.goos)
-		}
-		if job.goarch != "" {
-			cmd = cmd.WithEnv("GOARCH", job.goarch)
-		}
+			WithEnv(apeAppendEnv, job.apeAppend)
+	} else {
+		cmd = cmd.WithEnv("GOOS", job.goos).WithEnv("GOARCH", job.goarch)
 	}
 	if onFirstOutput != nil {
 		cmd = cmd.WithOnFirstOutput(onFirstOutput)
 		if activeMissTracker != nil {
-			cmd = cmd.WithStderrWriter(activeMissTracker)
+			// A tee: this writer replaces the console rather than joining it.
+			cmd = cmd.WithStderrWriter(io.MultiWriter(activeMissTracker, os.Stderr))
 		}
 	} else {
 		cmd = cmd.WithQuiet()
 	}
-	if !cgoEnabled {
-		cmd = cmd.WithEnv("CGO_ENABLED", "0")
-	}
 	proc, err := cmd.Run(r)
-	if err != nil {
-		return err
-	}
-	if onFirstOutput != nil {
-		// Non-quiet: Wait() streams -v output to console; compiler errors go to stderr.
-		return proc.Wait()
-	}
-	// Quiet (matrix): drain pipes manually, capture stderr for error messages
-	io.Copy(io.Discard, proc.Stdout())
-	stderr, _ := io.ReadAll(proc.Stderr())
-	if err := proc.Wait(); err != nil {
-		if len(stderr) > 0 {
-			return fmt.Errorf("%w\n%s", err, stderr)
+	if err == nil {
+		if onFirstOutput != nil {
+			// Non-quiet: Wait() streams -v output to console; compiler errors go to stderr.
+			err = proc.Wait()
+		} else {
+			// Quiet (matrix): drain both pipes, and keep both for the error.
+			stdout, _ := io.ReadAll(proc.Stdout())
+			stderr, _ := io.ReadAll(proc.Stderr())
+			if err = proc.Wait(); err != nil {
+				said := bytes.TrimSpace(bytes.Join([][]byte{stderr, stdout}, []byte("\n")))
+				if len(said) == 0 {
+					said = []byte("it printed nothing on either stream")
+				}
+				err = fmt.Errorf("%w\n%s", err, said)
+			}
 		}
+	}
+	if err != nil {
+		// The target itself was never written, so it stays absent.
+		build.DiscardOutput(job.outputPath)
 		return err
 	}
-	return nil
+	// Only now do the outputs take the target's name.
+	return build.CommitOutput(job.outputPath)
 }

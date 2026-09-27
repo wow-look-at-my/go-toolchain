@@ -23,6 +23,25 @@ type SummaryData struct {
 	Benchmarks *bench.BenchmarkReport
 	BenchComp  *bench.Comparison
 	Timeline   []TimelineEntry
+	Artifacts  []ArtifactSize
+}
+
+// ArtifactSize is a built binary and its size on disk.
+type ArtifactSize struct {
+	Name  string
+	Bytes int64
+}
+
+// writeArtifactSizes lists each built artifact with its size in megabytes.
+func writeArtifactSizes(sb *strings.Builder, artifacts []ArtifactSize) {
+	if len(artifacts) == 0 {
+		return
+	}
+	sb.WriteString("| Artifact | Size |\n|---|---:|\n")
+	for _, artifact := range artifacts {
+		fmt.Fprintf(sb, "| %s | %.1f MB |\n", artifact.Name, float64(artifact.Bytes)/(1<<20))
+	}
+	sb.WriteString("\n")
 }
 
 // Write generates a markdown summary and appends it to $GITHUB_STEP_SUMMARY.
@@ -58,7 +77,7 @@ func GenerateMarkdown(data *SummaryData) string {
 
 	commitSHA := os.Getenv("GITHUB_SHA")
 	repo := os.Getenv("GITHUB_REPOSITORY")
-	modulePath := readModulePath()
+	modulePath := gomod.ReadModulePath(".")
 
 	var sb strings.Builder
 
@@ -86,6 +105,8 @@ func GenerateMarkdown(data *SummaryData) string {
 	if len(data.TestCases) > 0 {
 		writeTestTable(&sb, data.TestCases, commitSHA, repo, modulePath)
 	}
+
+	writeArtifactSizes(&sb, data.Artifacts)
 
 	// Benchmark results
 	if data.Benchmarks != nil && data.Benchmarks.HasResults() {
@@ -149,7 +170,7 @@ func writeTestTable(sb *strings.Builder, cases []gotest.TestCaseResult, commitSH
 	// Build source location cache
 	locCache := buildTestLocationCache(cases, modulePath)
 
-	// Group tests by package, preserving order of first appearance
+	// Group tests by package, preserving order of appearance
 	pkgOrder := []string{}
 	pkgCases := make(map[string][]gotest.TestCaseResult)
 	for _, tc := range cases {
@@ -361,9 +382,4 @@ func sourceURL(tc gotest.TestCaseResult, commitSHA, repo, modulePath string, cac
 	}
 
 	return fmt.Sprintf("https://github.com/%s/blob/%s/%s#L%d", repo, commitSHA, loc.file, loc.line)
-}
-
-// readModulePath reads the module path from go.mod in the current directory.
-func readModulePath() string {
-	return gomod.ReadModulePath()
 }

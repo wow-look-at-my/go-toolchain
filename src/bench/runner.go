@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -21,7 +22,7 @@ type Options struct {
 	CPU           string // -cpu
 	Verbose       bool
 	StreamTo      io.Writer // if set, benchmark results are printed here as they complete
-	OnFirstResult func()    // called before the first benchmark result is streamed
+	OnFirstResult func()    // called before any benchmark result is streamed
 }
 
 // RunBenchmarks executes go test -bench and returns parsed results
@@ -35,7 +36,7 @@ func RunBenchmarks(r runner.CommandRunner, opts Options) (*BenchmarkReport, erro
 	if err != nil {
 		return nil, fmt.Errorf("benchmarks failed: %w", err)
 	}
-	// Tee stderr while draining it, so a dying process's complaint prints first.
+	// Tee stderr while draining it, so a dying process's complaint still prints.
 	stderrDone := make(chan struct{})
 	go func() {
 		defer close(stderrDone)
@@ -108,16 +109,16 @@ func streamBenchResult(line []byte, w io.Writer, once *sync.Once, onFirst func()
 	}
 }
 
-// HasBenchmarks scans _test.go files under the current directory for
-// func Benchmark signatures. Returns true if any are found.
-func HasBenchmarks() bool {
+// HasBenchmarks scans _test.go files under root for func Benchmark
+// signatures. Returns true if any are found.
+func HasBenchmarks(root string) bool {
 	found := false
-	filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if d.IsDir() {
-			if name := d.Name(); name == "vendor" || name == "testdata" || (name != "." && strings.HasPrefix(name, ".")) {
+			if name := d.Name(); name == "vendor" || name == "testdata" || (path != root && strings.HasPrefix(name, ".")) || (path != root && gomod.IsNestedModule(path)) {
 				return filepath.SkipDir
 			}
 			return nil

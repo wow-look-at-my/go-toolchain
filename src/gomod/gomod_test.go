@@ -17,25 +17,53 @@ func writeFile(t *testing.T, dir, name, content string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644))
 }
 
-// chdir changes into dir for the duration of the test.
-func chdir(t *testing.T, dir string) {
-	t.Helper()
-	orig, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(dir))
-	t.Cleanup(func() { _ = os.Chdir(orig) })
+func TestReadModulePath(t *testing.T) {
+	dir := t.TempDir()
+	assert.Equal(t, "", ReadModulePath(dir), "a directory with no go.mod names no module")
+
+	writeFile(t, dir, "go.mod", "module github.com/user/pkg\n\ngo 1.21\n")
+	assert.Equal(t, "github.com/user/pkg", ReadModulePath(dir))
 }
 
-// newModule creates a temporary module rooted at a temp dir and chdirs into it.
+func TestReadModulePathEmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "go.mod", "")
+	assert.Equal(t, "", ReadModulePath(dir))
+}
+
+func TestReadModulePathExtraWhitespace(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "go.mod", "module   github.com/user/pkg  \n")
+	assert.Equal(t, "github.com/user/pkg", ReadModulePath(dir))
+}
+
+// The generate approval rides on the module line as a trailing comment, and
+// this read is what every package path is built from. Taking the comment as
+// part of the path put a space in it, and go refused each package under it as
+// a malformed import path.
+func TestReadModulePathIgnoresATrailingComment(t *testing.T) {
+	for _, line := range []string{
+		"module github.com/user/pkg // go-toolchain:generate=8015b34dab00\n",
+		"module github.com/user/pkg//go-toolchain:generate=8015b34dab00\n",
+		"module   github.com/user/pkg   // a note  \n",
+	} {
+		dir := t.TempDir()
+		writeFile(t, dir, "go.mod", line)
+		assert.Equal(t, "github.com/user/pkg", ReadModulePath(dir),
+			"the comment on %q is not part of the path", line)
+	}
+}
+
+// newModule writes a go.mod in a temp dir and returns the root to walk.
 func newModule(t *testing.T, modPath string) string {
 	t.Helper()
 	root := t.TempDir()
 	writeFile(t, root, "go.mod", "module "+modPath+"\n\ngo 1.25\n")
-	chdir(t, root)
 	return root
 }
 
 func TestHasMainPackage_IgnoresBuildIgnoreMain(t *testing.T) {
+	t.Serial()
 	root := t.TempDir()
 	// A dir whose only package main file is //go:build ignore is not a main package.
 	writeFile(t, root, "gen.go", "//go:build ignore\n\npackage main\n\nfunc main() {}\n")
@@ -44,6 +72,7 @@ func TestHasMainPackage_IgnoresBuildIgnoreMain(t *testing.T) {
 }
 
 func TestHasMainPackage_IgnoresPlusBuildIgnoreMain(t *testing.T) {
+	t.Serial()
 	root := t.TempDir()
 	// Old-style "// +build ignore" must also be honored.
 	writeFile(t, root, "gen.go", "// +build ignore\n\npackage main\n\nfunc main() {}\n")
@@ -52,12 +81,14 @@ func TestHasMainPackage_IgnoresPlusBuildIgnoreMain(t *testing.T) {
 }
 
 func TestHasMainPackage_NormalMainIsFound(t *testing.T) {
+	t.Serial()
 	root := t.TempDir()
 	writeFile(t, root, "main.go", "package main\n\nfunc main() {}\n")
 	assert.True(t, hasMainPackage(root), "a normal package main dir must be found")
 }
 
 func TestHasMainPackage_RealMainAlongsideIgnoredGenerator(t *testing.T) {
+	t.Serial()
 	root := t.TempDir()
 	// A real main next to an ignored generator main must still be discovered.
 	writeFile(t, root, "main.go", "package main\n\nfunc main() {}\n")
@@ -67,6 +98,7 @@ func TestHasMainPackage_RealMainAlongsideIgnoredGenerator(t *testing.T) {
 }
 
 func TestHasMainPackage_BenchDirWithOnlyIgnoredGeneratorIsNotMain(t *testing.T) {
+	t.Serial()
 	root := t.TempDir()
 	// A package bench dir with only an ignored generator main is not a main package.
 	writeFile(t, root, "bench_test.go", "package bench\n")
@@ -76,19 +108,20 @@ func TestHasMainPackage_BenchDirWithOnlyIgnoredGeneratorIsNotMain(t *testing.T) 
 }
 
 func TestFindMainPackages_HonorsBuildConstraints(t *testing.T) {
+	t.Serial()
 	modPath := "example.com/honors"
-	newModule(t, modPath)
+	root := newModule(t, modPath)
 
 	// Real main package.
-	writeFile(t, "cmd/tool", "main.go", "package main\n\nfunc main() {}\n")
+	writeFile(t, filepath.Join(root, "cmd", "tool"), "main.go", "package main\n\nfunc main() {}\n")
 	// bench/ with an ignored generator + a buildable package bench.
-	writeFile(t, "bench", "bench_test.go", "package bench\n")
-	writeFile(t, "bench", "gen.go", "//go:build ignore\n\npackage main\n\nfunc main() {}\n")
+	writeFile(t, filepath.Join(root, "bench"), "bench_test.go", "package bench\n")
+	writeFile(t, filepath.Join(root, "bench"), "gen.go", "//go:build ignore\n\npackage main\n\nfunc main() {}\n")
 	// e2e/ with an ignored generator + a buildable package e2e.
-	writeFile(t, "e2e", "e2e_test.go", "package e2e\n")
-	writeFile(t, "e2e", "gen.go", "//go:build ignore\n\npackage main\n\nfunc main() {}\n")
+	writeFile(t, filepath.Join(root, "e2e"), "e2e_test.go", "package e2e\n")
+	writeFile(t, filepath.Join(root, "e2e"), "gen.go", "//go:build ignore\n\npackage main\n\nfunc main() {}\n")
 
-	pkgs, err := FindMainPackages()
+	pkgs, err := FindMainPackages(root)
 	require.NoError(t, err)
 	sort.Strings(pkgs)
 
@@ -97,6 +130,7 @@ func TestFindMainPackages_HonorsBuildConstraints(t *testing.T) {
 }
 
 func TestHasMainPackage_OnlyConstraintChecksMainCandidates(t *testing.T) {
+	t.Serial()
 	root := t.TempDir()
 	// A directory full of non-main files plus a single real package main.
 	writeFile(t, root, "a.go", "package lib\n")
@@ -118,11 +152,12 @@ func TestHasMainPackage_OnlyConstraintChecksMainCandidates(t *testing.T) {
 }
 
 func TestFindMainPackages_RootMain(t *testing.T) {
+	t.Serial()
 	modPath := "example.com/rootmain"
-	newModule(t, modPath)
-	writeFile(t, ".", "main.go", "package main\n\nfunc main() {}\n")
+	root := newModule(t, modPath)
+	writeFile(t, root, "main.go", "package main\n\nfunc main() {}\n")
 
-	pkgs, err := FindMainPackages()
+	pkgs, err := FindMainPackages(root)
 	require.NoError(t, err)
 	assert.Equal(t, []string{modPath}, pkgs)
 }
@@ -138,6 +173,7 @@ you may not use this file except in compliance with the License.
 `
 
 func TestPackageNameFromFile_BlockCommentHeader(t *testing.T) {
+	t.Serial()
 	root := t.TempDir()
 	writeFile(t, root, "main.go", k8sHeader+"package main\n\nfunc main() {}\n")
 	assert.Equal(t, "main", packageNameFromFile(filepath.Join(root, "main.go")),
@@ -145,6 +181,7 @@ func TestPackageNameFromFile_BlockCommentHeader(t *testing.T) {
 }
 
 func TestPackageNameFromFile_Forms(t *testing.T) {
+	t.Serial()
 	root := t.TempDir()
 	cases := []struct {
 		name, content, want string
@@ -165,6 +202,7 @@ func TestPackageNameFromFile_Forms(t *testing.T) {
 }
 
 func TestHasMainPackage_BlockCommentHeaderMain(t *testing.T) {
+	t.Serial()
 	root := t.TempDir()
 	// End-to-end: a main file behind a block-comment header must still be found.
 	writeFile(t, root, "main.go", k8sHeader+"package main\n\nfunc main() {}\n")
@@ -173,39 +211,60 @@ func TestHasMainPackage_BlockCommentHeaderMain(t *testing.T) {
 }
 
 func TestIsNestedModule(t *testing.T) {
-	newModule(t, "example.com/outer")
-	writeFile(t, "plain", "lib.go", "package lib\n")
-	writeFile(t, "nested", "go.mod", "module example.com/nested\n\ngo 1.25\n")
+	root := newModule(t, "example.com/outer")
+	writeFile(t, filepath.Join(root, "plain"), "lib.go", "package lib\n")
+	writeFile(t, filepath.Join(root, "nested"), "go.mod", "module example.com/nested\n\ngo 1.25\n")
 
 	assert.False(t, IsNestedModule("."), "the walk root is never a NESTED module")
-	assert.False(t, IsNestedModule("plain"))
-	assert.True(t, IsNestedModule("nested"))
-	assert.False(t, IsNestedModule("does-not-exist"))
+	assert.False(t, IsNestedModule(filepath.Join(root, "plain")))
+	assert.True(t, IsNestedModule(filepath.Join(root, "nested")))
+	assert.False(t, IsNestedModule(filepath.Join(root, "does-not-exist")))
+
+	// A submodule with no go.mod at its root is another repository's tree.
+	writeFile(t, filepath.Join(root, "sub"), ".git", "gitdir: ../.git/modules/sub\n")
+	writeFile(t, filepath.Join(root, "sub", "test"), "x.go", "package x\n")
+	assert.True(t, IsNestedModule(filepath.Join(root, "sub")))
+}
+
+// A submodule's working tree carries .git as a file. An ordinary checkout keeps
+// a directory there, and that repository is the tree being walked.
+func TestIsGitSubmodule(t *testing.T) {
+	root := newModule(t, "example.com/outer")
+	writeFile(t, filepath.Join(root, "plain"), "lib.go", "package lib\n")
+	writeFile(t, filepath.Join(root, "sub"), ".git", "gitdir: ../.git/modules/sub\n")
+	writeFile(t, filepath.Join(root, "clone", ".git"), "HEAD", "ref: refs/heads/master\n")
+
+	assert.True(t, IsGitSubmodule(filepath.Join(root, "sub")))
+	assert.False(t, IsGitSubmodule("."), "the walk root is the repository being read")
+	assert.False(t, IsGitSubmodule(filepath.Join(root, "plain")))
+	assert.False(t, IsGitSubmodule(filepath.Join(root, "clone")), "a .git directory is a checkout")
+	assert.False(t, IsGitSubmodule(filepath.Join(root, "does-not-exist")))
 }
 
 func TestFindMainPackages_SkipsNestedModule(t *testing.T) {
+	t.Serial()
 	modPath := "example.com/outer"
-	newModule(t, modPath)
-	writeFile(t, "cmd/app", "main.go", "package main\n\nfunc main() {}\n")
+	root := newModule(t, modPath)
+	writeFile(t, filepath.Join(root, "cmd", "app"), "main.go", "package main\n\nfunc main() {}\n")
 	// A nested module's own main packages belong to it, not the outer module.
-	writeFile(t, "compat/tool", "go.mod", "module example.com/tool\n\ngo 1.25\n")
-	writeFile(t, "compat/tool", "main.go", "package main\n\nfunc main() {}\n")
+	writeFile(t, filepath.Join(root, "compat", "tool"), "go.mod", "module example.com/tool\n\ngo 1.25\n")
+	writeFile(t, filepath.Join(root, "compat", "tool"), "main.go", "package main\n\nfunc main() {}\n")
 
-	pkgs, err := FindMainPackages()
+	pkgs, err := FindMainPackages(root)
 	require.NoError(t, err)
 	assert.Equal(t, []string{modPath + "/cmd/app"}, pkgs)
 }
 
 func TestFindMainPackagesForTarget(t *testing.T) {
-	newModule(t, "example.com/multi")
-	writeFile(t, "cmd/everywhere", "main.go", "package main\n\nfunc main() {}\n")
-	writeFile(t, "cmd/wasmonly", "main.go", "//go:build js && wasm\n\npackage main\n\nfunc main() {}\n")
-	writeFile(t, "cmd/linuxonly", "main.go", "//go:build linux\n\npackage main\n\nfunc main() {}\n")
+	root := newModule(t, "example.com/multi")
+	writeFile(t, filepath.Join(root, "cmd", "everywhere"), "main.go", "package main\n\nfunc main() {}\n")
+	writeFile(t, filepath.Join(root, "cmd", "wasmonly"), "main.go", "//go:build js && wasm\n\npackage main\n\nfunc main() {}\n")
+	writeFile(t, filepath.Join(root, "cmd", "linuxonly"), "main.go", "//go:build linux\n\npackage main\n\nfunc main() {}\n")
 	// The generator idiom stays excluded in EVERY context.
-	writeFile(t, "lib", "lib.go", "package lib\n")
-	writeFile(t, "lib", "gen.go", "//go:build ignore\n\npackage main\n\nfunc main() {}\n")
+	writeFile(t, filepath.Join(root, "lib"), "lib.go", "package lib\n")
+	writeFile(t, filepath.Join(root, "lib"), "gen.go", "//go:build ignore\n\npackage main\n\nfunc main() {}\n")
 
-	js, err := FindMainPackagesForTarget("js", "wasm")
+	js, err := FindMainPackagesForTarget(root, "js", "wasm")
 	require.NoError(t, err)
 	sort.Strings(js)
 	assert.Equal(t, []string{
@@ -213,7 +272,7 @@ func TestFindMainPackagesForTarget(t *testing.T) {
 		"example.com/multi/cmd/wasmonly",
 	}, js, "js/wasm context must see the js&&wasm-guarded main, not the linux one")
 
-	linux, err := FindMainPackagesForTarget("linux", "amd64")
+	linux, err := FindMainPackagesForTarget(root, "linux", "amd64")
 	require.NoError(t, err)
 	sort.Strings(linux)
 	assert.Equal(t, []string{
@@ -221,31 +280,8 @@ func TestFindMainPackagesForTarget(t *testing.T) {
 		"example.com/multi/cmd/linuxonly",
 	}, linux, "linux context must see the linux-guarded main regardless of host")
 
-	darwin, err := FindMainPackagesForTarget("darwin", "arm64")
+	darwin, err := FindMainPackagesForTarget(root, "darwin", "arm64")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"example.com/multi/cmd/everywhere"}, darwin,
 		"an unmatched context must only see the unconstrained main")
-}
-
-func TestFindMainPackagesSkipsMemLimitGuard(t *testing.T) {
-	newModule(t, "example.com/guarded")
-	// The unconstrained guard file must not leak this dir into other targets.
-	writeFile(t, "cmd/linuxonly", "main.go", "//go:build linux\n\npackage main\n\nfunc main() {}\n")
-	writeFile(t, "cmd/linuxonly", MemLimitGuardFileName, "package main\n")
-	// A dir whose only main-ish file is a stale guard is not a main package.
-	writeFile(t, "cmd/stale", MemLimitGuardFileName, "package main\n")
-
-	js, err := FindMainPackagesForTarget("js", "wasm")
-	require.NoError(t, err)
-	assert.Empty(t, js, "the unconstrained guard must not make a linux-only main dir visible to js/wasm")
-
-	linux, err := FindMainPackagesForTarget("linux", "amd64")
-	require.NoError(t, err)
-	assert.Equal(t, []string{"example.com/guarded/cmd/linuxonly"}, linux,
-		"the real main is still discovered under its own context; the guard-only dir is not")
-
-	host, err := FindMainPackages()
-	require.NoError(t, err)
-	assert.NotContains(t, host, "example.com/guarded/cmd/stale",
-		"a stale guard alone must not make a dir a main package under the host context either")
 }

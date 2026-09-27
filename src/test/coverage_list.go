@@ -24,7 +24,7 @@ func init() {
 	cwd, _ = os.Getwd()
 }
 
-// osc8Link wraps text in an OSC 8 hyperlink
+// osc8Link wraps text in an OSC8 terminal hyperlink
 func osc8Link(url, text string) string {
 	return fmt.Sprintf("\033]8;;%s\033\\%s\033]8;;\033\\", url, text)
 }
@@ -49,7 +49,7 @@ func resolveToFileURL(importPath string, line int) string {
 	return ""
 }
 
-// hsvToRGB converts HSV to RGB. h is in degrees [0,360), s and v are [0,1].
+// hsvToRGB converts HSV to RGB. h is in degrees, s and v are unit fractions.
 func hsvToRGB(h, s, v float64) (r, g, b uint8) {
 	c := v * s
 	x := c * (1 - math.Abs(math.Mod(h/60, 2)-1))
@@ -119,7 +119,7 @@ func colorGain(gain float32) string {
 
 // Print prints coverage as a flat ranked list of functions to test,
 // sorted by potential gain (uncovered lines / total statements).
-// Functions are split into UNTESTED (0% covered) and PARTIAL groups.
+// Functions are split into UNTESTED (nothing covered) and PARTIAL groups.
 func (r Report) Print() {
 	var totalStatements int
 	for i := range r.Packages {
@@ -148,7 +148,7 @@ func (r Report) Print() {
 		return allFuncs[i].fn.Function < allFuncs[j].fn.Function
 	})
 
-	// Split into untested (0% covered) and partial
+	// Split into untested (nothing covered) and partial
 	var untested, partial []funcWithPath
 	for _, f := range allFuncs {
 		if f.fn.Covered == 0 {
@@ -158,7 +158,6 @@ func (r Report) Print() {
 		}
 	}
 
-	// Cap each group at 5
 	if len(untested) > 5 {
 		untested = untested[:5]
 	}

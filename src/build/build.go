@@ -19,12 +19,12 @@ type Target struct {
 
 // findMainPackages walks the filesystem to discover all main packages in the module.
 func findMainPackages() ([]string, error) {
-	return gomod.FindMainPackages()
+	return gomod.FindMainPackages(".")
 }
 
 // binaryNameFromImportPath derives a binary name from a package's import path
-// and its module name. When the package is at or one level below the module root
-// (e.g., module or module/src), the binary is named after the module. When deeper
+// and its module name. When the package is at the module root or directly below
+// it (e.g., module or module/src), the binary is named after the module. Deeper
 // (e.g., module/cmd/foo), the binary is named after the leaf directory.
 func binaryNameFromImportPath(pkg, moduleName string) string {
 	if pkg == moduleName {
@@ -51,7 +51,7 @@ func binaryNameFromImportPath(pkg, moduleName string) string {
 // Binary names are always auto-derived from the package/directory name.
 func ResolveBuildTargets(r runner.CommandRunner) ([]Target, error) {
 	// Get module name for smart binary naming
-	moduleName := gomod.ReadModulePath()
+	moduleName := gomod.ReadModulePath(".")
 
 	// Find all main packages in the module
 	pkgs, err := findMainPackages()
@@ -79,8 +79,8 @@ func ResolveBuildTargets(r runner.CommandRunner) ([]Target, error) {
 // GOOS/GOARCH context, regardless of host. Unlike ResolveBuildTargets, empty
 // means no main packages for this target (no library-only fallback).
 func ResolveBuildTargetsForTarget(goos, goarch string) ([]Target, error) {
-	moduleName := gomod.ReadModulePath()
-	pkgs, err := gomod.FindMainPackagesForTarget(goos, goarch)
+	moduleName := gomod.ReadModulePath(".")
+	pkgs, err := gomod.FindMainPackagesForTarget(".", goos, goarch)
 	if err != nil {
 		return nil, err
 	}
@@ -90,14 +90,14 @@ func ResolveBuildTargetsForTarget(goos, goarch string) ([]Target, error) {
 // nameTargets assigns each main package the name its binary is written under.
 //
 // The module-derived name goes only to a package that is alone in wanting it.
-// Two mains one level below the module root -- `<mod>/cli` and
+// Sibling mains directly below the module root -- `<mod>/cli` and
 // `<mod>/todo_driver`, say -- both derive the MODULE's name, and a build that
-// keeps whichever it saw first ships missing a binary while reporting success.
-// A contested name falls back to the package's own leaf directory, which is
-// unique among the packages of one module.
+// keeps whichever it saw earliest ships missing a binary while reporting
+// success. A contested name falls back to the package's own leaf directory,
+// which is unique among a module's packages.
 //
-// A name still contested after that cannot happen from one module's packages,
-// so it is a hard error rather than a quiet loss.
+// A name still contested after that cannot happen within a module, so it is a
+// hard error rather than a quiet loss.
 func nameTargets(pkgs []string, moduleName string) ([]Target, error) {
 	wanted := map[string]int{}
 	for _, pkg := range pkgs {

@@ -1,5 +1,3 @@
-//go:build !cosmo
-
 package vet
 
 import (
@@ -9,21 +7,30 @@ import (
 	git "github.com/go-git/go-git/v5"
 )
 
-// This file carries the package's only go-git import. GOOS=cosmo builds
-// exclude it — go-git's go-billy/osfs matches cosmo's `unix` build tag but
-// depends on golang.org/x/sys/unix, which has no cosmo port — and
-// gogit_cosmo.go stubs checkFileCommittedGoGit so the caller
-// (checkFileCommittedByName) always takes its git-CLI fallback there.
+// resolveLinks spells path as the kernel resolves it, so darwin's /var and
+// /private/var compare equal.
+func resolveLinks(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return path
+}
 
 // checkFileCommittedGoGit checks file status using the go-git library.
 // go-git v5 cannot read an index written under index.skipHash/feature.manyFiles
-// (git >= 2.40 writes an all-zero trailer hash): Status fails with "invalid
-// checksum" — the upstream fix (go-git#2181) is v6/main-only, unreleased. The
+// (a recent git writes an empty trailer hash): Status fails with "invalid
+// checksum" — the upstream fix (https://github.com/go-git/go-git/pull/2181) is
+// main-only, unreleased. The
 // git-CLI fallback in checkFileCommittedByName covers such repos
 // (regression-tested by TestCheckFileCommittedByName_ManyFilesIndex).
 func checkFileCommittedGoGit(filename string) error {
 	fileDir := filepath.Dir(filename)
-	repo, err := git.PlainOpenWithOptions(fileDir, &git.PlainOpenOptions{DetectDotGit: true})
+	repo, err := git.PlainOpenWithOptions(fileDir, &git.PlainOpenOptions{
+		DetectDotGit: true,
+		// A linked worktree's .git is a file naming a gitdir under the parent's
+		// .git/worktrees; its refs and config live in the commondir beside it.
+		EnableDotGitCommonDir: true,
+	})
 	if err != nil {
 		return fmt.Errorf("cannot auto-fix %s: not in a git repo: %w", filename, err)
 	}
@@ -38,8 +45,8 @@ func checkFileCommittedGoGit(filename string) error {
 		return fmt.Errorf("cannot auto-fix %s: failed to get status: %w", filename, err)
 	}
 
-	repoRoot := wt.Filesystem.Root()
-	relPath, err := filepath.Rel(repoRoot, filename)
+	// go-git answers a resolved path and filename carries the caller's spelling.
+	relPath, err := filepath.Rel(resolveLinks(wt.Filesystem.Root()), resolveLinks(filename))
 	if err != nil {
 		return fmt.Errorf("cannot auto-fix %s: failed to get relative path: %w", filename, err)
 	}

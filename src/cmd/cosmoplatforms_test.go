@@ -7,57 +7,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The default matrix builds ONE fat APE, not a per-platform binary each. This
-// is the whole point of the change: no target flags means one artifact.
+// The default matrix builds a SINGLE fat APE, not a per-platform binary each.
+// This is the whole point of the change: no target flags means a lone artifact.
 func TestResolveMatrixPlatformsDefaultsToOneAPE(t *testing.T) {
-	oldOS, oldArch, oldTargets := matrixOS, matrixArch, matrixTargets
-	defer func() { matrixOS, matrixArch, matrixTargets = oldOS, oldArch, oldTargets }()
-	matrixOS, matrixArch, matrixTargets = nil, nil, nil
+	t.Serial()
+	oldTargets := matrixTargets
+	defer func() { matrixTargets = oldTargets }()
+	matrixTargets = nil
 
 	got, err := resolveMatrixPlatforms()
 	require.NoError(t, err)
 	assert.Equal(t, []buildPlatform{{OS: cosmoOS, Arch: cosmoFatArch}}, got)
 }
 
-// Naming --os or --arch is what asks for per-platform binaries; the half the
-// caller left out falls back to its historic default rather than erroring.
-func TestResolveMatrixPlatformsHalfCartesian(t *testing.T) {
-	oldOS, oldArch, oldTargets := matrixOS, matrixArch, matrixTargets
-	defer func() { matrixOS, matrixArch, matrixTargets = oldOS, oldArch, oldTargets }()
-	matrixTargets = nil
-
-	t.Run("arch only", func(t *testing.T) {
-		matrixOS, matrixArch = nil, []string{"arm64"}
-		got, err := resolveMatrixPlatforms()
-		require.NoError(t, err)
-		assert.Equal(t, []buildPlatform{
-			{OS: "linux", Arch: "arm64"},
-			{OS: "darwin", Arch: "arm64"},
-			{OS: "windows", Arch: "arm64"},
-		}, got)
-	})
-
-	t.Run("os only", func(t *testing.T) {
-		matrixOS, matrixArch = []string{"linux"}, nil
-		got, err := resolveMatrixPlatforms()
-		require.NoError(t, err)
-		assert.Equal(t, []buildPlatform{
-			{OS: "linux", Arch: "amd64"},
-			{OS: "linux", Arch: "arm64"},
-		}, got)
-	})
-
-	// The flags are read, never rewritten: a caller that resolves twice must
-	// get the same answer both times.
-	t.Run("resolution does not mutate the flags", func(t *testing.T) {
-		matrixOS, matrixArch = []string{"linux"}, nil
-		_, err := resolveMatrixPlatforms()
-		require.NoError(t, err)
-		assert.Nil(t, matrixArch, "--arch must stay as the caller left it")
-	})
-}
-
 func TestParseCosmoPlatforms(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		name    string
 		entries []string
@@ -138,6 +102,7 @@ func TestParseCosmoPlatforms(t *testing.T) {
 // "all" publishes the platforms the APE is PROVEN to run on, never the extra
 // ones the fork can also emit — the published set is a promise.
 func TestApeCoverageForAll(t *testing.T) {
+	t.Serial()
 	assert.Equal(t, []buildPlatform{
 		{OS: "darwin", Arch: "arm64"},
 		{OS: "linux", Arch: "amd64"},
@@ -150,6 +115,7 @@ func TestApeCoverageForAll(t *testing.T) {
 }
 
 func TestPlatformList(t *testing.T) {
+	t.Serial()
 	assert.Equal(t, "linux/amd64,darwin/arm64", platformList([]buildPlatform{
 		{OS: "linux", Arch: "amd64"},
 		{OS: "darwin", Arch: "arm64"},
@@ -157,38 +123,10 @@ func TestPlatformList(t *testing.T) {
 	assert.Equal(t, "", platformList(nil))
 }
 
-// A toolchain that cannot restrict coverage must SAY SO. Reporting a slimmed
-// build that was not slimmed is the failure this warning exists to prevent.
+// The platform set reaches the fork as its own variable, and "all" leaves it unset.
 func TestCosmoPlatformsEnvValue(t *testing.T) {
-	old := cosmoPlatformsSupportedFunc
-	defer func() { cosmoPlatformsSupportedFunc = old }()
+	t.Serial()
 	platforms := []buildPlatform{{OS: "linux", Arch: "amd64"}, {OS: "darwin", Arch: "arm64"}}
-
-	t.Run("supported", func(t *testing.T) {
-		cosmoPlatformsSupportedFunc = func(string) bool { return true }
-		out := captureCombinedOutput(func() {
-			assert.Equal(t, "linux/amd64,darwin/arm64", cosmoPlatformsEnvValue("/fork", platforms))
-		})
-		assert.NotContains(t, out, "Warning")
-	})
-
-	t.Run("unsupported warns and leaves it unset", func(t *testing.T) {
-		cosmoPlatformsSupportedFunc = func(string) bool { return false }
-		var got string
-		out := captureCombinedOutput(func() { got = cosmoPlatformsEnvValue("/fork", platforms) })
-		assert.Equal(t, "", got, "an ignored variable must not be set at all")
-		assert.Contains(t, out, cosmoPlatformsEnv)
-		assert.Contains(t, out, "linux/amd64,darwin/arm64")
-	})
-
-	t.Run("all needs no probe", func(t *testing.T) {
-		cosmoPlatformsSupportedFunc = func(string) bool {
-			t.Fatal("the probe must not run when no platform set was requested")
-			return false
-		}
-		out := captureCombinedOutput(func() {
-			assert.Equal(t, "", cosmoPlatformsEnvValue("/fork", nil))
-		})
-		assert.NotContains(t, out, "Warning")
-	})
+	assert.Equal(t, "linux/amd64,darwin/arm64", cosmoPlatformsEnvValue(platforms))
+	assert.Equal(t, "", cosmoPlatformsEnvValue(nil))
 }

@@ -124,7 +124,7 @@ func (l *Logger) isGHA() bool {
 
 // Warn emits a message to Stderr (or a GHA ::warning annotation) when
 // level <= LevelWarn. Every emitted warning is recorded for the budget; a
-// repeat of the same text counts once and still prints (see WarnCount).
+// repeat of the same text counts a single time and still prints (see WarnCount).
 func (l *Logger) Warn(format string, args ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -147,7 +147,7 @@ func (l *Logger) Warn(format string, args ...any) {
 // WarnFile emits a file-annotated warning (GHA: file=<file>::<msg>,
 // locally: same as Warn). level <= LevelWarn required. The recorded text
 // carries the file, which keeps the recap's location AND keeps the same
-// message about two files two warnings for the budget (see WarnCount).
+// message about separate files apart in the budget (see WarnCount).
 func (l *Logger) WarnFile(file, format string, args ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

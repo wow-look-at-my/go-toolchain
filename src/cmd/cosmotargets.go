@@ -87,7 +87,7 @@ func coverableCosmoPlatforms() []string {
 
 // apeCoverage returns the platforms a fat APE built with the given --cosmo-platforms selection
 // actually runs on. An empty selection means "all": coverage is then every platform whose
-// runtime is verified, never an unverified one the fork can also emit -- a published set names
+// runtime is verified, never an unverified platform the fork can also emit -- a published set names
 // where the binary RUNS.
 func apeCoverage(platforms []buildPlatform) []buildPlatform {
 	if len(platforms) > 0 {

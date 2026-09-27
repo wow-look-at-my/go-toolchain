@@ -1,12 +1,45 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
+	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
+	"github.com/wow-look-at-my/go-toolchain/src/vet"
 )
+
+// A pipeline test that reaches the build phase names its go command through
+// stubForkToolchain, so the refusal in resolveForkBuildEnv names the repair.
+
+// mockTestEvents renders the `go test -json` stream a passing package
+// reports: the run line, the coverage output line, and the pass line. The
+// events are marshaled rather than spelled, so the encoder owns the quoting.
+func mockTestEvents(pct float32) string {
+	const pkg = "example.com/pkg"
+	events := []map[string]any{
+		{"Time": "2024-01-01T00:00:00Z", "Action": "run", "Package": pkg},
+		{"Time": "2024-01-01T00:00:01Z", "Action": "output", "Package": pkg,
+			"Output": fmt.Sprintf("coverage: %.1f%% of statements\n", pct)},
+		{"Time": "2024-01-01T00:00:02Z", "Action": "pass", "Package": pkg},
+	}
+	var out strings.Builder
+	for _, event := range events {
+		raw, err := json.Marshal(event)
+		if err != nil {
+			panic(err)
+		}
+		out.Write(raw)
+		out.WriteByte('\n')
+	}
+	return out.String()
+}
 
 // writeMockCoverProfileStmts writes a coverage profile with the given
 // covered/uncovered statement counts from the -coverprofile= flag in args.
@@ -49,14 +82,112 @@ func handleGoList(cfg runner.Config) (runner.IProcess, bool) {
 
 // setupMockProject creates a minimal Go project in the current directory so
 // that filesystem-based module path reading and main package discovery work.
-func setupMockProject() {
+func setupMockProject(t *testing.T) {
+	t.Helper()
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.MkdirAll("pkg", 0755)
 	os.WriteFile("pkg/main.go", []byte("package main\n"), 0644)
+	// Without this, the build phase sends every pipeline test to buildhost.
+	stubForkToolchain(t)
+	stubVetPhase(t)
+}
+
+// assertExecutable checks the exec bit where the host keeps such a bit. NT
+// does not, so there this asserts only that the file exists.
+func assertExecutable(t *testing.T, path, msg string) {
+	t.Helper()
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	if runtime.GOOS == "windows" {
+		return
+	}
+	assert.NotZero(t, info.Mode().Perm()&0o111, msg)
+}
+
+// requireShebangHelper gates a test with a shell-script fixture: NT
+// runs no shebang, and a stand-in re-parses the arguments.
+func requireShebangHelper(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the fixture is a shell script; NT runs no shebang")
+	}
+}
+
+// setHome points os.UserHomeDir() at dir. Windows reads USERPROFILE,
+// other hosts HOME.
+func setHome(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+}
+
+// stubVetPhase keeps a pipeline test off the real vet pass: vet spawns a go
+// list per call, and this package runs the pipeline dozens of times.
+func stubVetPhase(t *testing.T) {
+	t.Helper()
+	old := vetRunFunc
+	vetRunFunc = func(bool, vet.ProgressFunc) (bool, error) { return false, nil }
+	t.Cleanup(func() { vetRunFunc = old })
+}
+
+// writeMockBuildOutput writes the -o file, as a real compiler does on success.
+func writeMockBuildOutput(cfg runner.Config, content string) {
+	for i, arg := range cfg.Args {
+		if arg == "-o" && i+1 < len(cfg.Args) {
+			os.WriteFile(cfg.Args[i+1], []byte(content), 0o755)
+		}
+	}
+}
+
+// goCommandArgs answers the go command's own arguments: the pipeline starts
+// go by name, or starts itself under its go subcommand.
+func goCommandArgs(cfg runner.Config) ([]string, bool) {
+	if name := strings.TrimSuffix(filepath.Base(cfg.Name), ".exe"); name == "go" {
+		return cfg.Args, true
+	}
+	if len(cfg.Args) > 0 && cfg.Args[0] == "go" {
+		return cfg.Args[1:], true
+	}
+	return nil, false
+}
+
+// isGoBuild recognizes a `go build`.
+func isGoBuild(cfg runner.Config) bool {
+	args, ok := goCommandArgs(cfg)
+	return ok && len(args) > 0 && args[0] == "build"
+}
+
+// isEmbedStd recognizes the standard library embedding a self-hosted build runs.
+func isEmbedStd(cfg runner.Config) bool {
+	args, ok := goCommandArgs(cfg)
+	return ok && len(args) > 1 && args[0] == "tool" && args[1] == "embedstd"
+}
+
+// writeMockBlob writes the -o file embedstd was asked for.
+func writeMockBlob(cfg runner.Config) {
+	for i, arg := range cfg.Args {
+		if arg == "-o" && i+1 < len(cfg.Args) {
+			os.WriteFile(cfg.Args[i+1], []byte("std"), 0o644)
+		}
+	}
+}
+
+// handleGoBuild leaves the -o target behind, as a compiler does on success;
+// every mock reaching the build phase needs it. newBuildFailMock takes precedence.
+func handleGoBuild(cfg runner.Config) (runner.IProcess, bool) {
+	if isEmbedStd(cfg) {
+		writeMockBlob(cfg)
+		return runner.MockProcess(nil, nil), true
+	}
+	if !isGoBuild(cfg) {
+		return nil, false
+	}
+	writeMockBuildOutput(cfg, "bin")
+	return runner.MockProcess(nil, nil), true
 }
 
 // newTestPassMock creates a mock runner that passes tests with the given coverage percentage.
-// If pct is 0, it defaults to 100%.
+// An unset pct defaults to full coverage.
 func newTestPassMock(pct float32) *runner.Mock {
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
@@ -66,11 +197,10 @@ func newTestPassMock(pct float32) *runner.Mock {
 				covPct = 100
 			}
 			writeMockCoverProfile(cfg.Args, covPct)
-			output := fmt.Sprintf(`{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
-{"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: %.1f%% of statements\n"}
-{"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
-`, covPct)
-			return runner.MockProcess([]byte(output), nil), nil
+			return runner.MockProcess([]byte(mockTestEvents(covPct)), nil), nil
+		}
+		if proc, ok := handleGoBuild(cfg); ok {
+			return proc, nil
 		}
 		if proc, ok := handleGoList(cfg); ok {
 			return proc, nil
@@ -114,7 +244,7 @@ func newModTidyFailMock() *runner.Mock {
 func newBuildFailMock() *runner.Mock {
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.IsCmd("go", "build") {
+		if isGoBuild(cfg) {
 			return runner.MockProcess(nil, fmt.Errorf("build failed")), nil
 		}
 		if cfg.IsCmd("go", "test") {
@@ -144,6 +274,9 @@ func newTestFailMock() *runner.Mock {
 {"Time":"2024-01-01T00:00:02Z","Action":"fail","Package":"example.com/pkg"}
 `
 			return runner.MockProcess([]byte(output), nil), nil
+		}
+		if proc, ok := handleGoBuild(cfg); ok {
+			return proc, nil
 		}
 		if proc, ok := handleGoList(cfg); ok {
 			return proc, nil
@@ -182,8 +315,10 @@ func newSmallMock(covered, uncovered int) *runner.Mock {
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.IsCmd("go", "test") {
 			writeMockCoverProfileStmts(cfg.Args, covered, uncovered)
-			out := fmt.Sprintf("{\"Time\":\"2024-01-01T00:00:00Z\",\"Action\":\"run\",\"Package\":\"example.com/pkg\"}\n{\"Time\":\"2024-01-01T00:00:01Z\",\"Action\":\"output\",\"Package\":\"example.com/pkg\",\"Output\":\"coverage: %.1f%% of statements\\n\"}\n{\"Time\":\"2024-01-01T00:00:02Z\",\"Action\":\"pass\",\"Package\":\"example.com/pkg\"}\n", pct)
-			return runner.MockProcess([]byte(out), nil), nil
+			return runner.MockProcess([]byte(mockTestEvents(pct)), nil), nil
+		}
+		if proc, ok := handleGoBuild(cfg); ok {
+			return proc, nil
 		}
 		if proc, ok := handleGoList(cfg); ok {
 			return proc, nil

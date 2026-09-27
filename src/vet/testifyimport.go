@@ -21,7 +21,7 @@ const (
 	upstreamTestify = "github.com/stretchr/testify/"
 )
 
-// importRewrite records one fork->upstream import path change, for printing.
+// importRewrite records a fork->upstream import path change, for printing.
 type importRewrite struct{ old, new string }
 
 // FixTestifyImports scans all Go files for imports of the in-house

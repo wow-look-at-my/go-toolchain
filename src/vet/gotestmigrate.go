@@ -141,7 +141,7 @@ func migrateFileGotestTools(ed Editor, filename string) (bool, error) {
 		}
 	}
 
-	// Phase 1: Rewrite imports
+	// Rewrite imports
 	var gotestImportSpec *ast.ImportSpec
 	for _, imp := range f.Imports {
 		path := strings.Trim(imp.Path.Value, `"`)
@@ -174,7 +174,7 @@ func migrateFileGotestTools(ed Editor, filename string) (bool, error) {
 	// Record fixes to print only if the change is actually written (fix mode).
 	fixLog := [][2]string{{gotestAssert, testifyRequire}}
 
-	// Phase 2: rename functions, unwrap cmp calls, and track idents that stay "assert" (Check paths).
+	// Rename functions, unwrap cmp calls, and track idents that stay "assert" (Check paths).
 	keepAsAssert := set.New[*ast.Ident]()
 
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -259,7 +259,7 @@ func migrateFileGotestTools(ed Editor, filename string) (bool, error) {
 		return true
 	})
 
-	// Phase 3: Remove cmp import if present
+	// Remove cmp import if present
 	if hasCmpImport {
 		for _, imp := range f.Imports {
 			if strings.Trim(imp.Path.Value, `"`) == gotestAssertCmp {
@@ -270,7 +270,7 @@ func migrateFileGotestTools(ed Editor, filename string) (bool, error) {
 		fixLog = append(fixLog, [2]string{gotestAssertCmp, "(removed)"})
 	}
 
-	// Phase 4: Add testify/assert import if non-fatal (Check) calls were found
+	// Add testify/assert import if non-fatal (Check) calls were found
 	if needAssertImport {
 		addImport(f, testifyAssert)
 	}
@@ -293,7 +293,7 @@ func migrateFileGotestTools(ed Editor, filename string) (bool, error) {
 	return wrote, nil
 }
 
-// addImport adds an import path to the file's first import declaration.
+// addImport adds an import path to the file's leading import declaration.
 // Does nothing if the import already exists.
 func addImport(f *ast.File, path string) {
 	for _, imp := range f.Imports {
@@ -309,7 +309,7 @@ func addImport(f *ast.File, path string) {
 		},
 	}
 
-	// Add to the first import group
+	// Add to the leading import group
 	for _, decl := range f.Decls {
 		genDecl, ok := decl.(*ast.GenDecl)
 		if !ok || genDecl.Tok != token.IMPORT {
@@ -320,7 +320,7 @@ func addImport(f *ast.File, path string) {
 		return
 	}
 
-	// No import decl exists — create one
+	// No import decl exists — create it
 	genDecl := &ast.GenDecl{
 		Tok:   token.IMPORT,
 		Specs: []ast.Spec{newSpec},

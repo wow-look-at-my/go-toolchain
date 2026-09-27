@@ -8,7 +8,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// Comparison holds benchmark deltas between two reports
+// Comparison holds the benchmark deltas between a pair of reports
 type Comparison struct {
 	Packages       map[string][]Delta
 	PreviousCommit string
@@ -97,7 +97,7 @@ func (c *Comparison) Print() {
 	logger.Info("        time/op       delta     alloc/op   allocs/op  name")
 	for _, pkg := range pkgNames {
 		deltas := c.Packages[pkg]
-		// Sort by ns/op (fastest first)
+		// Sort by ns/op, fastest at the top
 		sort.Slice(deltas, func(i, j int) bool {
 			return deltas[i].Current.NsPerOp < deltas[j].Current.NsPerOp
 		})
@@ -156,7 +156,7 @@ func formatDelta(pct float64, hasPrevious bool) string {
 	} else if pct > 1 {
 		color = "\033[38;2;255;128;128m" // red
 	} else {
-		color = "\033[38;2;128;128;128m" // gray for ~0
+		color = "\033[38;2;128;128;128m" // gray for no change
 	}
 
 	sign := ""

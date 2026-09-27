@@ -13,7 +13,7 @@ import (
 )
 
 // HasCoverableStatements reports whether any non-test, non-generated Go file
-// under dir that is part of the current build contains at least one function
+// under dir that is part of the current build contains a function
 // body with a statement — i.e. whether `go test -cover` could ever measure a
 // statement in this module. Embed-only and declarations-only modules (no
 // function bodies anywhere) return false: their empty coverage profile is

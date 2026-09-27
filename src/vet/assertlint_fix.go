@@ -100,7 +100,7 @@ func hoistableInit(pass *analysis.Pass, ifStmt *ast.IfStmt) ast.Stmt {
 	// Scopes[ifStmt] is the scope the init declares into; its parent is where the statement lands.
 	ifScope := pass.TypesInfo.Scopes[ifStmt]
 	if ifScope == nil || ifScope.Parent() == nil {
-		return ifStmt.Init // no type info: leave it exactly as it was
+		return ifStmt.Init // no type info.
 	}
 	for _, lhs := range assign.Lhs {
 		ident, ok := lhs.(*ast.Ident)
@@ -111,7 +111,7 @@ func hoistableInit(pass *analysis.Pass, ifStmt *ast.IfStmt) ast.Stmt {
 			continue
 		}
 		if _, obj := ifScope.Parent().LookupParent(ident.Name, ifStmt.Pos()); obj == nil {
-			return ifStmt.Init // at least one new name, so := is legal
+			return ifStmt.Init // a new name is introduced, so := is legal
 		}
 	}
 	hoisted := *assign
@@ -232,7 +232,7 @@ func buildBinaryAssert(pass *analysis.Pass, bin *ast.BinaryExpr, tVar, assertPkg
 		return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), bin.X, bin.Y)
 	}
 
-	// Default: two args
+	// Default: the plain argument pair
 	return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), bin.X, bin.Y)
 }
 
@@ -241,7 +241,7 @@ func buildBinaryAssert(pass *analysis.Pass, bin *ast.BinaryExpr, tVar, assertPkg
 // on stale position information when AST nodes are reused in a different context
 // (e.g., extracting condition operands from an if statement into assert call arguments).
 func clearNodePositions(node ast.Node) {
-	ast.Inspect(node, func(n ast.Node) bool {
+	InspectNode(node, func(n ast.Node) bool {
 		if n == nil {
 			return false
 		}
@@ -284,7 +284,7 @@ func clearNodePositions(node ast.Node) {
 	})
 }
 
-// prepareFixNodes clears stale positions from all new nodes and sets the first
+// prepareFixNodes clears stale positions from all new nodes and sets the leading
 // token position to pos, so the Go printer flushes leading comments correctly.
 func prepareFixNodes(nodes []ast.Node, pos token.Pos) {
 	for _, node := range nodes {
@@ -295,11 +295,11 @@ func prepareFixNodes(nodes []ast.Node, pos token.Pos) {
 	}
 }
 
-// setFirstTokenPos walks the AST depth-first and sets the position of the first
+// setFirstTokenPos walks the AST depth-wise and sets the position of the leading
 // positioned token (Ident or BasicLit) to pos.
 func setFirstTokenPos(node ast.Node, pos token.Pos) {
 	done := false
-	ast.Inspect(node, func(n ast.Node) bool {
+	InspectNode(node, func(n ast.Node) bool {
 		if done || n == nil {
 			return false
 		}

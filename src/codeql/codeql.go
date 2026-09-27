@@ -1,6 +1,6 @@
 // Package codeql wraps the CodeQL Go extractor and analyze CLI invocations,
 // emitting them as native go-toolchain pipeline steps so they are captured
-// in the timeline and OTLP traces alongside vet/test/build/matrix work.
+// in the timeline alongside vet/test/build/matrix work.
 //
 // It assumes github/codeql-action/init has already run and exported the
 // CODEQL_DIST and CODEQL_EXTRACTOR_GO_* environment variables. Enabled()
@@ -143,7 +143,7 @@ func runWaitConfig(r runner.CommandRunner, cfg *runner.Config) error {
 	if err != nil {
 		return fmt.Errorf("spawn %s: %w", cfg.Name, err)
 	}
-	// Drain stdout/stderr concurrently: reading one to completion first can deadlock when the other's OS buffer fills.
+	// Drain stdout/stderr concurrently: draining either alone can deadlock when the other's OS buffer fills.
 	var stderr []byte
 	done := make(chan struct{})
 	go func() {

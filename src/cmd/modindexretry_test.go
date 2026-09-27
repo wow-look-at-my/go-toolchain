@@ -13,7 +13,7 @@ import (
 
 // tidyMock returns a mock runner whose `go mod tidy` behavior is driven by
 // fail decides per-call: writing marker stderr and failing while it returns
-// true, succeeding once it returns false. calls counts tidy invocations.
+// true, succeeding when it returns false. calls counts tidy invocations.
 func tidyMock(stderrLine string, failFirst int) (*runner.Mock, *int) {
 	mock := runner.NewMock()
 	calls := new(int)
@@ -43,6 +43,7 @@ func chdirWithGoMod(t *testing.T) {
 }
 
 func TestRunModTidyCorruptIndexRetriesWithIndexDisabled(t *testing.T) {
+	t.Serial()
 	t.Setenv("GODEBUG", "")
 	chdirWithGoMod(t)
 
@@ -53,6 +54,7 @@ func TestRunModTidyCorruptIndexRetriesWithIndexDisabled(t *testing.T) {
 }
 
 func TestRunModTidyCorruptIndexRetryStillFailing(t *testing.T) {
+	t.Serial()
 	t.Setenv("GODEBUG", "")
 	chdirWithGoMod(t)
 
@@ -63,6 +65,7 @@ func TestRunModTidyCorruptIndexRetryStillFailing(t *testing.T) {
 }
 
 func TestRunModTidyOtherFailureDoesNotRetry(t *testing.T) {
+	t.Serial()
 	t.Setenv("GODEBUG", "")
 	chdirWithGoMod(t)
 
@@ -74,6 +77,7 @@ func TestRunModTidyOtherFailureDoesNotRetry(t *testing.T) {
 }
 
 func TestRunModTidySuccessTouchesNothing(t *testing.T) {
+	t.Serial()
 	t.Setenv("GODEBUG", "")
 	chdirWithGoMod(t)
 
@@ -84,6 +88,7 @@ func TestRunModTidySuccessTouchesNothing(t *testing.T) {
 }
 
 func TestRunModTidyMissingGoModMessage(t *testing.T) {
+	t.Serial()
 	t.Setenv("GODEBUG", "")
 	t.Chdir(t.TempDir()) // no go.mod here
 
@@ -93,6 +98,7 @@ func TestRunModTidyMissingGoModMessage(t *testing.T) {
 }
 
 func TestDisableGoModuleIndexMergesExistingGODEBUG(t *testing.T) {
+	t.Serial()
 	t.Setenv("GODEBUG", "http2client=0")
 	disableGoModuleIndex()
 	require.Equal(t, "http2client=0,goindex=0", os.Getenv("GODEBUG"))
@@ -100,9 +106,13 @@ func TestDisableGoModuleIndexMergesExistingGODEBUG(t *testing.T) {
 	t.Setenv("GODEBUG", "")
 	disableGoModuleIndex()
 	require.Equal(t, "goindex=0", os.Getenv("GODEBUG"))
+
+	disableGoModuleIndex()
+	require.Equal(t, "goindex=0", os.Getenv("GODEBUG"), "a second call adds nothing: the value is hashed into every test result")
 }
 
 func TestTailBufferKeepsBoundedTail(t *testing.T) {
+	t.Serial()
 	var tb tailBuffer
 	chunk := strings.Repeat("x", 40<<10)
 	_, err := tb.Write([]byte(chunk))

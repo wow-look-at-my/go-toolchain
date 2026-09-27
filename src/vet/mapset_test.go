@@ -17,6 +17,7 @@ import (
 // TestMapSetAnalyzer: an all-true or emptied-then-set-only bool map is reported; a lookup
 // table, comma-ok read, computed value, escaping map, or map[K]struct{} is not.
 func TestMapSetAnalyzer(t *testing.T) {
+	t.Serial() // See TestBannedOutputAnalyzer.
 	testdata, err := filepath.Abs("testdata")
 	require.NoError(t, err)
 	analysistest.Run(t, testdata, MapSetAnalyzer, "mapset")
@@ -26,6 +27,7 @@ func TestMapSetAnalyzer(t *testing.T) {
 // itself: Set[T] IS a map[T]struct{}, and its storage sites would spend half
 // the warnings budget saying so.
 func TestMapSetSkipsTheSetPackageItself(t *testing.T) {
+	t.Serial()
 	const src = `package set
 
 type Set[T comparable] struct {
@@ -63,11 +65,12 @@ type Set[T comparable] struct {
 }
 
 // TestMapSetSeverityFollowsTheModule verifies no module escapes the check, and
-// that what the module decides is severity. An org module has the remedy one
-// first-party require away, so its findings fail the build; anywhere else the
+// that what the module decides is severity. An org module has the remedy a
+// single org require away, so its findings fail the build; anywhere else the
 // same finding is a warning, because the fix would add a dependency the author
 // never chose.
 func TestMapSetSeverityFollowsTheModule(t *testing.T) {
+	t.Serial()
 	const src = `package main
 
 var seen = map[string]bool{"a": true}
@@ -114,6 +117,7 @@ func main() { _ = seen }
 // even in an org module. It already carries no value; the diagnostic is
 // reserved for the map[K]bool default.
 func TestMapSetStructMapOnlyWarns(t *testing.T) {
+	t.Serial()
 	const src = `package main
 
 var seen = map[string]struct{}{}
@@ -149,6 +153,6 @@ func main() { seen["a"] = struct{}{} }
 	require.NoError(t, err)
 	require.Equal(t, before+2, logger.TotalWarnCount())
 
-	// The site printed twice, and it is one site. The budget counts it once.
+	// The site printed repeatedly, and it is a single site. The budget counts it as such.
 	require.Equal(t, beforeDistinct+1, logger.WarnCount())
 }

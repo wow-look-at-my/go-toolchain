@@ -16,7 +16,6 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
-	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
@@ -24,18 +23,22 @@ import (
 // fingerprintFile returns the path where the last-successful-run fingerprint is stored.
 func fingerprintFile() string {
 	dir := filepath.Join(os.TempDir(), "go-toolchain-fingerprint")
-	os.MkdirAll(dir, 0o755)
+	// Best effort, but never silent: the lost fast exit is correct and slow,
+	// and it should arrive with its cause.
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		logger.Warn("cannot store the up-to-date fingerprint in %s (%v); every run will redo the pipeline", dir, err)
+	}
 	wd, _ := os.Getwd()
 	h := sha256.Sum256([]byte(wd))
 	return filepath.Join(dir, hex.EncodeToString(h[:])+".sha256")
 }
 
-// runEnv is captured once at run start, before the pipeline sets its own PID-derived vars.
+// runEnv is captured at run start, before the pipeline sets its own PID-derived vars.
 var runEnv []string
 
 func captureRunEnv() { runEnv = os.Environ() }
 
-// fingerprintEnv returns the captured environment, or the live one for callers
+// fingerprintEnv returns the captured environment, or the live environment for callers
 // that skipped PersistentPreRunE.
 func fingerprintEnv() []string {
 	if runEnv != nil {
@@ -47,6 +50,9 @@ func fingerprintEnv() []string {
 // fingerprintFlags is the root command's flag set, wired up in root.go's init.
 var fingerprintFlags *pflag.FlagSet
 
+// fingerprintPersistentFlags holds what Flags() merges in at parse time.
+var fingerprintPersistentFlags *pflag.FlagSet
+
 // volatileEnv holds shell-rewritten vars excluded from the fingerprint.
 var volatileEnv = set.Of("_", "OLDPWD", "SHLVL")
 
@@ -57,12 +63,35 @@ func flagFingerprint() string {
 	if fingerprintFlags == nil {
 		return ""
 	}
-	var lines []string
-	fingerprintFlags.VisitAll(func(f *pflag.Flag) {
-		lines = append(lines, f.Name+"="+f.Value.String())
-	})
+	seen := map[string]string{}
+	visit := func(fs *pflag.FlagSet) {
+		if fs == nil {
+			return
+		}
+		fs.VisitAll(func(f *pflag.Flag) { seen[f.Name] = f.Value.String() })
+	}
+	visit(fingerprintFlags)
+	visit(fingerprintPersistentFlags)
+	lines := make([]string, 0, len(seen))
+	for name, value := range seen {
+		lines = append(lines, name+"="+value)
+	}
 	sort.Strings(lines)
 	return strings.Join(lines, "\n")
+}
+
+// isOutputDir reports whether path, relative to the walk root, is the output
+// directory. outputDir can also be absolute, so both spellings are compared.
+func isOutputDir(path string) bool {
+	if filepath.Clean(path) == filepath.Clean(outputDir) {
+		return true
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	outAbs, err := filepath.Abs(outputDir)
+	return err == nil && abs == outAbs
 }
 
 // computeFingerprint hashes all inputs that affect a go-toolchain run: all .go
@@ -75,6 +104,8 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 
 	fmt.Fprintf(h, "go:%s\n", runtime.Version())
 	fmt.Fprintf(h, "toolchain:%s\n", buildVersion)
+	// The fork checkout is the standard library a build of this module compiles.
+	fmt.Fprintf(h, "gosmopolitan:%s\n", resolvedForkCommit)
 	fmt.Fprintf(h, "output:%s\n", outputDir)
 	fmt.Fprintf(h, "flags:%s\n", flagFingerprint())
 
@@ -89,13 +120,16 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 	}
 
 	var files []string
+	// The walk must skip the run's own product. Matching the NAME "build"
+	// instead hid src/build, a real package, so an edit there left the
+	// fingerprint unchanged and the fast exit served a stale binary.
 	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if name == "build" || name == "vendor" || name == "node_modules" {
+			if isOutputDir(path) || name == "vendor" || name == "node_modules" || isForkSubmodulePath(path) {
 				return filepath.SkipDir
 			}
 			if name != "." && strings.HasPrefix(name, ".") {
@@ -175,7 +209,7 @@ func underTestdata(path string) bool {
 // child that inherits stdout and stalls the io.ReadAll below.
 //
 // Note: files read at run time from a testdata directory are covered by the
-// walk above; one living elsewhere with no embed directive stays untracked.
+// walk above; a file living elsewhere with no embed directive stays untracked.
 func embeddedFiles(r runner.CommandRunner) ([]string, error) {
 	proc, err := runner.Cmd("go", "list", "-test", "-json", "./...").
 		WithQuiet().WithEnv("GOCACHEPROG", "").Run(r)
@@ -217,11 +251,11 @@ func embeddedFiles(r runner.CommandRunner) ([]string, error) {
 	return embeds, nil
 }
 
-// isUpToDate returns true if the project fingerprint matches the last successful run
-// and all build outputs still exist.
-func isUpToDate(r runner.CommandRunner) bool {
-	fp := fingerprintFile()
-	stored, err := os.ReadFile(fp)
+// inputsUnchanged reports whether every input the pipeline reads still matches
+// the last run that went green. It says nothing about the outputs, so a caller
+// that lost its outputs builds again without re-running vet or the tests.
+func inputsUnchanged(r runner.CommandRunner) bool {
+	stored, err := os.ReadFile(fingerprintFile())
 	if err != nil {
 		return false
 	}
@@ -235,35 +269,31 @@ func isUpToDate(r runner.CommandRunner) bool {
 		return false
 	}
 
-	// A branch-tracked dep's HEAD lives on a remote; an unchanged tree can still be stale if that branch moved.
-	if trackedBranchDepsMoved(r) {
-		return false
-	}
+	return true
+}
 
-	// An unchanged tree can predate branch-tracking; skipping here would skip the run that adds the markers.
-	if len(untrackedOrgDeps()) > 0 {
-		return false
-	}
-
+// outputsPresent reports whether every target this module builds is on disk.
+func outputsPresent(r runner.CommandRunner) bool {
 	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {
 		return false
 	}
 
-	inDocker := build.InDocker()
 	for _, t := range targets {
-		outputName := t.OutputName
-		if inDocker {
-			// hostos: must mirror the naming in root.go's runBuildPhase.
-			outputName = build.BinaryName(outputName, hostos.GOOS(), runtime.GOARCH)
-		}
-		outPath := filepath.Join(outputDir, outputName)
+		// Must mirror the naming in root.go's runBuildPhase.
+		outPath := filepath.Join(outputDir, build.BinaryName(t.OutputName, cosmoOS, cosmoFatArch))
 		if _, err := os.Stat(outPath); err != nil {
 			return false
 		}
 	}
 
 	return true
+}
+
+// isUpToDate returns true if the project fingerprint matches the last successful run
+// and all build outputs still exist.
+func isUpToDate(r runner.CommandRunner) bool {
+	return inputsUnchanged(r) && outputsPresent(r)
 }
 
 // saveFingerprint writes the current fingerprint to disk.

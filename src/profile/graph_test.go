@@ -31,9 +31,10 @@ func writeGraph(t *testing.T, dir, name, content string) string {
 }
 
 func TestLoadGraphs_ParsesAndMerges(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	g1 := writeGraph(t, dir, "g1.json", graphJSON)
-	// Second dump: pkga reappears with the SAME ActionID but unexecuted (cache-satisfied); the
+	// The later dump: pkga reappears with the SAME ActionID but unexecuted (cache-satisfied); the
 	// executed instance from g1 must win the merge.
 	g2 := writeGraph(t, dir, "g2.json", `[
 		{"ID":1,"Mode":"build","Package":"example.com/m/pkga","ActionID":"aaaaaaaaaaaaaaaaaaaa"}
@@ -43,7 +44,7 @@ func TestLoadGraphs_ParsesAndMerges(t *testing.T) {
 	actions := LoadGraphs([]string{g1, g2}, &warn)
 	require.Empty(t, warn.String())
 
-	// 3 rows: the ActionID-less root, pkga (merged), pkgb.
+	// The rows: the ActionID-less root, pkga (merged), pkgb.
 	require.Len(t, actions, 3)
 	var pkga *Action
 	for i := range actions {
@@ -58,6 +59,7 @@ func TestLoadGraphs_ParsesAndMerges(t *testing.T) {
 }
 
 func TestLoadGraphs_MergePrefersLongerExecution(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	g := writeGraph(t, dir, "g.json", `[
 		{"ID":1,"Mode":"build","Package":"p","ActionID":"cccccccccccccccccccc",
@@ -71,6 +73,7 @@ func TestLoadGraphs_MergePrefersLongerExecution(t *testing.T) {
 }
 
 func TestLoadGraphs_MissingFileIsSilent(t *testing.T) {
+	t.Serial()
 	var warn bytes.Buffer
 	actions := LoadGraphs([]string{filepath.Join(t.TempDir(), "never-written.json")}, &warn)
 	assert.Empty(t, actions)
@@ -78,6 +81,7 @@ func TestLoadGraphs_MissingFileIsSilent(t *testing.T) {
 }
 
 func TestLoadGraphs_MalformedFileWarnsAndSkips(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	bad := writeGraph(t, dir, "bad.json", "{not json[")
 	good := writeGraph(t, dir, "good.json", graphJSON)
@@ -90,6 +94,7 @@ func TestLoadGraphs_MalformedFileWarnsAndSkips(t *testing.T) {
 }
 
 func TestActionExecutedAndWall(t *testing.T) {
+	t.Serial()
 	var a Action
 	assert.False(t, a.Executed())
 	assert.Equal(t, time.Duration(0), a.Wall())

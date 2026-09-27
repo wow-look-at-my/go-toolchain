@@ -14,6 +14,7 @@ import (
 )
 
 func TestFormatDuration(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		d    time.Duration
 		want string
@@ -34,48 +35,8 @@ func TestFormatDuration(t *testing.T) {
 	}
 }
 
-func TestCheckDirtyInCISkipsOutsideCI(t *testing.T) {
-	t.Setenv("CI", "")
-	assert.NoError(t, checkDirtyInCI())
-}
-
-func TestDirtyFilesExcludingToolchainWrites(t *testing.T) {
-	// Guard files are ignored in every state, including migration deletions, while real changes remain.
-	status := " M .gitignore\n" +
-		" D gomemlimit_gen.go\n" +
-		" D cmd/tool/gomemlimit_gen.go\n" +
-		"?? gomemlimit_gen.go\n" +
-		" M src/main.go\n"
-	got := dirtyFilesExcludingToolchainWrites(status)
-	assert.Equal(t, " M .gitignore\n M src/main.go", got)
-}
-
-func TestDirtyFilesExcludingToolchainWritesOnlyGuards(t *testing.T) {
-	// A tree dirty *only* with guard files reads as clean.
-	status := " D gomemlimit_gen.go\n?? cmd/tool/gomemlimit_gen.go\n"
-	assert.Equal(t, "", dirtyFilesExcludingToolchainWrites(status))
-}
-
-func TestDirtyFilesExcludingToolchainWritesEmpty(t *testing.T) {
-	assert.Equal(t, "", dirtyFilesExcludingToolchainWrites(""))
-}
-
-func TestStatusLineIsToolchainWrite(t *testing.T) {
-	cases := map[string]bool{
-		" D gomemlimit_gen.go":           true,
-		"?? gomemlimit_gen.go":           true,
-		" M cmd/tool/gomemlimit_gen.go":  true,
-		"R  old.go -> gomemlimit_gen.go": true, // rename destination is the guard
-		" M .gitignore":                  false,
-		" M src/gomemlimit_gen.go.bak":   false,
-		"":                               false,
-	}
-	for line, want := range cases {
-		assert.Equalf(t, want, statusLineIsToolchainWrite(line, nil), "line %q", line)
-	}
-}
-
 func TestResolvedVersionFromVCS(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{Time: "2023-11-14T22:13:20Z"}
@@ -83,6 +44,7 @@ func TestResolvedVersionFromVCS(t *testing.T) {
 }
 
 func TestResolvedVersionNoVCS(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{}
@@ -90,6 +52,7 @@ func TestResolvedVersionNoVCS(t *testing.T) {
 }
 
 func TestEnvOr(t *testing.T) {
+	t.Serial()
 	t.Setenv("TEST_ENVOR_SET", "from-env")
 	got := envOr("TEST_ENVOR_SET", "fallback")
 	assert.Equal(t, "from-env", got)
@@ -99,6 +62,7 @@ func TestEnvOr(t *testing.T) {
 }
 
 func TestGithubRepoFromEnv(t *testing.T) {
+	t.Serial()
 	t.Setenv("GITHUB_REPOSITORY", "other-org/other-repo")
 	// Re-initialize to pick up env var
 	old := githubRepo
@@ -108,18 +72,11 @@ func TestGithubRepoFromEnv(t *testing.T) {
 	assert.Equal(t, "other-org/other-repo", githubRepo)
 }
 
-// version is NOT exempt from the agent output guard (only cacheprog is), and
-// this test redirects a REAL os.Stdout pipe -- exactly what the guard exists
-// to catch. Stub the agent check so a real agent session running this test
-// doesn't hit the guard's os.Exit(1) and kill the whole test binary.
 func TestVersionRaw(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{Time: "2023-11-14T22:13:20Z"}
-
-	origUnder := runningUnderAgentFn
-	runningUnderAgentFn = func() (string, bool) { return "", false }
-	t.Cleanup(func() { runningUnderAgentFn = origUnder })
 
 	cmd := rootCmd
 	buf := new(strings.Builder)
@@ -142,6 +99,7 @@ func TestVersionRaw(t *testing.T) {
 }
 
 func TestRunVersionJSON_DevBuild(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{}
@@ -167,6 +125,7 @@ func TestRunVersionJSON_DevBuild(t *testing.T) {
 }
 
 func TestRunVersionJSON_WithVCS(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{
@@ -200,6 +159,7 @@ func TestRunVersionJSON_WithVCS(t *testing.T) {
 }
 
 func TestPrintVersionInfo(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{
@@ -210,6 +170,7 @@ func TestPrintVersionInfo(t *testing.T) {
 }
 
 func TestPrintStalenessDevBuild(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{}
@@ -253,6 +214,7 @@ func withMockGitHub(t *testing.T, server *httptest.Server) func() {
 }
 
 func TestFetchLatestCommitFromGitHub(t *testing.T) {
+	t.Serial()
 	commitTime := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC)
 	server := newGitHubMock(t, commitTime, "abc123def456", 0)
 	defer server.Close()
@@ -265,6 +227,7 @@ func TestFetchLatestCommitFromGitHub(t *testing.T) {
 }
 
 func TestFetchLatestCommitFromGitHubHTTPError(t *testing.T) {
+	t.Serial()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
@@ -277,6 +240,7 @@ func TestFetchLatestCommitFromGitHubHTTPError(t *testing.T) {
 }
 
 func TestFetchLatestCommitFromGitHubEmptyResponse(t *testing.T) {
+	t.Serial()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode([]githubCommitResponse{})
 	}))
@@ -288,6 +252,7 @@ func TestFetchLatestCommitFromGitHubEmptyResponse(t *testing.T) {
 }
 
 func TestFetchCommitsBehind(t *testing.T) {
+	t.Serial()
 	server := newGitHubMock(t, time.Now(), "head123", 7)
 	defer server.Close()
 	defer withMockGitHub(t, server)()
@@ -298,6 +263,7 @@ func TestFetchCommitsBehind(t *testing.T) {
 }
 
 func TestFetchCommitsBehindHTTPError(t *testing.T) {
+	t.Serial()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnprocessableEntity)
 	}))
@@ -309,6 +275,7 @@ func TestFetchCommitsBehindHTTPError(t *testing.T) {
 }
 
 func TestPrintStalenessUpToDate(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	// Use a timestamp that's in the future relative to the mock
@@ -325,6 +292,7 @@ func TestPrintStalenessUpToDate(t *testing.T) {
 }
 
 func TestPrintStalenessBehind(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{
@@ -340,6 +308,7 @@ func TestPrintStalenessBehind(t *testing.T) {
 }
 
 func TestPrintStalenessAPIFailure(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{
@@ -355,25 +324,4 @@ func TestPrintStalenessAPIFailure(t *testing.T) {
 
 	// Should print error message, not panic
 	printStaleness()
-}
-
-func TestDiffOnlyDropsGuard(t *testing.T) {
-	header := "diff --git a/.gitignore b/.gitignore\n" +
-		"index abc1234..def5678 100644\n" +
-		"--- a/.gitignore\n" +
-		"+++ b/.gitignore\n" +
-		"@@ -1,3 +1,2 @@\n"
-
-	// Only the guard line removed -> the toolchain's own cleanup, excluded.
-	assert.True(t, diffOnlyDropsGuard(header+" /build/\n-gomemlimit_gen.go\n vendor/\n"))
-
-	// A real addition alongside the removal -> a developer edit, not excluded.
-	assert.False(t, diffOnlyDropsGuard(header+"-gomemlimit_gen.go\n+something-new\n"))
-
-	// Removing a non-guard line -> not excluded.
-	assert.False(t, diffOnlyDropsGuard(header+" /build/\n-vendor/\n"))
-
-	// No removal at all (empty diff, or pure additions) -> nothing to exclude.
-	assert.False(t, diffOnlyDropsGuard(""))
-	assert.False(t, diffOnlyDropsGuard(header+"+/build/\n"))
 }

@@ -32,38 +32,17 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		return err
 	}
 
-	// Cosmo and wasm targets both build with the fork toolchain; fail fast before tests.
+	// Every target builds with the fork toolchain; fail fast before tests.
 	hasCosmo := slices.ContainsFunc(platforms, buildPlatform.IsCosmo)
 	hasWasm := slices.ContainsFunc(platforms, buildPlatform.IsWasm)
-	var forkGoroot string
-	var apePlatforms []buildPlatform
-	if hasCosmo {
-		if apePlatforms, err = parseCosmoPlatforms(cosmoPlatforms); err != nil {
-			return err
-		}
-		if cgoEnabled {
-			logger.Warn("⇒ Warning: --cgo has no effect on the cosmo target (cosmopolitan has no cgo; CGO_ENABLED=0 is forced)")
-		}
+	warnCGOUnavailable(hasCosmo, hasWasm)
+	forkEnv, err := resolveForkBuildEnv(hasCosmo)
+	if err != nil {
+		return err
 	}
-	if hasWasm && cgoEnabled {
-		logger.Warn("⇒ Warning: --cgo has no effect on wasm targets (WebAssembly has no cgo; CGO_ENABLED=0 is forced)")
-	}
-	var forkCacheNamespace, apePlatformsEnv string
-	if hasCosmo || hasWasm {
-		if forkGoroot, err = ensureCosmoToolchainFunc(); err != nil {
-			return err
-		}
-		// The fork's version stamp collides across builds, so cacheprog scopes
-		// cache keys to this hash instead. Fail closed, not un-namespaced.
-		if forkCacheNamespace, err = forkToolchainCacheNamespace(forkGoroot); err != nil {
-			return fmt.Errorf("fingerprinting the fork toolchain for cache isolation: %w", err)
-		}
-		if hasCosmo {
-			apePlatformsEnv = cosmoPlatformsEnvValue(forkGoroot, apePlatforms)
-		}
-	}
+	apePlatforms := forkEnv.coverage
 
-	// Run tests with coverage first (same as default command)
+	// Run tests with coverage before building (same as the default command)
 	if _, _, err := RunTestsWithCoverage(r, false); err != nil {
 		return err
 	}
@@ -82,13 +61,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		return err
 	}
 
-	// Caps cross-compiled binaries' heap too via the GOMEMLIMIT guard; removed after the build.
-	if err := injectMemLimitGuard(false); err != nil {
-		return err
-	}
-	defer cleanupMemLimitGuards()
-
-	// Drives the legacy build, cosmo APE, and symlinks; safe post-guard-injection since discovery skips the guard file by name.
+	// Drives the cosmo APE, the manifest and the symlinks.
 	hostTargets, err := build.ResolveBuildTargets(r)
 	if err != nil {
 		return err
@@ -107,39 +80,28 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	}
 	ensureBuildDirInGitignore()
 
-	// Build job queue - one job per platform per main package
+	// Build job queue - a job per platform per main package
 	var jobs []buildJob
 	for _, p := range platforms {
 		for _, target := range platformTargets[p] {
 			outputName := build.BinaryName(target.OutputName, p.OS, p.Arch)
 			if p.IsWasm() {
-				// Publishable buildhost naming by default; .wasm-suffixed under GO_TOOLCHAIN_WASM_PUBLISH=0.
+				// Publishable buildhost naming by default; .wasm-suffixed under the wasmPublishEnv opt-out.
 				outputName = wasmArtifactName(target.OutputName, p)
 			}
-			job := buildJob{
-				goos:       p.OS,
-				goarch:     p.Arch,
-				srcPath:    target.ImportPath,
-				outputPath: filepath.Join(outputDir, outputName),
-			}
-			if p.NeedsForkToolchain() {
-				job.forkGoroot = forkGoroot
-				job.cacheNamespace = forkCacheNamespace
-			}
-			if p.IsCosmo() {
-				job.cosmoPlatforms = apePlatformsEnv
+			outPath := filepath.Join(outputDir, outputName)
+			job := forkEnv.apeJob(target.ImportPath, outPath)
+			if !p.IsCosmo() {
+				job.goos, job.goarch, job.cosmoPlatforms = p.OS, p.Arch, ""
 			}
 			jobs = append(jobs, job)
 		}
 	}
 
-	switch {
-	case len(matrixTargets) == 0 && len(matrixOS) == 0 && len(matrixArch) == 0:
+	if len(matrixTargets) == 0 {
 		logger.Info("⇒ Building %d fat APE(s) covering %s", len(jobs), platformList(apeCoverage(apePlatforms)))
-	case len(matrixTargets) > 0:
+	} else {
 		logger.Info("⇒ Building %d binaries (%d targets)", len(jobs), len(platforms))
-	default:
-		logger.Info("⇒ Building %d binaries (%d platforms from --os x --arch)", len(jobs), len(platforms))
 	}
 	buildStart := time.Now()
 
@@ -194,6 +156,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 			logger.Info("  OK   [%d/%d] %s %s", completed, len(jobs), result.job.outputPath, fmtDuration(result.duration))
 			if _, statErr := os.Stat(result.job.outputPath); statErr == nil {
 				builtFiles = append(builtFiles, result.job.outputPath)
+				recordArtifactSize(result.job.outputPath)
 			}
 		}
 	}
@@ -202,26 +165,33 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		return fmt.Errorf("%d/%d builds failed", len(failed), len(jobs))
 	}
 
-	// One APE is one artifact whose identity is a platform SET, which the
-	// <binary>_<os>_<arch> naming can't spell. The manifest records it as one
-	// upload/row/link and excludes it from that filename scan, letting it
+	// The APE is a single artifact whose identity is a platform SET, which the
+	// <binary>_<os>_<arch> naming can't spell. The manifest records it as a
+	// lone upload/row/link and excludes it from that filename scan, letting it
 	// publish under the plain name.
 	if hasCosmo {
-		entries, err := apeManifestEntries(hostTargets, outputDir, apeCoverage(apePlatforms))
+		entries, skipped, err := apeManifestEntries(hostTargets, outputDir, apeCoverage(apePlatforms))
 		if err != nil {
 			return err
 		}
-		if _, err := writeBuildhostManifest(outputDir, entries); err != nil {
-			return err
+		// A build whose outputs are not APEs publishes nothing, and says so
+		// rather than writing a manifest buildhost refuses.
+		for _, file := range skipped {
+			logger.Info("  SKIP  %s in %s: not an APE, so it names no platform set", file, buildhostManifestName)
 		}
-		logger.Info("  WRITE %s (%d APE artifact(s), platforms %s)", buildhostManifestName, len(entries), platformList(apeCoverage(apePlatforms)))
+		if len(entries) > 0 {
+			if _, err := writeBuildhostManifest(outputDir, entries); err != nil {
+				return err
+			}
+			logger.Info("  WRITE %s (%d APE artifact(s), platforms %s)", buildhostManifestName, len(entries), platformList(apeCoverage(apePlatforms)))
+		}
 	}
 
 	// Wasm artifacts default to buildhost's publishable naming
 	// (<name>_wasm_js / <name>_wasm_wasip1), which needs a buildhost with
 	// wasm artifact support -- an older server rejects the upload and aborts
 	// the whole publish, so warn about the requirement and the opt-out.
-	// GO_TOOLCHAIN_WASM_PUBLISH=0 switches to the excluded .wasm-suffixed
+	// The wasmPublishEnv opt-out switches to the excluded .wasm-suffixed
 	// shape, which the publish upload set never matches (it only takes
 	// <binary>_{os}_{arch} after stripping .exe) but still ships in build/,
 	// checksums.txt, and the CI artifact.
@@ -229,7 +199,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		if wasmPublishOptOut() {
 			logger.Warn("⇒ Warning: %s=0 — wasm artifacts are excluded from buildhost publishing (.wasm-suffixed names stay outside the publish upload set); they remain in %s/ and checksums.txt for CI artifact uploads", wasmPublishEnv, outputDir)
 			if !slices.ContainsFunc(platforms, func(p buildPlatform) bool { return !p.IsWasm() }) {
-				logger.Warn("⇒ Warning: every target is wasm and %s=0, so a buildhost publish step will find no publishable artifacts and fail; disable autorelease for wasm-only builds with publishing opted out", wasmPublishEnv)
+				logger.Warn("⇒ Warning: every target is wasm and %s=0, so this build produces no publishable artifact and the buildhost publish step is skipped; drop the opt-out to publish the wasm artifacts", wasmPublishEnv)
 			}
 		} else {
 			logger.Warn("⇒ Warning: wasm artifacts publish to buildhost as os=wasm (arch=js/wasip1); this requires buildhost wasm artifact support (wow-look-at-my/buildhost#166) — on older servers the upload is rejected and aborts the whole publish; set %s=0 to keep wasm artifacts out of the publish set", wasmPublishEnv)
@@ -237,22 +207,17 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	}
 
 	// Consumers of a js/wasm artifact need the EXACT wasm_exec.js of the
-	// toolchain that built it. Ship the fork's copy next to the artifact:
-	// covered by checksums.txt and the CI artifact, but outside the buildhost
-	// publish set — "wasm_exec.js" cannot match the publish action's
-	// <binary>_{os}_{arch} filename pattern (pinned by
-	// TestWasmArtifactNamesInBuildhostPublishSet). Best-effort: a fork
-	// GOROOT without lib/wasm only warns.
-	if forkGoroot != "" && slices.ContainsFunc(jobs, func(j buildJob) bool { return j.goos == "js" }) {
-		if dst, err := copyWasmExecJS(forkGoroot, outputDir); err != nil {
-			logger.Warn("⇒ Warning: could not copy wasm_exec.js from the fork toolchain: %v (browser/Node consumers must take lib/wasm/wasm_exec.js from the matching toolchain themselves)", err)
-		} else {
-			logger.Info("  COPY wasm_exec.js <- %s", filepath.Join(forkGoroot, "lib", "wasm"))
-			builtFiles = append(builtFiles, dst)
+	// toolchain that built it.
+	if slices.ContainsFunc(jobs, func(j buildJob) bool { return j.goos == "js" }) {
+		dst, err := writeWasmExecJS(outputDir)
+		if err != nil {
+			return err
 		}
+		logger.Info("  WRITE wasm_exec.js")
+		builtFiles = append(builtFiles, dst)
 	}
 
-	// Generate SHA-256 checksums for release artifacts
+	// Generate sha256 checksums for release artifacts
 	if len(builtFiles) > 0 {
 		if _, err := generateChecksums(outputDir, builtFiles); err != nil {
 			return fmt.Errorf("checksum generation failed: %w", err)

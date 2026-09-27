@@ -189,6 +189,15 @@ func postDepSnapshot(snapshot *depSnapshot) error {
 // selfRepository is the only repo exempt from dependency-graph submission.
 const selfRepository = "wow-look-at-my/go-toolchain"
 
+// resolveLinks spells path as the kernel resolves it, so darwin's /var and
+// /private/var compare equal.
+func resolveLinks(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return path
+}
+
 // insideWorkspace reports whether the working directory is inside
 // GITHUB_WORKSPACE, i.e. the module being built is the checked-out repository's
 // own. A snapshot describes GITHUB_REPOSITORY at GITHUB_SHA, so it is only
@@ -206,7 +215,8 @@ func insideWorkspace() bool {
 	if err != nil {
 		return false
 	}
-	rel, err := filepath.Rel(absWorkspace, cwd)
+	// darwin spells a directory differently on each side, so both get resolved.
+	rel, err := filepath.Rel(resolveLinks(absWorkspace), resolveLinks(cwd))
 	if err != nil {
 		return false
 	}
@@ -218,7 +228,7 @@ func insideWorkspace() bool {
 // the build.
 //
 // Building outside the checkout is NOT a way to skip. It is refused for every
-// repository except this one, because "run the build somewhere else" is exactly
+// repository but this repository, because "run the build somewhere else" is exactly
 // the shape the removed GO_TOOLCHAIN_NO_DEP_SUBMISSION knob had: cheap to reach
 // for, invisible afterwards, and it leaves a repository out of vulnerability
 // scanning while its builds stay green. A repository that genuinely must build a

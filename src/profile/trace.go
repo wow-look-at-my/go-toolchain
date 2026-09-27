@@ -6,21 +6,20 @@ import (
 	"sort"
 	"time"
 
-	"github.com/wow-look-at-my/go-toolchain/src/cache"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 )
 
 // maxTraceLanes caps "go actions #NN" lanes; spill-over clamps to the earliest-free lane.
 const maxTraceLanes = 32
 
-// AddTraceEvents records one timed event per executed action into tr,
+// AddTraceEvents records a timed event per executed action into tr,
 // assigning concurrent actions to numbered lanes with a greedy interval
 // scheduler — the Chrome writer clamps overlapping events within a single
 // thread, so without lanes a parallel compile phase would collapse into a
-// serialized smear. The event args carry the package, mode, action ID and
-// observed cache outcome, so clicking a bar in chrome://tracing answers "what
-// was this and why did it run".
-func AddTraceEvents(tr *gotrace.Trace, actions []Action, outcomes map[string]cache.ActionOutcome) {
+// serialized smear. The event args carry the package, mode and action ID, so
+// clicking a bar in chrome://tracing answers "what was this and why did it
+// run".
+func AddTraceEvents(tr *gotrace.Trace, actions []Action) {
 	if tr == nil {
 		return
 	}
@@ -48,7 +47,7 @@ func AddTraceEvents(tr *gotrace.Trace, actions []Action, outcomes map[string]cac
 				laneEnds = append(laneEnds, time.Time{})
 				lane = len(laneEnds) - 1
 			} else {
-				// All lanes busy: spill onto the one that frees up first.
+				// All lanes busy: spill onto the lane that frees up earliest.
 				lane = 0
 				for i := range laneEnds {
 					if laneEnds[i].Before(laneEnds[lane]) {
@@ -65,9 +64,6 @@ func AddTraceEvents(tr *gotrace.Trace, actions []Action, outcomes map[string]cac
 		}
 		if a.ActionID != "" {
 			args["action_id"] = a.ActionID
-		}
-		if ao, ok := outcomes[a.ActionID]; ok && a.ActionID != "" {
-			args["cache"] = outcomeLabel(Row{Outcome: ao.Get, Put: ao.Put})
 		}
 		tr.Record(gotrace.Event{
 			Name:     traceName(a),

@@ -9,28 +9,28 @@ import (
 
 func bannedCalls() {
 	// Direct fmt stdout writes — all banned.
-	fmt.Printf("hello %s\n", "world")   // want `banned: fmt.Printf`
-	fmt.Println("hello")                 // want `banned: fmt.Println`
-	fmt.Print("hello")                   // want `banned: fmt.Print`
+	fmt.Printf("hello %s\n", "world") // want `banned: fmt.Printf`
+	fmt.Println("hello")              // want `banned: fmt.Println`
+	fmt.Print("hello")                // want `banned: fmt.Print`
 
 	// fmt.Fprint* to os.Stderr — banned.
-	fmt.Fprintf(os.Stderr, "err %v\n", "x")  // want `banned: fmt.Fprintf`
-	fmt.Fprintln(os.Stderr, "err")            // want `banned: fmt.Fprintln`
-	fmt.Fprint(os.Stderr, "err")              // want `banned: fmt.Fprint`
+	fmt.Fprintf(os.Stderr, "err %v\n", "x") // want `banned: fmt.Fprintf`
+	fmt.Fprintln(os.Stderr, "err")          // want `banned: fmt.Fprintln`
+	fmt.Fprint(os.Stderr, "err")            // want `banned: fmt.Fprint`
 
 	// fmt.Fprint* to os.Stdout — banned.
-	fmt.Fprintf(os.Stdout, "out %v\n", "x")  // want `banned: fmt.Fprintf`
-	fmt.Fprintln(os.Stdout, "out")            // want `banned: fmt.Fprintln`
-	fmt.Fprint(os.Stdout, "out")              // want `banned: fmt.Fprint`
+	fmt.Fprintf(os.Stdout, "out %v\n", "x") // want `banned: fmt.Fprintf`
+	fmt.Fprintln(os.Stdout, "out")          // want `banned: fmt.Fprintln`
+	fmt.Fprint(os.Stdout, "out")            // want `banned: fmt.Fprint`
 
 	// log.* — all banned.
 	log.Printf("log %s\n", "x")   // want `banned: log.Printf`
-	log.Println("log")             // want `banned: log.Println`
-	log.Print("log")               // want `banned: log.Print`
+	log.Println("log")            // want `banned: log.Println`
+	log.Print("log")              // want `banned: log.Print`
 	log.Fatalf("fatal %s\n", "x") // want `banned: log.Fatalf`
-	log.Fatal("fatal")             // want `banned: log.Fatal`
+	log.Fatal("fatal")            // want `banned: log.Fatal`
 	log.Panicf("panic %s\n", "x") // want `banned: log.Panicf`
-	log.Panic("panic")             // want `banned: log.Panic`
+	log.Panic("panic")            // want `banned: log.Panic`
 }
 
 func allowedCalls() {

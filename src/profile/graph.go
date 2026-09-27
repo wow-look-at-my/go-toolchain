@@ -8,12 +8,12 @@ import (
 	"time"
 )
 
-// Action is one row of cmd/go's -debug-actiongraph JSON dump. Only the fields
+// Action is a row of cmd/go's -debug-actiongraph JSON dump. Only the fields
 // the profiler consumes are declared; unknown fields are ignored and absent
-// ones stay zero, so parsing stays compatible across cmd/go versions.
+// fields stay empty, so parsing stays compatible across cmd/go versions.
 //
-// ActionID is the 20-char base64.RawURLEncoding(wireActionID[:15]) truncated
-// cache key, byte-identical to what the cacheprog emits in its stat events --
+// ActionID is the truncated base64.RawURLEncoding form of the wire action ID
+// (see truncateActionID), byte-identical to what the cacheprog stat events emit --
 // the join key between "what did the build do" and "what did the cache do".
 type Action struct {
 	ID        int       `json:"ID"`
@@ -30,12 +30,12 @@ type Action struct {
 	Target    string    `json:"Target"`
 }
 
-// Executed reports whether cmd/go stamped a start and completion time; cache-satisfied actions carry zero times.
+// Executed reports whether cmd/go stamped a start and completion time; cache-satisfied actions carry empty times.
 func (a *Action) Executed() bool {
 	return !a.TimeStart.IsZero() && !a.TimeDone.IsZero() && !a.TimeDone.Before(a.TimeStart)
 }
 
-// Wall is the action's wall-clock duration (TimeDone - TimeStart), zero for
+// Wall is the action's wall-clock duration (TimeDone - TimeStart), empty for
 // actions that never executed.
 func (a *Action) Wall() time.Duration {
 	if !a.Executed() {
@@ -46,7 +46,7 @@ func (a *Action) Wall() time.Duration {
 
 // LoadGraphs parses every actiongraph dump and merges rows sharing an
 // ActionID (the executed instance wins). Best-effort: a missing file is
-// skipped silently, a malformed one warns once -- the profile must never
+// skipped silently, a malformed dump warns a single time -- the profile must never
 // fail a build.
 func LoadGraphs(files []string, warn io.Writer) []Action {
 	var all []Action
@@ -76,7 +76,7 @@ func loadGraphFile(path string) ([]Action, error) {
 }
 
 // mergeActions dedupes rows by ActionID, preferring the instance that
-// actually executed (and, between two executed instances, the longer one —
+// actually executed (and, among executed instances, the longest —
 // the run that did the work). Rows without an ActionID cannot alias and are
 // kept as-is.
 func mergeActions(all []Action) []Action {

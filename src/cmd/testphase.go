@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/wow-look-at-my/go-containers/set"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
@@ -22,24 +24,15 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/vet"
 )
 
+// vetRunFunc is the vet phase, as a seam. Why: docs/CI.md.
+var vetRunFunc = vet.RunWithProgress
+
 // RunTestsWithCoverage runs go mod tidy, go vet, tests with coverage, and
 // checks coverage against the threshold. Used by both the default command
 // and the matrix command.
 // Returns (filesChanged, testResult, error) where filesChanged indicates if vet applied any fixes.
 func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.TestResult, error) {
-	// Fix any v0.0.0 dependencies before go mod tidy
-	if err := FixBogusDepsVersions(r); err != nil {
-		return false, nil, err
-	}
-
-	// An org dependency carrying a plain version pin gets the branch marker
-	// added first, so the re-resolution below owns it from this run on.
-	if _, err := EnforceOrgBranchTracking(r); err != nil {
-		return false, nil, err
-	}
-
-	// Re-resolve any dependency pinned to follow a branch (see depsbranch.go)
-	if _, err := UpdateTrackedBranchDeps(r); err != nil {
+	if err := checkOrgPins(moduleRoot()); err != nil {
 		return false, nil, err
 	}
 
@@ -62,14 +55,13 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		if !quiet {
 			genStep = logStep("go generate ./...")
 		}
-		if err := runGenerate(quiet, generateHash); err != nil {
+		if err := runGenerate(quiet, approvedGenerateHash()); err != nil {
 			return false, nil, fmt.Errorf("go generate failed: %w", err)
 		}
 		if genStep != nil {
 			genStep.noteOutput() // generate always prints directives
 			genStep.done()
 		}
-		// Run tidy again after generate in case new imports were added
 		var tidyStep2 *step
 		if !quiet {
 			tidyStep2 = logStep("go mod tidy (post-generate)")
@@ -90,6 +82,8 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		}
 	}
 
+	waitForCommentScan()
+
 	var vetStep *step
 	if !quiet {
 		vetStep = logStep("go vet ./...")
@@ -108,10 +102,10 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	}
 	// On CI (CI=true) fixers run check-only: any change (gofmt, import migration, testify cast) is a hard error, not an auto-fix.
 	fix := os.Getenv("CI") == ""
-	filesChanged, err := vet.RunWithProgress(fix, vetProgress)
+	filesChanged, err := vetRunFunc(fix, vetProgress)
 	if err != nil {
-		// If in-process vet fails due to Go version mismatch (e.g. binary built
-		// with Go 1.24 but project requires Go 1.25), fall back to external go vet
+		// If in-process vet fails due to a Go version mismatch (a binary built
+		// with an older Go than the project requires), fall back to external go vet
 		// which uses the bootstrapped Go version.
 		if strings.Contains(err.Error(), "package requires newer Go version") {
 			if vetPhaseStep != nil {
@@ -127,26 +121,6 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			}
 			filesChanged = false
 			err = nil
-		} else if isCorruptExportData(err) {
-			// A corrupt build-cache entry, not a source error. Retry once: drop
-			// the shared cache tier and rebuild from source, only if it was in play.
-			if !disableSharedBuildCache() {
-				return false, nil, corruptExportDataError(err, false)
-			}
-			logger.Warn("⇒ Warning: vet failed on CORRUPT BUILD CACHE data (%s), not on your source: %s. Disabling the shared build cache (GOCACHEPROG) for the rest of this run and rebuilding those packages from source. Repeated occurrences mean the shared cache tier is serving damaged entries and needs inspecting.",
-				invalidPackageNameMarker, strings.Join(corruptExportPackages(err), ", "))
-			if vetPhaseStep != nil {
-				vetPhaseStep.done()
-				vetPhaseStep = nil
-			}
-			vetPhaseStep = logSubStep("vet: retry without the shared build cache", "main")
-			filesChanged, err = vet.RunWithProgress(fix, vetProgress)
-			if err != nil {
-				if isCorruptExportData(err) {
-					return false, nil, corruptExportDataError(err, true)
-				}
-				return false, nil, fmt.Errorf("vet failed: %w", err)
-			}
 		} else {
 			return false, nil, fmt.Errorf("vet failed: %w", err)
 		}
@@ -164,8 +138,6 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		return false, nil, err
 	}
 
-	printCacheStats(false)
-
 	if dupcode {
 		runDuplicateCheck()
 	}
@@ -182,8 +154,16 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	}
 
 	// A process-unique path avoids collisions with mock-runner tests that write and delete this file.
-	coverDir := filepath.Join(os.TempDir(), "go-toolchain-cov")
-	os.MkdirAll(coverDir, 0o755)
+	coverDir := filepath.Join(argListTempDir(hostos.GOOS()), "go-toolchain-cov")
+	// Report the mkdir. Dropping it made the test phase fail later on the
+	// coverage file instead, which names a missing path and not the reason
+	// it is missing.
+	if err := os.MkdirAll(coverDir, 0o755); err != nil {
+		if testStep != nil {
+			testStep.failed()
+		}
+		return false, nil, fmt.Errorf("coverage directory %s: %w", coverDir, err)
+	}
 	coverFile := filepath.Join(coverDir, fmt.Sprintf("coverage-%d.out", os.Getpid()))
 	defer os.Remove(coverFile)
 
@@ -261,7 +241,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		logger.Output("\n⇒ Total coverage: %s", colorPct(ColorPct{Pct: report.Total, Format: "%.1f%%"}))
 	}
 
-	// Coverage enforcement: default 80%, or watermark-2.5% if lower.
+	// Coverage enforcement: the default minimum below, or the watermark's grace floor if lower.
 	var effectiveMin float32 = 80.0
 	wm, wmExists, wmErr := gotest.GetWatermark(".")
 	if wmErr != nil {
@@ -302,11 +282,23 @@ var errFound = fmt.Errorf("found")
 
 // needsGenerate returns true if any .go file contains a //go:generate directive.
 func needsGenerate() bool {
+	// A dependency that ships a directive and not its output needs the phase as
+	// much as this tree does. See depgenerate.go.
+	if deps, err := depGenerateDirectives(); err == nil && len(pendingDepDirectives(deps)) > 0 {
+		return true
+	}
 	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || !strings.HasSuffix(path, ".go") {
+		if d.IsDir() {
+			// Another module's directives are its own pipeline's.
+			if d.Name() == "vendor" || gomod.IsNestedModule(path) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") {
 			return nil
 		}
 		f, err := os.Open(path)

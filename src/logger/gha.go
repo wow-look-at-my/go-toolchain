@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// escapeGHAData escapes % first (so escapes below aren't re-escaped), then
+// escapeGHAData escapes % up front (so escapes below aren't re-escaped), then
 // CR/LF, so a multi-line message annotates intact.
 func escapeGHAData(s string) string {
 	s = strings.ReplaceAll(s, "%", "%25")
@@ -16,7 +16,7 @@ func escapeGHAData(s string) string {
 }
 
 // escapeGHAProperty escapes a property value (e.g. file=): the data encoding
-// plus : and , since those delimit properties in the command line.
+// plus : and, since those delimit properties in the command line.
 func escapeGHAProperty(s string) string {
 	s = escapeGHAData(s)
 	s = strings.ReplaceAll(s, ":", "%3A")

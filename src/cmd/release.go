@@ -31,8 +31,8 @@ func init() {
 	}
 	cmd.Flags().StringVar(&releaseTag, "tag", "", "Tag name for this release (required in CI, default: auto-generated)")
 	cmd.Flags().StringVar(&releaseFrom, "from", "", "Start ref for changelog (default: previous tag)")
-	cmd.Flags().BoolVar(&releaseBuild, "build", false, "Run matrix cross-compilation before releasing")
-	// --build reuses the matrix build, honoring the same target flags (--os/--arch/--targets/--cosmo-platforms).
+	cmd.Flags().BoolVar(&releaseBuild, "build", false, "Build the release APE before releasing")
+	// --build reuses the matrix build, honoring the same target flags (--targets/--cosmo-platforms).
 	addMatrixTargetFlags(cmd)
 	cmd.Flags().BoolVar(&releaseCosign, "cosign", false, "Include cosign signature files and verification section (default: auto, enabled on github.com)")
 	cmd.Flags().BoolVar(&releaseNoCosign, "no-cosign", false, "Skip cosign signature files and verification section in release notes")
@@ -134,7 +134,7 @@ func runReleaseCmd(cmd *cobra.Command, args []string) error {
 }
 
 func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor, noCosign bool) error {
-	// Optional: run matrix build first
+	// Optional: run the matrix build before releasing
 	if releaseBuild {
 		r := runner.New()
 		if err := runReleaseWithRunner(r, nil); err != nil {
@@ -228,7 +228,7 @@ func parseCommitLines(output string) []string {
 		if line == "" {
 			continue
 		}
-		// Strip the short hash prefix (everything before first space)
+		// Strip the short hash prefix (everything up to the leading space)
 		if idx := strings.IndexByte(line, ' '); idx >= 0 {
 			line = line[idx+1:]
 		}

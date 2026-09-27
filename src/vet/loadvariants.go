@@ -10,7 +10,7 @@ import (
 )
 
 // parseRecorder records every parsed file, so Verify can prove none went
-// unseen. Locked: ParseFile runs one goroutine per file.
+// unseen. Locked: ParseFile runs a goroutine per file.
 type parseRecorder struct {
 	mu    sync.Mutex
 	files set.Set[string]
@@ -36,7 +36,7 @@ func (r *parseRecorder) count() int {
 // richestVariants maps each package path to the id of the loaded variant with
 // the most files, among the root actions of the named analyzer.
 //
-// packages.Config.Tests loads a package up to four ways (plain, internal test,
+// packages.Config.Tests loads a package several ways (plain, internal test,
 // external test, test main); they share a path but differ in what they see,
 // so a whole-package question must be answered by the variant with all of it.
 func richestVariants(graph *checker.Graph, analyzer string) map[string]string {

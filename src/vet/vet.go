@@ -35,8 +35,10 @@ func Analyzers() []*analysis.Analyzer {
 		DeadCodeAnalyzer,
 		BannedOutputAnalyzer,
 		CommentSpanAnalyzer,
+		JSONInterpAnalyzer,
 		MapSetAnalyzer,
 		RedundantCastAnalyzer,
+		SliceSetAnalyzer,
 		TestifyCastAnalyzer,
 		WriteRunsAnalyzer,
 	}
@@ -70,6 +72,12 @@ func RunWithProgress(fix bool, progress ProgressFunc) (bool, error) {
 	}
 	semanticChanged, err := vetSemantic("./...", ed, progress)
 	return fmtChanged || semanticChanged, err
+}
+
+// loadMode type-checks the module's own source and reads each dependency as
+// the export data the compiler in this binary wrote. Depth: docs/CI.md
+func loadMode() packages.LoadMode {
+	return packages.LoadSyntax | packages.NeedModule
 }
 
 // RunOnPattern executes all analyzers on packages matching pattern.
@@ -116,7 +124,7 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 		}
 	}
 
-	// Migrates testify/gotest.tools imports first, so CI fails on old-fork usage instead of passing green.
+	// Migrates testify/gotest.tools imports up front, so CI fails on old-fork usage instead of passing green.
 	report("fix imports")
 	fixed, err := FixTestifyImports(ed)
 	if err != nil {
@@ -141,7 +149,9 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 	}
 
 	// Every build-tag config the module needs; buildtags.Verify below proves none was missed.
+	resetJSONInterpWarnings()
 	resetMapSetWarnings()
+	resetSliceSetWarnings()
 	resetWriteRunWarnings()
 	resetCommentSpanWarnings()
 	discovery, err := buildtags.Scan(".")
@@ -192,9 +202,9 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 	filesChanged := false
 
 	report("type-check " + tagCfg.String())
+	// The fork's default target, cosmo, is the a single every artifact and test binary builds for.
 	cfg := &packages.Config{
-		// NeedModule populates pkg.Module, which bannedoutput uses to scope its ban to this module.
-		Mode:  packages.LoadSyntax | packages.NeedModule,
+		Mode:  loadMode(),
 		Tests: true,
 	}
 	if arg := tagCfg.Arg(); arg != "" {
@@ -207,6 +217,12 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 		f, err := parser.ParseFile(fset, filename, src, parser.AllErrors|parser.ParseComments)
 		task.End()
 		return f, err
+	}
+
+	// Which go command answers the loader, and what it reads as GOROOT.
+	if goPath, lookErr := exec.LookPath("go"); lookErr == nil {
+		goroot, _ := exec.Command(goPath, "env", "GOROOT").Output()
+		logger.Info("vet: go command %s, GOROOT %s", goPath, strings.TrimSpace(string(goroot)))
 	}
 
 	loadStart := time.Now()
@@ -272,9 +288,9 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 				if result == nil {
 					continue
 				}
-				// The uncommitted-changes guard only matters when a fix is
-				// actually written; on CI nothing is clobbered, so skip it.
-				if ed.Writes() {
+				// The guard protects the user's edits: skip it where there are none.
+				name := fixesFilename(result)
+				if ed.Writes() && !ed.Wrote(name) {
 					if err := checkFileCommitted(result); err != nil {
 						return false, err
 					}
@@ -294,7 +310,7 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 				if result == nil || len(result.Edits) == 0 {
 					continue
 				}
-				if ed.Writes() {
+				if ed.Writes() && !ed.Wrote(result.Filename) {
 					if err := checkFileCommittedByName(result.Filename); err != nil {
 						return false, err
 					}
@@ -313,7 +329,7 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 	return filesChanged, nil
 }
 
-// finishSemantic applies the post-analysis steps once, after every build-tag
+// finishSemantic applies the post-analysis steps a single time, after every build-tag
 // configuration has run: re-run on a rewritten tree, then render the collected
 // diagnostics and editor violations.
 func finishSemantic(pattern string, ed Editor, progress ProgressFunc,
@@ -363,9 +379,12 @@ func finishSemantic(pattern string, ed Editor, progress ProgressFunc,
 	return filesChanged, nil
 }
 
+// instrumentedAnalyzers remembers the analyzer singletons already wrapped for the trace, so a repeat run cannot nest the wrapper again.
+var instrumentedAnalyzers sync.Map // *analysis.Analyzer -> struct{}
+
 // instrumentAnalyzers wraps each analyzer's Run function in-place to record
-// per-analyzer per-package timing in the trace. Mutates the original analyzers
-// since cloning breaks checker.Analyze's internal pointer-identity maps.
+// per-analyzer per-package timing in the trace. Mutates the analyzers
+// directly, because cloning breaks checker.Analyze's pointer-identity maps.
 func instrumentAnalyzers(analyzers []*analysis.Analyzer) []*analysis.Analyzer {
 	seen := set.New[*analysis.Analyzer]()
 	var instrument func(a *analysis.Analyzer)
@@ -373,13 +392,15 @@ func instrumentAnalyzers(analyzers []*analysis.Analyzer) []*analysis.Analyzer {
 		if !seen.Add(a) {
 			return
 		}
-		origRun := a.Run
-		name := a.Name
-		a.Run = func(pass *analysis.Pass) (interface{}, error) {
-			_, task := runtimetrace.NewTask(context.Background(), "analyze/"+name+"/"+pass.Pkg.Path())
-			result, err := origRun(pass)
-			task.End()
-			return result, err
+		if _, already := instrumentedAnalyzers.LoadOrStore(a, struct{}{}); !already {
+			origRun := a.Run
+			name := a.Name
+			a.Run = func(pass *analysis.Pass) (interface{}, error) {
+				_, task := runtimetrace.NewTask(context.Background(), "analyze/"+name+"/"+pass.Pkg.Path())
+				result, err := origRun(pass)
+				task.End()
+				return result, err
+			}
 		}
 		for _, req := range a.Requires {
 			instrument(req)
@@ -400,31 +421,38 @@ type Diagnostic struct {
 }
 
 // checkFileCommitted verifies the file is committed before auto-fix modifies it.
-// Tries go-git first, falls back to the git CLI on go-git infrastructure errors.
 func checkFileCommitted(fixes *ASTFixes) error {
-	filename := fixes.Fset.Position(fixes.File.Pos()).Filename
-	return checkFileCommittedByName(filename)
+	return checkFileCommittedByName(fixesFilename(fixes))
+}
+
+// fixesFilename names the file these AST fixes rewrite.
+func fixesFilename(fixes *ASTFixes) string {
+	return fixes.Fset.Position(fixes.File.Pos()).Filename
 }
 
 // checkFileCommittedByName is checkFileCommitted keyed by an explicit filename,
 // used by fix producers that don't carry an *ASTFixes (e.g. cast text edits).
+// It tries go-git, then falls back to the git CLI on infrastructure errors.
 func checkFileCommittedByName(filename string) error {
 	err := checkFileCommittedGoGit(filename)
 	if err == nil {
 		return nil
 	}
-	// If go-git detected uncommitted changes, trust that result
-	if strings.Contains(err.Error(), "uncommitted changes") {
-		return err
-	}
-	// go-git failed for infrastructure reasons; fall back to git CLI
+	// A dirty verdict is confirmed against the git CLI before it stops the fix.
+	// In a linked worktree go-git v5 calls a committed file dirty where git
+	// calls the whole tree clean, and taking the library's word for it refused
+	// the autofix with no way past: committing cannot clear a verdict about a
+	// file that is already committed. Which files it misreads is known, and why
+	// is not, so git decides.
 	return checkFileCommittedExec(filename)
 }
 
 // checkFileCommittedExec checks file status by shelling out to the git CLI.
 // Used as a fallback when go-git encounters bugs or unsupported repo features.
+// The file's directory is the working directory, which cosmo spells for the
+// host, and the pathspec is the base name, which needs no spelling at all.
 func checkFileCommittedExec(filename string) error {
-	cmd := exec.Command("git", "status", "--porcelain", "--", filename)
+	cmd := exec.Command("git", "status", "--porcelain", "--", filepath.Base(filename))
 	cmd.Dir = filepath.Dir(filename)
 	out, err := cmd.Output()
 	if err != nil {
@@ -436,7 +464,7 @@ func checkFileCommittedExec(filename string) error {
 	return nil
 }
 
-// moduleRoot is the module's absolute path, resolved once so per-file
+// moduleRoot is the module's absolute path, resolved a single time so per-file
 // coverage records can key on module-relative paths.
 var moduleRootOnce struct {
 	sync.Once

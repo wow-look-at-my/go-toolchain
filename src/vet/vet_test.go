@@ -14,33 +14,41 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-containers/set"
 	"golang.org/x/tools/go/analysis/analysistest"
+	"golang.org/x/tools/go/packages"
 )
 
 func TestRedundantCastAnalyzer(t *testing.T) {
+	t.Serial() // See TestBannedOutputAnalyzer.
 	testdata, err := filepath.Abs("testdata")
 	require.Nil(t, err)
 	analysistest.Run(t, testdata, RedundantCastAnalyzer, "redundantcast")
 }
 
+// An analyzer reports through logger, whose warning list is process state, so
+// these read a committed fixture and still run serially.
 func TestAssertLintAnalyzer(t *testing.T) {
+	t.Serial()
 	testdata, err := filepath.Abs("testdata")
 	require.Nil(t, err)
 	analysistest.Run(t, testdata, AssertLintAnalyzer, "assertlint")
 }
 
 func TestAssertNormAnalyzer(t *testing.T) {
+	t.Serial()
 	dir, err := filepath.Abs("testdata/src/assertnorm")
 	require.Nil(t, err)
 	analysistest.Run(t, dir, AssertNormAnalyzer, ".")
 }
 
 func TestDeadCodeAnalyzer(t *testing.T) {
+	t.Serial()
 	testdata, err := filepath.Abs("testdata")
 	require.Nil(t, err)
 	analysistest.Run(t, testdata, DeadCodeAnalyzer, "deadcode")
 }
 
 func TestAnalyzers(t *testing.T) {
+	t.Serial()
 	analyzers := Analyzers()
 	assert.NotEmpty(t, analyzers)
 
@@ -56,27 +64,40 @@ func TestAnalyzers(t *testing.T) {
 }
 
 func TestRunNoGoMod(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	_, err := Run(false)
 	assert.Nil(t, err)
 }
 
+// A dependency arrives as the export data the compiler in this binary
+// wrote, so no load type-checks a single from source.
+func TestDependenciesArriveAsExportData(t *testing.T) {
+	t.Serial()
+	assert.Zero(t, loadMode()&packages.NeedDeps, "the compiler and the importer are one commit")
+	assert.NotZero(t, loadMode()&packages.NeedModule, "bannedoutput scopes its ban by the module")
+}
+
 func TestSourceLocationShortLoc(t *testing.T) {
-	// filepath.Rel will make any absolute path relative to cwd
-	cwd, _ := os.Getwd()
+	t.Serial()
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
 	absPath := "/some/path/file.go"
 	loc := SourceLocation{File: absPath, Line: 42, Column: 10}
 	short := loc.ShortLoc()
 
-	expected, _ := filepath.Rel(cwd, absPath)
+	// A drive-rooted cwd relates to nothing here, and ShortLoc then keeps what it was given.
+	expected, err := filepath.Rel(cwd, absPath)
+	if err != nil {
+		expected = absPath
+	}
 	assert.Equal(t, expected+":42", short)
 }
 
 func TestRunOnPatternWithValidCode(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	// Create go.mod
@@ -95,130 +116,23 @@ func main() {
 `
 	os.WriteFile(filepath.Join(dir, "main.go"), []byte(code), 0644)
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	_, err := RunOnPattern("./...", false, nil)
 	assert.Nil(t, err)
 }
 
-func TestASTFixesFprint(t *testing.T) {
-	before := `package main
-
-func main() {
-	x := int(0)
-	_ = x
-}
-`
-	after := `package main
-
-func main() {
-	x := 0
-	_ = x
-}
-`
-
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "test.go", before, parser.ParseComments)
-	require.Nil(t, err)
-
-	// Find int(0) call
-	var call *ast.CallExpr
-	ast.Inspect(f, func(n ast.Node) bool {
-		if c, ok := n.(*ast.CallExpr); ok {
-			if id, ok := c.Fun.(*ast.Ident); ok && id.Name == "int" {
-				call = c
-				return false
-			}
-		}
-		return true
-	})
-	require.NotNil(t, call)
-
-	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{{OldNode: call, NewNodes: []ast.Node{call.Args[0]}}}}
-
-	var buf strings.Builder
-	err = fixes.Fprint(&buf)
-	assert.Nil(t, err)
-	assert.Equal(t, after, buf.String())
-}
-
-func TestASTFixesFprintMultiple(t *testing.T) {
-	before := `package main
-
-func main() {
-	x := int(0)
-	y := int(1)
-	_ = x
-	_ = y
-}
-`
-	after := `package main
-
-func main() {
-	x := 0
-	y := 1
-	_ = x
-	_ = y
-}
-`
-
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "test.go", before, parser.ParseComments)
-	require.Nil(t, err)
-
-	var fixes []ASTFix
-	ast.Inspect(f, func(n ast.Node) bool {
-		if c, ok := n.(*ast.CallExpr); ok {
-			if id, ok := c.Fun.(*ast.Ident); ok && id.Name == "int" {
-				fixes = append(fixes, ASTFix{OldNode: c, NewNodes: []ast.Node{c.Args[0]}})
-			}
-		}
-		return true
-	})
-	require.Len(t, fixes, 2)
-
-	astFixes := &ASTFixes{File: f, Fset: fset, Fixes: fixes}
-
-	var buf strings.Builder
-	err = astFixes.Fprint(&buf)
-	assert.Nil(t, err)
-	assert.Equal(t, after, buf.String())
-}
-
-func TestASTFixesPrintFix(t *testing.T) {
-	fset := token.NewFileSet()
-	f, _ := parser.ParseFile(fset, "test.go", `package main; func main() { x := int(0); _ = x }`, 0)
-
-	var call *ast.CallExpr
-	ast.Inspect(f, func(n ast.Node) bool {
-		if c, ok := n.(*ast.CallExpr); ok {
-			call = c
-			return false
-		}
-		return true
-	})
-
-	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{
-		{OldNode: call, NewNodes: []ast.Node{call.Args[0]}}, // replacement
-		{OldNode: call, NewNodes: nil},                      // deletion
-	}}
-
-	// Just ensure printFix doesn't panic
-	for _, fix := range fixes.Fixes {
-		fixes.printFix(fix)
-	}
-}
-
 func TestSourceLocationShortLocRelative(t *testing.T) {
-	cwd, _ := os.Getwd()
+	t.Serial()
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
 	loc := SourceLocation{File: filepath.Join(cwd, "subdir", "file.go"), Line: 10, Column: 5}
 	short := loc.ShortLoc()
-	assert.Equal(t, "subdir/file.go:10", short)
+	assert.Equal(t, filepath.Join("subdir", "file.go")+":10", short)
 }
 
 func TestRedundantCastFixes(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		name   string
 		before string
@@ -275,6 +189,7 @@ func TestRedundantCastFixes(t *testing.T) {
 }
 
 func TestASTFixesDeletion(t *testing.T) {
+	t.Serial()
 	before := `package main
 
 import "fmt"
@@ -306,6 +221,7 @@ func main() {
 }
 
 func TestASTFixesApplyToFile(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.go")
 
@@ -350,12 +266,14 @@ func main() {
 }
 
 func TestASTFixesApplyEmpty(t *testing.T) {
+	t.Serial()
 	fixes := &ASTFixes{Fixes: nil}
 	_, err := fixes.Apply(NewEditor(true))
 	assert.Nil(t, err)
 }
 
 func TestPrintFixMultiline(t *testing.T) {
+	t.Serial()
 	// Test that multiline nodes get truncated in printFix output
 	fset := token.NewFileSet()
 	src := `package main
@@ -387,23 +305,29 @@ func foo() {
 }
 
 func TestSourceLocationShortLocAbsolute(t *testing.T) {
-	// filepath.Rel will return a relative path even for paths outside cwd
-	cwd, _ := os.Getwd()
+	t.Serial()
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
 	absPath := "/nonexistent/path/file.go"
 	loc := SourceLocation{File: absPath, Line: 10}
 	short := loc.ShortLoc()
 
-	// The result should end with file.go:10
-	expected, _ := filepath.Rel(cwd, absPath)
+	// A path outside cwd still relates to it, unless the host roots them differently.
+	expected, err := filepath.Rel(cwd, absPath)
+	if err != nil {
+		expected = absPath
+	}
 	assert.Equal(t, expected+":10", short)
 }
 
 func TestASTFixesCommentNotInterleaved(t *testing.T) {
+	t.Serial()
 	// Regression test: comments above an if statement must not be interleaved
 	// into the replacement assert call arguments.
 	before := `package main
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	hostname := ""
 	// Hostname should be non-empty
 	if hostname == "" {

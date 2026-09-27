@@ -13,7 +13,7 @@ import (
 // buildFailureStream is what `go test -json` emits when a test binary will not
 // build. It is captured verbatim from a real run, because the shape is the
 // whole point: the compiler's message rides `build-output` events that carry an
-// ImportPath and no Package, and the stream filter used to drop every one.
+// ImportPath and no Package, and the stream filter used to drop them all.
 const buildFailureStream = `{"ImportPath":"example.com/x/broken [example.com/x/broken.test]","Action":"build-output","Output":"# example.com/x/broken [example.com/x/broken.test]\n"}
 {"ImportPath":"example.com/x/broken [example.com/x/broken.test]","Action":"build-output","Output":"link: mapping output file failed: no space left on device\n"}
 {"ImportPath":"example.com/x/broken [example.com/x/broken.test]","Action":"build-fail"}
@@ -23,6 +23,7 @@ const buildFailureStream = `{"ImportPath":"example.com/x/broken [example.com/x/b
 `
 
 func TestDiagnosticsKeepsTheBuildError(t *testing.T) {
+	t.Serial()
 	got := Diagnostics([]byte(buildFailureStream))
 	assert.Contains(t, got, "no space left on device",
 		"the one line that names the cause has to survive")
@@ -33,6 +34,7 @@ func TestDiagnosticsKeepsTheBuildError(t *testing.T) {
 // A passing run's own output is not evidence about a failure, and it is what
 // pushes the real error off the screen.
 func TestDiagnosticsDropsWhatAPassingRunPrints(t *testing.T) {
+	t.Serial()
 	stream := `{"Action":"output","Package":"pkg","Output":"goos: linux\n"}
 {"Action":"output","Package":"pkg","Output":"goarch: amd64\n"}
 {"Action":"output","Package":"pkg","Output":"pkg: example.com/x\n"}
@@ -47,6 +49,7 @@ func TestDiagnosticsDropsWhatAPassingRunPrints(t *testing.T) {
 // A benchmark that panics is the other way a run dies with no results, and its
 // stack trace is the whole of what the user needs.
 func TestDiagnosticsKeepsAPanickingBenchmark(t *testing.T) {
+	t.Serial()
 	stream := `{"Action":"output","Package":"pkg","Output":"goos: linux\n"}
 {"Action":"output","Package":"pkg","Output":"panic: runtime error: index out of range [3] with length 2\n"}
 {"Action":"output","Package":"pkg","Output":"\ngoroutine 7 [running]:\npkg.BenchmarkFoo(0xc0000b6000)\n"}
@@ -62,6 +65,7 @@ func TestDiagnosticsKeepsAPanickingBenchmark(t *testing.T) {
 // Cutting is fine; cutting quietly is not. A wall of stack traces buries the
 // cause, so the report is bounded — and says how much it left out.
 func TestDiagnosticsSaysWhatItLeftOut(t *testing.T) {
+	t.Serial()
 	var b strings.Builder
 	for i := range diagnosticLineCap + 50 {
 		fmt.Fprintf(&b, `{"Action":"output","Package":"pkg","Output":"line %d\n"}`+"\n", i)
@@ -73,14 +77,16 @@ func TestDiagnosticsSaysWhatItLeftOut(t *testing.T) {
 }
 
 func TestDiagnosticsIgnoresGarbage(t *testing.T) {
+	t.Serial()
 	assert.Empty(t, Diagnostics(nil))
 	assert.Empty(t, Diagnostics([]byte("not json at all\n{\n")))
 }
 
 // The bug this whole file exists for: a run whose test binary would not build
-// used to report "benchmarks failed: exit status 1" and nothing else, because
+// used to report a bare "benchmarks failed" exit and nothing else, because
 // only benchmark result lines ever reached the console.
 func TestABuildFailureReportsWhyRatherThanJustFailing(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	baseArgs := buildBenchArgs(Options{})
 	jsonArgs := append([]string{baseArgs[0], "-json"}, baseArgs[1:]...)

@@ -26,8 +26,17 @@ var nonBinaryOutputs = set.Of(
 // isOutputArtifact reports whether base — a file name inside the output
 // directory — is an artifact go-toolchain produces for the target named
 // name: the bare name, "<name>_…" (goos/goarch variants, wasm, the _host
-// symlink), or "<name>.…" (the APE's sidecar ELFs).
+// symlink), or "<name>.…" (the APE's sidecar ELFs). The ".tmp-"-prefixed
+// spelling counts too: the compiler writes its -o there and only a
+// successful build moves it onto the final name (build.TmpPrefix), so
+// runBuild removes its own temp on failure and these sweeps only ever see
+// crash orphans — never an in-flight build's file.
 func isOutputArtifact(base, name string) bool {
+	// A build's ".tmp-" spelling of an artifact is the same artifact on the
+	// floor: the commit never happened, so it must not survive the sweep.
+	if rest, ok := strings.CutPrefix(base, build.TmpPrefix); ok {
+		return isOutputArtifact(rest, name)
+	}
 	// The manifest dies with the artifacts it describes, or the next publish targets a file that is gone.
 	if base == buildhostManifestName {
 		return true
@@ -38,7 +47,7 @@ func isOutputArtifact(base, name string) bool {
 	return base == name || strings.HasPrefix(base, name+"_") || strings.HasPrefix(base, name+".")
 }
 
-// clearedOutputs records one module's build-output location, so the failure path can delete it from any cwd.
+// clearedOutputs records a module's build-output location, so the failure path can delete it from any cwd.
 type clearedOutputs struct {
 	dir   string   // absolute path of the module's output directory
 	names []string // build target names whose artifacts live there
@@ -68,7 +77,7 @@ func trackedOutputsSnapshot() []clearedOutputs {
 	return append([]clearedOutputs(nil), trackedOutputs...)
 }
 
-// resetTrackedOutputs clears the tracking state (tests share one process).
+// resetTrackedOutputs clears the tracking state (tests share a process).
 func resetTrackedOutputs() {
 	trackedMu.Lock()
 	defer trackedMu.Unlock()
@@ -178,9 +187,4 @@ func discardBuildOutputsFromCWD() []string {
 	}
 	removed, _ := removeBuildOutputsIn(dir, names)
 	return removed
-}
-
-// DiscardBuildOutputs deletes the module's artifacts for main's bootstrap-failure exit, which skips the pipeline.
-func DiscardBuildOutputs() {
-	discardBuildOutputsFromCWD()
 }

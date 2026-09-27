@@ -11,8 +11,8 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// Upstream testify package paths. Calls resolve here once the toolchain
-// rewrites the in-house fork back to upstream before analysis runs.
+// Upstream testify package paths. Calls resolve here when the toolchain
+// rewrites the fork back to upstream, before analysis runs.
 const (
 	upstreamAssertPkg  = "github.com/stretchr/testify/assert"
 	upstreamRequirePkg = "github.com/stretchr/testify/require"
@@ -36,7 +36,7 @@ type CastEdit struct {
 	AddImports []string
 }
 
-// CastEdits is the set of conversions to apply to one file.
+// CastEdits is the set of conversions to apply to a file.
 type CastEdits struct {
 	Filename string
 	Fset     *token.FileSet
@@ -131,8 +131,8 @@ func runTestifyCast(pass *analysis.Pass) (any, error) {
 	return result, nil
 }
 
-// equalArgIndices returns the argument indices of the two compared operands for
-// a testify two-operand assertion, accounting for the package form (which takes
+// equalArgIndices returns the argument indices of the compared operands for
+// a testify comparison assertion, accounting for the package form (which takes
 // a leading TestingT) versus the *Assertions method form (which does not).
 // The boolean is false if the call doesn't have enough arguments.
 func equalArgIndices(fn *types.Func, call *ast.CallExpr) (exp, act int, ok bool) {
@@ -153,7 +153,7 @@ func equalArgIndices(fn *types.Func, call *ast.CallExpr) (exp, act int, ok bool)
 	return exp, act, true
 }
 
-// castEditForEqual decides whether a conversion is needed to make the two
+// castEditForEqual decides whether a conversion is needed to make the
 // operands of an Equal/NotEqual or ordering assertion the same static type, and if so
 // returns the edit wrapping the chosen operand. It returns nil when no sound
 // conversion applies (identical types, non-convertible, fractional-truncating
@@ -172,7 +172,7 @@ func castEditForEqual(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, e
 	expType := types.Default(expTV.Type)
 	actType := types.Default(actTV.Type)
 
-	// Rule 1: identical types need no edit (keeps the pass idempotent).
+	// Identical types need no edit (keeps the pass idempotent).
 	if types.Identical(expType, actType) {
 		return nil
 	}
@@ -189,7 +189,7 @@ func castEditForEqual(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, e
 
 	switch {
 	case expNumeric && actNumeric:
-		// Rule 3: numeric mismatch; convert the literal side, else convert
+		// Numeric mismatch; convert the literal side, else convert
 		// expected to actual's type to keep the tested value visible.
 		if isUntypedLiteral(actExpr) && !isUntypedLiteral(expExpr) {
 			return buildCastEdit(pass, file, actExpr, actTV, expType)
@@ -197,11 +197,11 @@ func castEditForEqual(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, e
 		return buildCastEdit(pass, file, expExpr, expTV, actType)
 
 	case expNumeric != actNumeric:
-		// Rule 2: mismatched numeric-ness compared false in the fork; no sound cast.
+		// Mismatched numeric-ness compared false in the fork; no sound cast.
 		return nil
 
 	default:
-		// Rule 5: neither numeric. Mirror the fork: convert only same-Kind()
+		// Neither numeric. Mirror the fork: convert only same-Kind()
 		// convertible named types (e.g. type Name string vs string).
 		if expBasic.Kind() != actBasic.Kind() {
 			return nil
@@ -250,7 +250,7 @@ func buildCastEdit(pass *analysis.Pass, file *ast.File, argExpr ast.Expr, argTV 
 		switch obj := lookupAt(pass, argExpr.Pos(), local).(type) {
 		case *types.PkgName:
 			if obj.Imported().Path() != p.Path() {
-				// Taken by a different import; adding one cannot make this spelling resolve.
+				// Taken by a different import; adding an alias cannot make this spelling resolve.
 				return nil
 			}
 			// Already imported under this name: nothing to add.

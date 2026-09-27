@@ -12,9 +12,9 @@ import (
 // GOOS=cosmo (gosmopolitan) counts as `unix`, but golang.org/x/sys/unix has
 // no cosmo port, so this file mirrors watchdog_unix.go using the fork's
 // stdlib syscall package instead: the cosmo port exposes Dup, Dup2 (via
-// Dup3), and Close directly. Keep the two implementations in sync.
+// Dup3), and Close directly. Keep both implementations in sync.
 
-// startWatchdog replaces fd 1 (stdout) and fd 2 (stderr) with pipes,
+// startWatchdog replaces the stdout and stderr descriptors with pipes,
 // forwarding all output to the original file descriptors while monitoring
 // for stalls. Returns nil if setup fails (non-fatal; build continues without monitoring).
 func startWatchdog(threshold time.Duration) *outputWatchdog {
@@ -48,7 +48,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 		return nil
 	}
 
-	// Replace fd 1 and 2 with pipe write-ends
+	// Replace the stdout and stderr descriptors with pipe write-ends
 	if err := syscall.Dup2(int(stdoutW.Fd()), 1); err != nil {
 		stdoutR.Close()
 		stdoutW.Close()
@@ -72,7 +72,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 
 	// Never reassign os.Stdout/Stderr via os.NewFile: piled-up finalizers eventually close real stdio out from under later code.
 
-	// Close the extra write-end file handles; fd 1 and 2 are copies now
+	// Close the extra write-end file handles; the stdio descriptors are copies now
 	stdoutW.Close()
 	stderrW.Close()
 

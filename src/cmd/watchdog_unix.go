@@ -10,7 +10,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// startWatchdog replaces fd 1 (stdout) and fd 2 (stderr) with pipes,
+// startWatchdog replaces the stdout and stderr descriptors with pipes,
 // forwarding all output to the original file descriptors while monitoring
 // for stalls. Returns nil if setup fails (non-fatal; build continues without monitoring).
 func startWatchdog(threshold time.Duration) *outputWatchdog {
@@ -44,7 +44,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 		return nil
 	}
 
-	// Replace fd 1 and 2 with pipe write-ends
+	// Replace the stdout and stderr descriptors with pipe write-ends
 	if err := unix.Dup2(int(stdoutW.Fd()), 1); err != nil {
 		stdoutR.Close()
 		stdoutW.Close()
@@ -66,9 +66,9 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 		return nil
 	}
 
-	// Do NOT reassign via os.NewFile(1, …): repeated cycles leak finalizers that later close real stdout/stderr.
+	// Do NOT reassign via os.NewFile on the stdio descriptors: repeated cycles leak finalizers that later close real stdout/stderr.
 
-	// Close the extra write-end file handles; fd 1 and 2 are copies now
+	// Close the extra write-end file handles; the stdio descriptors are copies now
 	stdoutW.Close()
 	stderrW.Close()
 

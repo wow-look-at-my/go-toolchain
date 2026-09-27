@@ -34,6 +34,9 @@ func (t *tailBuffer) String() string { return string(t.buf) }
 // disableGoModuleIndex disables cmd/go's module index for this process and its children; it only slows scans.
 func disableGoModuleIndex() {
 	godebug := os.Getenv("GODEBUG")
+	if strings.Contains(","+godebug+",", ",goindex=0,") {
+		return
+	}
 	if godebug != "" {
 		godebug += ","
 	}
@@ -43,7 +46,7 @@ func disableGoModuleIndex() {
 // runModTidy runs `go mod tidy -v` through r. When cmd/go fails reporting a
 // corrupt Go module index, the module index is disabled for the remainder of
 // this run (every later phase would read the same damaged entry) and the tidy
-// is retried once.
+// is retried a single time.
 func runModTidy(r runner.CommandRunner, quiet bool) error {
 	var modTidyStep *step
 	if !quiet {

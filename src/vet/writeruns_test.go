@@ -16,10 +16,11 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// runWriteRunsOn analyzes one source file and returns the line of every
+// runWriteRunsOn analyzes a source file and returns the line of every
 // warning the check emitted, in emission order.
 func runWriteRunsOn(t *testing.T, src string) []int {
 	t.Helper()
+	t.Serial() // See runCommentSpanOn.
 	resetWriteRunWarnings()
 	logger.ResetWarnCount()
 	t.Cleanup(logger.ResetWarnCount)
@@ -52,10 +53,11 @@ func runWriteRunsOn(t *testing.T, src string) []int {
 }
 
 // TestWriteRunsWarnsPastTheSecondWrite runs the check over the shape it exists
-// for: a shell script spelled out one write at a time. The first two writes
-// are free and the last three are the document, so the bottom three lines
+// for: a shell script spelled out a write at a time. The opening writes are
+// free and the rest are the document, so the lines past the allowance
 // warn.
 func TestWriteRunsWarnsPastTheSecondWrite(t *testing.T) {
+	t.Serial()
 	const src = `package ape
 
 import (
@@ -77,6 +79,7 @@ func emit(script *strings.Builder, apeRunDir string) {
 // TestWriteRunsNamesTheRemedy verifies the warning says what to write instead.
 // A count with no remedy leaves the reader to guess.
 func TestWriteRunsNamesTheRemedy(t *testing.T) {
+	t.Serial()
 	const src = `package ape
 
 import "strings"
@@ -94,9 +97,10 @@ func emit(b *strings.Builder) {
 	assert.Contains(t, warnings[0].Message, "write 3 in a row to b")
 }
 
-// TestWriteRunsBoundaries covers what starts a run, what ends one, and what is
+// TestWriteRunsBoundaries covers what starts a run, what ends it, and what is
 // not a write at all.
 func TestWriteRunsBoundaries(t *testing.T) {
+	t.Serial()
 	cases := []struct {
 		name  string
 		body  string
@@ -190,7 +194,7 @@ func TestWriteRunsBoundaries(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			// The body starts on line 10, which every wanted line above counts from.
+			// The body's opening line is what every wanted line above counts from.
 			src := fmt.Sprintf(`package ape
 
 import (
@@ -209,10 +213,11 @@ func emit(b, other *strings.Builder, s struct{ buf *strings.Builder }, n int, na
 	}
 }
 
-// TestWriteRunsSkipsAHash verifies the one writer a template must not touch.
+// TestWriteRunsSkipsAHash verifies the writer a template must not touch.
 // A fingerprint frames its input, and a run of writes IS the framing; the
 // document type next to it, written the same way, still warns.
 func TestWriteRunsSkipsAHash(t *testing.T) {
+	t.Serial()
 	const src = `package ape
 
 type digest struct{}
@@ -270,10 +275,11 @@ func render(d doc) {
 }
 
 // TestWriteRunsSpendsOneWarningPerSite verifies the file:line deduplication.
-// go/packages loads a package up to four ways and every variant walks the same
-// file, so a site that warned four times would spend a quarter of the warnings
-// budget on one line.
+// go/packages loads a package several ways and every variant walks the same
+// file, so a site that warned per variant would spend much of the warnings
+// budget on a single line.
 func TestWriteRunsSpendsOneWarningPerSite(t *testing.T) {
+	t.Serial()
 	const src = `package ape
 
 import "strings"
@@ -299,14 +305,14 @@ func emit(b *strings.Builder) {
 	t.Cleanup(logger.ResetWarnCount)
 
 	// TotalWarnCount counts emissions; WarnCount folds repeated text, so it
-	// cannot tell one emission from four.
+	// cannot tell a lone emission from a repeat per variant.
 	for range 4 {
 		_, err = runWriteRuns(pass)
 		require.NoError(t, err)
 	}
 	require.EqualValues(t, 1, logger.TotalWarnCount())
 
-	// A later run reports the site again: a second emission, same text, still counts as one.
+	// A later run reports the site again: a repeat emission, same text, still folds.
 	resetWriteRunWarnings()
 	_, err = runWriteRuns(pass)
 	require.NoError(t, err)

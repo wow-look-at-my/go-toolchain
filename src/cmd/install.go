@@ -130,7 +130,7 @@ func installStatus() string {
 		return fmt.Sprintf("Install status: %s -> %s (points elsewhere)", installedPath, target)
 	}
 
-	// Regular file — compare SHA-256
+	// Regular file — compare the sha256 digests
 	currentHash, err := fileHash(currentPath)
 	if err != nil {
 		return fmt.Sprintf("Install status: %s (cannot hash current binary)", installedPath)

@@ -25,7 +25,7 @@ func sidecarPath(path, attr string) (string, error) {
 }
 
 // sanitizeAttr makes an xattr name filename-safe: bytes outside
-// [A-Za-z0-9._-] are %XX hex-escaped ('%' included), so distinct attribute
+// the unreserved set are %XX hex-escaped ('%' included), so distinct attribute
 // names always map to distinct sidecar names.
 func sanitizeAttr(attr string) string {
 	const hex = "0123456789abcdef"

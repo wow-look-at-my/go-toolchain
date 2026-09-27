@@ -20,7 +20,7 @@ import (
 // ASTFix represents an AST-based fix: replace OldNode with NewNodes.
 type ASTFix struct {
 	OldNode  ast.Node
-	NewNodes []ast.Node // empty=delete, 1=replace, >1=replace+insert
+	NewNodes []ast.Node // empty deletes, a lone node replaces, more than that replaces and inserts
 }
 
 // ASTFixes targets a single file with multiple fixes.

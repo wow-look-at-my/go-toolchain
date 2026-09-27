@@ -10,6 +10,7 @@ import (
 )
 
 func TestCopyFile(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	// Create source file
@@ -34,12 +35,14 @@ func TestCopyFile(t *testing.T) {
 }
 
 func TestCopyFileMissingSource(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	err := copyFile("/nonexistent/file", filepath.Join(tmpDir, "dest"))
 	assert.NotNil(t, err)
 }
 
 func TestCopyFileInvalidDest(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	srcPath := filepath.Join(tmpDir, "source")
@@ -50,6 +53,7 @@ func TestCopyFileInvalidDest(t *testing.T) {
 }
 
 func TestCopyFileLargeFile(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	// Create a larger file to ensure io.Copy path is exercised
@@ -70,13 +74,12 @@ func TestCopyFileLargeFile(t *testing.T) {
 }
 
 func TestRunInstallImplSymlink(t *testing.T) {
+	t.Serial()
 	// os.Executable() returns the test binary; check it symlinks to the right target.
 	tmpDir := t.TempDir()
 
-	// Override HOME so it installs to our temp dir
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	// Install into the temp dir rather than the real home
+	setHome(t, tmpDir)
 
 	// Ensure .local/bin will be created inside tmpDir
 	installCopy = false
@@ -96,11 +99,10 @@ func TestRunInstallImplSymlink(t *testing.T) {
 }
 
 func TestRunInstallImplCopy(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	setHome(t, tmpDir)
 
 	installCopy = true
 	defer func() { installCopy = false }()
@@ -119,16 +121,15 @@ func TestRunInstallImplCopy(t *testing.T) {
 }
 
 func TestRunInstallImplReplacesExisting(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	setHome(t, tmpDir)
 
 	installCopy = false
 	defer func() { installCopy = false }()
 
-	// Run install twice — second should replace the first
+	// Run install again — the repeat should replace what the earlier run left
 	require.NoError(t, runInstallImpl())
 	require.NoError(t, runInstallImpl())
 
@@ -140,9 +141,10 @@ func TestRunInstallImplReplacesExisting(t *testing.T) {
 }
 
 func TestFileHash(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 
-	// Create two identical files and one different
+	// Create a matching pair of files, plus a differing file
 	content := []byte("hello world")
 	f1 := filepath.Join(tmpDir, "a")
 	f2 := filepath.Join(tmpDir, "b")
@@ -163,27 +165,26 @@ func TestFileHash(t *testing.T) {
 }
 
 func TestFileHashMissing(t *testing.T) {
+	t.Serial()
 	_, err := fileHash("/nonexistent/file")
 	assert.NotNil(t, err)
 }
 
 func TestInstallStatusNotInstalled(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	setHome(t, tmpDir)
 
 	status := installStatus()
 	assert.Contains(t, status, "not installed")
 }
 
 func TestInstallStatusSymlinkCurrent(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	setHome(t, tmpDir)
 
-	// Install via symlink first
+	// Install via symlink, before the copy variant below
 	installCopy = false
 	defer func() { installCopy = false }()
 	require.NoError(t, runInstallImpl())
@@ -193,10 +194,9 @@ func TestInstallStatusSymlinkCurrent(t *testing.T) {
 }
 
 func TestInstallStatusSymlinkElsewhere(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	setHome(t, tmpDir)
 
 	binDir := filepath.Join(tmpDir, ".local", "bin")
 	os.MkdirAll(binDir, 0755)
@@ -207,10 +207,9 @@ func TestInstallStatusSymlinkElsewhere(t *testing.T) {
 }
 
 func TestInstallStatusCopyCurrent(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	setHome(t, tmpDir)
 
 	// Install via copy
 	installCopy = true
@@ -222,10 +221,9 @@ func TestInstallStatusCopyCurrent(t *testing.T) {
 }
 
 func TestInstallStatusCopyOutdated(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	setHome(t, tmpDir)
 
 	// Write a different file at the install path
 	binDir := filepath.Join(tmpDir, ".local", "bin")

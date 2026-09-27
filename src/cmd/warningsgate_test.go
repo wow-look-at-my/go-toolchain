@@ -23,6 +23,7 @@ func warnGateLogger(level logger.Level) *logger.Logger {
 // TestWarningsGateAtThreshold verifies that exactly maxWarnings warnings do
 // NOT fail the build — the gate fires only when the threshold is exceeded.
 func TestWarningsGateAtThreshold(t *testing.T) {
+	t.Serial()
 	logger.ResetWarnCount()
 	defer logger.ResetWarnCount()
 
@@ -35,10 +36,11 @@ func TestWarningsGateAtThreshold(t *testing.T) {
 	assert.NoError(t, checkWarningsGate())
 }
 
-// TestWarningsGateOverThreshold verifies that one warning past the budget
-// (16 with the threshold at 15) fails the build with a message naming both
+// TestWarningsGateOverThreshold verifies that a warning past the budget
+// fails the build with a message naming both
 // the count and the threshold.
 func TestWarningsGateOverThreshold(t *testing.T) {
+	t.Serial()
 	logger.ResetWarnCount()
 	defer logger.ResetWarnCount()
 
@@ -53,11 +55,12 @@ func TestWarningsGateOverThreshold(t *testing.T) {
 	assert.Equal(t, "build failed: 16 distinct warnings emitted (threshold: 15)", err.Error())
 }
 
-// TestWarningsGateFoldsRepeats verifies that one warning repeated far past the
-// budget does not fail the build. One root cause repeats per file, per module
-// or per retry; counting each repeat spends the budget on one problem and
+// TestWarningsGateFoldsRepeats verifies that a warning repeated far past the
+// budget does not fail the build. A root cause repeats per file, per module
+// or per retry; counting each repeat spends the budget on a lone problem and
 // hides every other warning in the run.
 func TestWarningsGateFoldsRepeats(t *testing.T) {
+	t.Serial()
 	logger.ResetWarnCount()
 	defer logger.ResetWarnCount()
 
@@ -75,6 +78,7 @@ func TestWarningsGateFoldsRepeats(t *testing.T) {
 // times a folded warning was emitted, and reports the total beside the
 // distinct count. Deduplication must not hide volume from the reader.
 func TestWarningsGateRecapNamesRepeatCounts(t *testing.T) {
+	t.Serial()
 	logger.ResetWarnCount()
 	defer logger.ResetWarnCount()
 	t.Setenv("GITHUB_ACTIONS", "false")
@@ -104,6 +108,7 @@ func TestWarningsGateRecapNamesRepeatCounts(t *testing.T) {
 // by the log level do not count against the budget — only what the user
 // actually saw is gated.
 func TestWarningsGateIgnoresFilteredWarnings(t *testing.T) {
+	t.Serial()
 	logger.ResetWarnCount()
 	defer logger.ResetWarnCount()
 
@@ -121,6 +126,7 @@ func TestWarningsGateIgnoresFilteredWarnings(t *testing.T) {
 // scroll back and guess which output was to blame, and the loudest lines in a
 // build log (the watchdog's STALLED banner) never reach this counter at all.
 func TestWarningsGateReprintsEveryWarning(t *testing.T) {
+	t.Serial()
 	logger.ResetWarnCount()
 	defer logger.ResetWarnCount()
 	t.Setenv("GITHUB_ACTIONS", "false")
@@ -145,9 +151,10 @@ func TestWarningsGateReprintsEveryWarning(t *testing.T) {
 }
 
 // TestWarningsGateRecapAnnotatesInGHA verifies that in GitHub Actions the
-// recap rides ONE ::error annotation with its newlines escaped, so the whole
-// list survives in the annotation instead of truncating to its first line.
+// recap rides a SINGLE ::error annotation with its newlines escaped, so the whole
+// list survives in the annotation instead of truncating to its leading line.
 func TestWarningsGateRecapAnnotatesInGHA(t *testing.T) {
+	t.Serial()
 	logger.ResetWarnCount()
 	defer logger.ResetWarnCount()
 	t.Setenv("GITHUB_ACTIONS", "true")
@@ -172,6 +179,7 @@ func TestWarningsGateRecapAnnotatesInGHA(t *testing.T) {
 // TestWarningsRecapReportsUnrecorded verifies that warnings past the
 // retention cap are reported as a count rather than silently dropped.
 func TestWarningsRecapReportsUnrecorded(t *testing.T) {
+	t.Serial()
 	recorded := make([]logger.Warning, logger.MaxRecordedWarnings)
 	for i := range recorded {
 		recorded[i] = logger.Warning{Message: fmt.Sprintf("recorded %d", i), Count: 1}

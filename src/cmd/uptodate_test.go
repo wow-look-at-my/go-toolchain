@@ -10,13 +10,21 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-func TestComputeFingerprint(t *testing.T) {
+// chdirTemp enters a fresh temp directory. An NT host will not delete a
+// directory that is a process's cwd, so the restore has to happen.
+func chdirTemp(t *testing.T) string {
+	t.Helper()
 	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	t.Chdir(dir)
+	return dir
+}
+
+func TestComputeFingerprint(t *testing.T) {
+	t.Serial()
+	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.WriteFile("main.go", []byte("package main\n\nfunc main() {}\n"), 0644)
@@ -38,8 +46,8 @@ func TestComputeFingerprint(t *testing.T) {
 }
 
 func TestComputeFingerprintIncludesGoSum(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	t.Serial()
+	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.WriteFile("main.go", []byte("package main\n"), 0644)
@@ -54,13 +62,43 @@ func TestComputeFingerprintIncludesGoSum(t *testing.T) {
 	assert.NotEqual(t, fp1, fp2)
 }
 
+// A source package named "build" is not the output directory. Skipping it by
+// NAME hid every edit under this repo's own src/build, so the fast exit served
+// a stale binary and called the run finished.
+func TestComputeFingerprintCountsASourceDirNamedBuild(t *testing.T) {
+	t.Serial()
+	chdirTemp(t)
+	old := outputDir
+	outputDir = "build"
+	defer func() { outputDir = old }()
+
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	require.NoError(t, os.MkdirAll("src/build", 0o755))
+	os.WriteFile("src/build/target.go", []byte("package build\n"), 0644)
+
+	fp1, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+
+	os.WriteFile("src/build/target.go", []byte("package build\n\nconst X = 1\n"), 0644)
+	fp2, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+	assert.NotEqual(t, fp1, fp2, "an edit under src/build must bust the fingerprint")
+
+	// The output directory is the run's product, so it stays out.
+	require.NoError(t, os.MkdirAll("build", 0o755))
+	os.WriteFile("build/leftover.go", []byte("package main\n"), 0644)
+	fp3, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+	assert.Equal(t, fp2, fp3, "the output directory is not an input")
+}
+
 // action.yml is test data (handoffname_test.go asserts its hand-off name
 // templates) that no //go:embed can reach from src/cmd, so editing it has to
 // bust the fingerprint -- otherwise the run fast-exits "Up to date" and those
 // assertions never re-run locally.
 func TestComputeFingerprintIncludesActionYML(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	t.Serial()
+	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.WriteFile("main.go", []byte("package main\n"), 0644)
@@ -79,6 +117,7 @@ func TestComputeFingerprintIncludesActionYML(t *testing.T) {
 // pipeline the stored fingerprint never described — so the skip must not fire
 // across a changed variable.
 func TestComputeFingerprintIncludesTheEnvironment(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -106,6 +145,7 @@ func TestComputeFingerprintIncludesTheEnvironment(t *testing.T) {
 // does not describe that run, and skipping it reports success for generators
 // that never executed.
 func TestComputeFingerprintIncludesTheFlags(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -115,8 +155,9 @@ func TestComputeFingerprintIncludesTheFlags(t *testing.T) {
 	fp1, err := computeFingerprint(runner.NewMock())
 	require.NoError(t, err)
 
-	require.NoError(t, rootCmd.Flags().Set("generate", "deadbeef"))
-	defer rootCmd.Flags().Set("generate", "")
+	// --generate is persistent, and flagFingerprint visits that set directly.
+	require.NoError(t, rootCmd.PersistentFlags().Set("generate", "deadbeef"))
+	defer rootCmd.PersistentFlags().Set("generate", "")
 	fp2, err := computeFingerprint(runner.NewMock())
 	require.NoError(t, err)
 	assert.NotEqual(t, fp1, fp2, "a flag that changes what the run does must bust the fingerprint")
@@ -125,6 +166,7 @@ func TestComputeFingerprintIncludesTheFlags(t *testing.T) {
 // A testdata fixture is read at run time by the test that would now fail, and
 // no //go:embed covers it.
 func TestComputeFingerprintIncludesTestdata(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -144,8 +186,8 @@ func TestComputeFingerprintIncludesTestdata(t *testing.T) {
 }
 
 func TestComputeFingerprintSkipsBuildDir(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	t.Serial()
+	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.WriteFile("main.go", []byte("package main\n"), 0644)
@@ -162,8 +204,8 @@ func TestComputeFingerprintSkipsBuildDir(t *testing.T) {
 }
 
 func TestFingerprintFile(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	t.Serial()
+	chdirTemp(t)
 
 	fp := fingerprintFile()
 	assert.Contains(t, fp, "go-toolchain-fingerprint")
@@ -171,8 +213,8 @@ func TestFingerprintFile(t *testing.T) {
 }
 
 func TestIsUpToDateNoFingerprint(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	t.Serial()
+	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.WriteFile("main.go", []byte("package main\n"), 0644)
@@ -182,8 +224,8 @@ func TestIsUpToDateNoFingerprint(t *testing.T) {
 }
 
 func TestIsUpToDateWithMatchingFingerprint(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	t.Serial()
+	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.MkdirAll("src", 0755)
@@ -201,8 +243,8 @@ func TestIsUpToDateWithMatchingFingerprint(t *testing.T) {
 }
 
 func TestIsUpToDateStaleAfterChange(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	t.Serial()
+	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.MkdirAll("src", 0755)
@@ -219,9 +261,47 @@ func TestIsUpToDateStaleAfterChange(t *testing.T) {
 	assert.False(t, isUpToDate(runner.NewMock()))
 }
 
+// Losing the outputs is what the CI cache-validation step does on purpose. The
+// tree still went green, so vet and the tests are not asked again -- see
+// docs/CI.md.
+func TestDeletedOutputsLeaveTheInputsUnchanged(t *testing.T) {
+	t.Serial()
+	chdirTemp(t)
+
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	os.MkdirAll("src", 0755)
+	os.WriteFile("src/main.go", []byte("package main\nfunc main() {}\n"), 0644)
+	os.MkdirAll("build", 0755)
+	os.WriteFile("build/example.com", []byte("binary"), 0755)
+	saveFingerprint(runner.NewMock())
+	require.True(t, isUpToDate(runner.NewMock()))
+
+	require.NoError(t, os.RemoveAll("build"))
+	assert.False(t, isUpToDate(runner.NewMock()), "the outputs are gone, so a build still has to run")
+	assert.False(t, outputsPresent(runner.NewMock()))
+	assert.True(t, inputsUnchanged(runner.NewMock()), "nothing the tests read has moved")
+}
+
+// An edited source moves both answers, so the suite runs again.
+func TestAnEditedSourceMovesTheInputs(t *testing.T) {
+	t.Serial()
+	chdirTemp(t)
+
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	os.MkdirAll("src", 0755)
+	os.WriteFile("src/main.go", []byte("package main\nfunc main() {}\n"), 0644)
+	os.MkdirAll("build", 0755)
+	os.WriteFile("build/example.com", []byte("binary"), 0755)
+	saveFingerprint(runner.NewMock())
+
+	os.WriteFile("src/main.go", []byte("package main\nfunc main() { println(\"x\") }\n"), 0644)
+	assert.False(t, inputsUnchanged(runner.NewMock()))
+	assert.True(t, outputsPresent(runner.NewMock()), "the outputs are still there, and now stale")
+}
+
 func TestSaveFingerprint(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	t.Serial()
+	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.WriteFile("main.go", []byte("package main\n"), 0644)
@@ -232,7 +312,7 @@ func TestSaveFingerprint(t *testing.T) {
 	data, err := os.ReadFile(fp)
 	require.NoError(t, err)
 	assert.NotEmpty(t, data)
-	assert.Len(t, string(data), 64) // SHA-256 hex = 64 chars
+	assert.Len(t, string(data), 64) // the hex width of a sha256 digest
 }
 
 // listPkg mirrors the subset of `go list -json` output that embeddedFiles reads.
@@ -258,10 +338,11 @@ func mockGoListRunner(pkgs ...listPkg) *runner.Mock {
 }
 
 func TestEmbeddedFilesParsesAllThreeFields(t *testing.T) {
+	t.Serial()
 	mock := mockGoListRunner(
 		listPkg{Dir: "/m", EmbedFiles: []string{"a.txt", "static/app.js"}},
 		listPkg{Dir: "/m/sub", TestEmbedFiles: []string{"t.txt"}, XTestEmbedFiles: []string{"x.txt"}},
-		// Same file embedded by another package must collapse to one entry.
+		// Same file embedded by another package must collapse to a single entry.
 		listPkg{Dir: "/m", EmbedFiles: []string{"a.txt"}},
 		// A package with no embeds at all contributes nothing.
 		listPkg{Dir: "/m/none"},
@@ -278,6 +359,7 @@ func TestEmbeddedFilesParsesAllThreeFields(t *testing.T) {
 }
 
 func TestEmbeddedFilesGoListError(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	mock.SetResponse("go", []string{"list", "-test", "-json", "./..."}, nil, fmt.Errorf("build broken"))
 
@@ -286,14 +368,14 @@ func TestEmbeddedFilesGoListError(t *testing.T) {
 }
 
 func TestComputeFingerprintFoldsEmbeds(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	t.Serial()
+	dir := chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.WriteFile("main.go", []byte("package main\n"), 0644)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "asset.txt"), []byte("v1"), 0644))
 
-	// One runner reports asset.txt as an embedded file; the other reports none.
+	// A runner reports asset.txt as an embedded file; the other reports none.
 	withEmbed := mockGoListRunner(listPkg{Dir: dir, EmbedFiles: []string{"asset.txt"}})
 	noEmbed := runner.NewMock()
 
@@ -317,18 +399,17 @@ func TestComputeFingerprintFoldsEmbeds(t *testing.T) {
 
 // TestUpToDateTracksEmbeddedFiles is the end-to-end regression for the bug: it
 // drives real `go list` resolution over a fixture module that embeds data files
-// via all three directive forms (EmbedFiles, TestEmbedFiles, XTestEmbedFiles)
-// and asserts that editing any one embedded file busts the "up to date" skip,
+// via every directive form (EmbedFiles, TestEmbedFiles, XTestEmbedFiles)
+// and asserts that editing any embedded file busts the "up to date" skip,
 // while an unchanged tree still reports up to date.
 func TestUpToDateTracksEmbeddedFiles(t *testing.T) {
+	t.Serial()
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
 	// Keep go list hermetic: never download a toolchain, ignore any workspace.
 	t.Setenv("GOTOOLCHAIN", "local")
 	t.Setenv("GOWORK", "off")
-	// Force the non-Docker output-name scheme so build/<binary> is found regardless of where the test runs.
-	defer build.SetInDockerCheck(func() bool { return false })()
 
 	dir := t.TempDir()
 	t.Chdir(dir)

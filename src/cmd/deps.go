@@ -13,18 +13,15 @@ import (
 	"time"
 
 	"golang.org/x/mod/modfile"
-
-	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // How long to cache "up-to-date" results before rechecking
 const upToDateCacheDuration = time.Minute
 
-// depsCache persists dependency-check results across runs. The production
-// implementation is sqlite-backed (depscache_sqlite.go); GOOS=cosmo builds
-// get a no-op cache instead (depscache_cosmo.go) because modernc.org/sqlite
-// drags in modernc.org/libc, whose per-GOOS generated code has no cosmo
-// target.
+// depsCache persists dependency-check results across runs, in a JSON file
+// (depscache_file.go). It is on in every binary: the store is small enough to
+// need no engine, and a build tag here would take the cache away from
+// whatever the tag excludes.
 type depsCache interface {
 	// lookup returns the cached entry: update != "" means cached outdated (never expires); found=false means no entry.
 	lookup(path, version string) (update string, checkedAt int64, found bool)
@@ -116,12 +113,6 @@ func (dc *DepChecker) run() {
 			continue
 		}
 
-		// Tracked deps are owned by UpdateTrackedBranchDeps; checking @latest here
-		// would drag one back onto the default branch.
-		if dep.Tracked {
-			continue
-		}
-
 		update, needsUpdate, err := dc.checkDep(dep.Path, dep.Version)
 		if err != nil {
 			continue // Skip on error, don't fail the whole check
@@ -146,7 +137,7 @@ func (dc *DepChecker) run() {
 func (dc *DepChecker) checkDep(path, version string) (update string, needsUpdate bool, err error) {
 	now := time.Now().Unix()
 
-	// Check cache first
+	// Check the cache before asking the proxy
 	if cachedUpdate, checkedAt, found := dc.cache.lookup(path, version); found {
 		if cachedUpdate != "" {
 			// Cached as outdated - return immediately (no expiry for outdated)
@@ -178,7 +169,7 @@ func (dc *DepChecker) checkDep(path, version string) (update string, needsUpdate
 // "go list -m -u" which can be unreliable and slow in CI environments.
 func checkDepLive(path string) (update string, needsUpdate bool, err error) {
 	proxy := os.Getenv("GOPROXY")
-	// GOPROXY can be a comma-separated list; use the first proxy entry (skip "direct"/"off")
+	// GOPROXY can be a comma-separated list; use the leading proxy entry (skip "direct"/"off")
 	var found string
 	for _, entry := range strings.FieldsFunc(proxy, func(r rune) bool { return r == ',' || r == '|' }) {
 		entry = strings.TrimSpace(entry)
@@ -257,7 +248,6 @@ func escapePath(path string) (string, error) {
 type depInfo struct {
 	Path    string
 	Version string
-	Tracked bool // the line, or the replace covering it, carries a tracking marker
 }
 
 // findGoMod walks up from the current directory to find go.mod.
@@ -294,14 +284,6 @@ func listDirectDeps() ([]depInfo, error) {
 		return nil, err
 	}
 
-	// A require replaced by a tracked replacement is tracked too: the build uses the replacement's version.
-	replacedTracked := set.New[string]()
-	for _, rep := range f.Replace {
-		if isTracked(rep.Syntax) {
-			replacedTracked.Add(rep.Old.Path)
-		}
-	}
-
 	var deps []depInfo
 	for _, req := range f.Require {
 		if req.Indirect {
@@ -310,7 +292,6 @@ func listDirectDeps() ([]depInfo, error) {
 		deps = append(deps, depInfo{
 			Path:    req.Mod.Path,
 			Version: req.Mod.Version,
-			Tracked: isTracked(req.Syntax) || replacedTracked.Contains(req.Mod.Path),
 		})
 	}
 	return deps, nil
@@ -323,7 +304,7 @@ func looksLikeGitVersion(version string) bool {
 		return false
 	}
 
-	// Check if last part looks like a commit hash (12 hex chars)
+	// Check whether the trailing part looks like a short commit hash
 	lastPart := parts[len(parts)-1]
 	return len(lastPart) == 12 && isHex(lastPart)
 }

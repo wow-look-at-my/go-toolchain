@@ -13,6 +13,7 @@ import (
 // TestFixFileTestifyImports verifies the per-file rewrite flips the in-house
 // fork back to upstream stretchr/testify (no module/network work involved).
 func TestFixFileTestifyImports(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	content := `package example
 
@@ -24,6 +25,7 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.True(t, true)
 	require.True(t, true)
 }
@@ -45,6 +47,7 @@ func TestFoo(t *testing.T) {
 // TestFixFileTestifyImports_AliasPreserved checks that an import alias survives
 // the path rewrite (only the path string changes, not the local name).
 func TestFixFileTestifyImports_AliasPreserved(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	content := `package example
 
@@ -55,6 +58,7 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	tassert.True(t, true)
 }
 `
@@ -71,6 +75,7 @@ func TestFoo(t *testing.T) {
 // TestFixFileTestifyImports_NoChanges verifies a file already on upstream is
 // left untouched.
 func TestFixFileTestifyImports_NoChanges(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	content := `package example
 
@@ -81,6 +86,7 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.True(t, true)
 }
 `
@@ -99,6 +105,7 @@ func TestFoo(t *testing.T) {
 // that was missing — CI used to skip the migration entirely and pass green on
 // the fork.
 func TestFixTestifyImports_CheckModeRejectsFork(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	content := `package example
 
@@ -109,15 +116,14 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.True(t, true)
 }
 `
 	filePath := filepath.Join(dir, "example_test.go")
 	require.NoError(t, os.WriteFile(filePath, []byte(content), 0644))
 
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	ed := NewEditor(false)
 	wrote, err := FixTestifyImports(ed)
@@ -137,6 +143,7 @@ func TestFoo(t *testing.T) {
 // TestFixTestifyImports_CheckModeCleanPasses verifies check mode is a quiet
 // no-op (no error, nothing changed) when no file imports the fork.
 func TestFixTestifyImports_CheckModeCleanPasses(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	content := `package example
 
@@ -147,14 +154,13 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.True(t, true)
 }
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "example_test.go"), []byte(content), 0644))
 
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	ed := NewEditor(false)
 	wrote, err := FixTestifyImports(ed)
@@ -168,6 +174,7 @@ func TestFoo(t *testing.T) {
 // stretchr/testify. The rewrite runs before any go mod tidy, so upstream
 // testify is resolved via a local stub replace (no network needed).
 func TestFixTestifyImports_Orchestration(t *testing.T) {
+	t.Serial()
 	stub, err := filepath.Abs(filepath.Join("testdata", "src", "testifystub"))
 	require.NoError(t, err)
 
@@ -184,14 +191,13 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.True(t, true)
 }
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "example_test.go"), []byte(content), 0644))
 
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	wrote, err := FixTestifyImports(NewEditor(true))
 	require.NoError(t, err)
@@ -207,10 +213,9 @@ func TestFoo(t *testing.T) {
 
 // TestSyncVendorIfPresent_NoVendor is a no-op when there is no vendor tree.
 func TestSyncVendorIfPresent_NoVendor(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	assert.NoError(t, syncVendorIfPresent())
 }
@@ -224,6 +229,7 @@ func TestSyncVendorIfPresent_NoVendor(t *testing.T) {
 // via replace directives so the test is hermetic and fast (no network, which
 // the per-package test timeout cannot afford).
 func TestFixTestifyImports_VendorConsistency(t *testing.T) {
+	t.Serial()
 	forkStub, err := filepath.Abs(filepath.Join("testdata", "src", "forkstub"))
 	require.NoError(t, err)
 	upstreamStub, err := filepath.Abs(filepath.Join("testdata", "src", "testifystub"))
@@ -247,13 +253,12 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.Equal(t, 1, Foo())
 }
 `)
 
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	// Set up a vendored state on the fork (resolved via the local stub).
 	for _, args := range [][]string{{"mod", "tidy"}, {"mod", "vendor"}} {

@@ -18,7 +18,7 @@ var (
 	buildhostProject = "go-toolchain"
 )
 
-// updateCheck tracks one in-flight background check; ReportUpdateCheck prints or cancels
+// updateCheck tracks the in-flight background check; ReportUpdateCheck prints or cancels
 // its result and never blocks the main flow.
 type updateCheck struct {
 	cancel context.CancelFunc
@@ -129,7 +129,7 @@ func findOwnRelease(ctx context.Context, myCommit string) (*buildhostRelease, bo
 // ownReleaseLookupLimit bounds the release listing fetched to identify this binary; not unbounded.
 const ownReleaseLookupLimit = 200
 
-// fetchBuildhostReleases lists a project's releases, newest first.
+// fetchBuildhostReleases lists a project's releases, newest at the head.
 func fetchBuildhostReleases(ctx context.Context, limit int) ([]buildhostRelease, error) {
 	url := fmt.Sprintf("%s/api/v1/projects/%s/releases?limit=%d", buildhostAPIBase, buildhostProject, limit)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -195,8 +195,8 @@ func fetchLatestBuildhostRelease(ctx context.Context) (*buildhostRelease, error)
 	return &rel, nil
 }
 
-// commitsMatch reports whether two git commit identifiers refer to the same
-// commit, tolerating short/long SHA forms (one a prefix of the other) and case.
+// commitsMatch reports whether a pair of git commit identifiers refer to the same
+// commit, tolerating short/long SHA forms (either a prefix of the other) and case.
 func commitsMatch(a, b string) bool {
 	if a == "" || b == "" {
 		return false

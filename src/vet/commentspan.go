@@ -16,7 +16,7 @@ import (
 )
 
 // CommentSpanAnalyzer reports a comment bigger than the code it documents,
-// by lines or by chars past a 120-char floor. A directive line, and the
+// by lines or by chars past commentSpanCharFloor. A directive line, and the
 // package doc, are never measured.
 var CommentSpanAnalyzer = &analysis.Analyzer{
 	Name:       "commentspan",
@@ -28,7 +28,7 @@ var CommentSpanAnalyzer = &analysis.Analyzer{
 // commentSpanCharFloor is the char allowance every comment gets, regardless of code size.
 const commentSpanCharFloor = 120
 
-// commentSpanWarned dedupes warnings to one per file:line, since 4 package variants walk the same file. Reset per run.
+// commentSpanWarned dedupes warnings per file:line, since every package variant walks the same file. Reset per run.
 var commentSpanWarned sync.Map
 
 func resetCommentSpanWarnings() { commentSpanWarned.Clear() }
@@ -142,7 +142,7 @@ func commentSpanText(g *ast.CommentGroup) (string, bool) {
 
 // commentSpanMeasure counts non-blank lines and non-whitespace chars in s, so
 // indentation carries no cost. Used on both a comment and its code, so the
-// two counts are directly comparable.
+// counts are directly comparable.
 func commentSpanMeasure(s string) (lines, chars int) {
 	for _, line := range strings.Split(s, "\n") {
 		hasContent := false

@@ -12,6 +12,7 @@ import (
 // darwin) and the filesystem probes (deniable by a sandbox), it cannot be
 // wrong or unavailable.
 func TestHostSignalOutranksTheProbes(t *testing.T) {
+	t.Serial()
 	old := hostSignalFunc
 	hostSignalFunc = func() string { return "darwin" }
 	t.Cleanup(func() { hostSignalFunc = old })
@@ -25,6 +26,7 @@ func TestHostSignalOutranksTheProbes(t *testing.T) {
 // An empty answer means "no authoritative signal here" and must fall through
 // to the probes rather than being taken as the host.
 func TestEmptyHostSignalFallsThroughToTheProbes(t *testing.T) {
+	t.Serial()
 	old := hostSignalFunc
 	hostSignalFunc = func() string { return "" }
 	t.Cleanup(func() { hostSignalFunc = old })

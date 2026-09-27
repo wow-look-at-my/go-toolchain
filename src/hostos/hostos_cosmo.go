@@ -4,6 +4,7 @@ package hostos
 
 import (
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -13,23 +14,30 @@ import (
 var hostGOOS = sync.OnceValue(detectHostGOOS)
 
 // hostSignalFunc is the authoritative signal, checked before any probe. Empty means none; see detection.go.
-var hostSignalFunc func() string
+var hostSignalFunc = cosmoHostSignal
 
-// GOOS returns the host OS: "linux" or "darwin", never "windows" (a Windows host runs the native, non-cosmo build).
+// The host the APE stub recorded; "" where the fork has no port.
+// No sandbox can deny this, unlike the probes below.
+func cosmoHostSignal() string {
+	if host := runtime.CosmoHostOS(); host != "unknown" {
+		return host
+	}
+	return ""
+}
+
+// GOOS returns the host OS: "linux", "darwin" or "windows". A fat APE runs on each of them.
 func GOOS() string { return hostGOOS().OS }
 
-// Detect returns the host OS plus how it was determined (see go-toolchain version host). Memoized; never runs twice.
+// Detect returns the host OS plus how it was determined (see go-toolchain version host). Memoized; the probe runs a single time.
 func Detect() Detection { return hostGOOS() }
 
 func detectHostGOOS() Detection {
 	// An authoritative signal outranks every probe: it cannot be denied by a sandbox or ENOSYS. See detection.go.
-	if hostSignalFunc != nil {
-		if host := hostSignalFunc(); host != "" {
-			return Detection{OS: host, Method: "runtime"}
-		}
+	if host := hostSignalFunc(); host != "" {
+		return Detection{OS: host, Method: "runtime"}
 	}
 
-	// uname(2): Sysname is authoritative on Linux; macOS ENOSYS's it via the fork's darwin dispatcher and falls through.
+	// uname: Sysname is authoritative on Linux; macOS ENOSYS's it via the fork's darwin dispatcher and falls through.
 	var uts syscall.Utsname
 	var sysname string
 	if err := syscall.Uname(&uts); err == nil {
@@ -56,7 +64,7 @@ func detectHostGOOS() Detection {
 	return d
 }
 
-// cstring returns b up to the first NUL (or all of b) -- Utsname fields are fixed-size NUL-terminated buffers.
+// cstring returns b up to its leading NUL (or all of b) -- Utsname fields are fixed-size NUL-terminated buffers.
 func cstring(b []byte) string {
 	for i, c := range b {
 		if c == 0 {
