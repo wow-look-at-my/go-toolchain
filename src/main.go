@@ -13,8 +13,16 @@ func init() {
 	if isCacheProgInvocation() {
 		return
 	}
-	// The go command and its tools take the environment as it is.
+	// The go command and its tools take the environment as it is, because the
+	// command that started them configured it. A caller that starts this
+	// binary as go itself has no such parent, and a runner hands it GOPROXY
+	// set to the empty value, which the go command reads as a proxy list with
+	// no entries and refuses. An environment naming a proxy is still taken as
+	// it is: only the absence is filled.
 	if _, linked := cmd.LinkedGoArgs(os.Args); linked {
+		if os.Getenv("GOPROXY") == "" {
+			configureGoEnv()
+		}
 		return
 	}
 
