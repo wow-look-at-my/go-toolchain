@@ -5,6 +5,11 @@ on:
     branches:
       - '**'
 
+# A push supersedes the branch's running build; without this every push stacked another full run and the fleet starved.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
   id-token: write
