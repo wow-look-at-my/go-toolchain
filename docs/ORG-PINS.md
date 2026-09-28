@@ -16,12 +16,14 @@ The pipeline repairs a pin before `go mod tidy`, and logs each repair:
 
 An org submodule with no `branch` is the only pin that still fails the run. Nothing tells the pipeline which branch it must follow.
 
+A spec submodule is the exception. A repository whose name ends in `-spec` stays on its pinned commit, because each bump of that pin is a review of the spec.
+
 ## What counts as a pin
 
 | File | Accepted | Refused |
 | --- | --- | --- |
 | `go.mod`, `go.sum`, `vendor/modules.txt` | `vN.0.0` for the path's major | a dated pseudo-version, a release tag |
-| `.gitmodules` | an org submodule with a `branch` | an org submodule with none |
+| `.gitmodules` | an org submodule with a `branch`, and a `-spec` submodule with none | any other org submodule with none |
 | `.github/workflows/*.yml`, `.github/actions/*/action.yml` | `@master`, and the org's `@name#latest` orphan tags | `@vN`, a 40-character commit |
 
 A third-party dependency is not looked at. It keeps the version it names.
