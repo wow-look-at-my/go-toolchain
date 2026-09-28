@@ -17,14 +17,7 @@ import (
 )
 
 // libraryModulesAllowed lets a module with no main package pass through the
-// build phase with an empty job list instead of failing the run. runRelease
-// sets it while it walks a tree of modules: a library beside the module that
-// ships the binary is the ordinary shape there, and its tests and dats suites
-// still have to run. A single-module repo leaves it false, so "no main
-// packages found to build" still fails that run.
-//
-// matrixBuiltBinaries counts what every module built, so a whole run that
-// produced no binary at all still fails.
+// build phase with an empty job list instead of failing the run.
 var (
 	libraryModulesAllowed bool
 	matrixBuiltBinaries   int
@@ -253,11 +246,7 @@ func runReleaseInto(r runner.CommandRunner, sd *summary.SummaryData) (err error)
 		}
 	}
 
-	// Create _host and bare symlinks for the current platform. In CI these
-	// are pointless (nothing consumes them) and harmful: upload-artifact
-	// dereferences symlinks, bloating the artifact with full duplicate copies.
-	// A module that built nothing has no host binary to point at, and saying
-	// so once above is enough.
+	// Create _host and bare symlinks for the current platform.
 	if os.Getenv("CI") == "" && len(jobs) > 0 {
 		if err := createHostSymlinks(hostTargets, outputDir); err != nil {
 			return err
