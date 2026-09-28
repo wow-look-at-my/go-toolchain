@@ -6,8 +6,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
@@ -26,6 +29,11 @@ const (
 var (
 	slopfixDownloadBase = "https://dl.pazer.build/slopfix"
 	ensureSlopfixFunc   = ensureSlopfix
+	downloadSlopfixFunc = downloadSlopfix
+	// slopfixHostPlatformFunc answers the platform the published binary must
+	// run on. hostos, not runtime: a cosmo fat APE reports "cosmo" as
+	// runtime.GOOS, and runtime.GOARCH needs no such substitution.
+	slopfixHostPlatformFunc = func() (string, string) { return hostos.GOOS(), runtime.GOARCH }
 )
 
 // slopfixDownloadURL names the buildhost slot a pin selects.
@@ -34,6 +42,25 @@ func slopfixDownloadURL(pin, goos, goarch string) string {
 		return fmt.Sprintf("%s?os=%s&arch=%s", slopfixDownloadBase, goos, goarch)
 	}
 	return fmt.Sprintf("%s?v=%s&os=%s&arch=%s", slopfixDownloadBase, pin, goos, goarch)
+}
+
+// slopfixCacheKey names the cache directory a pin gets. A pin comes from the
+// environment and becomes one path segment, so everything outside the ASCII
+// letters, digits, dot, underscore and hyphen is replaced with '-'. An empty
+// pin is the unpinned case, and the unpinned case is one shared directory.
+func slopfixCacheKey(pin string) string {
+	if pin == "" {
+		return "latest"
+	}
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
+			r == '.', r == '_', r == '-':
+			return r
+		default:
+			return '-'
+		}
+	}, pin)
 }
 
 // ensureSlopfix answers the path of a runnable slopfix, downloading it when
@@ -47,7 +74,7 @@ func ensureSlopfix() (string, error) {
 		return bin, nil
 	}
 
-	hostOS, hostArch := cosmoHostPlatformFunc()
+	hostOS, hostArch := slopfixHostPlatformFunc()
 	pin := os.Getenv(slopfixVersionEnv)
 	dlURL := slopfixDownloadURL(pin, hostOS, hostArch)
 
@@ -55,17 +82,13 @@ func ensureSlopfix() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	key := sanitizeCacheKey(pin)
-	if key == "" {
-		key = "latest"
-	}
-	dir := filepath.Join(cacheDir, "slopfix", key)
+	dir := filepath.Join(cacheDir, "slopfix", slopfixCacheKey(pin))
 	bin := filepath.Join(dir, slopfixBinName(hostOS))
 	if _, statErr := os.Stat(bin); statErr == nil {
 		return bin, nil
 	}
 
-	if err := downloadSlopfix(dlURL, dir, bin); err != nil {
+	if err := downloadSlopfixFunc(dlURL, dir, bin); err != nil {
 		return "", fmt.Errorf("failed to download slopfix from %s: %w (set %s to use a local build, or %s to pin one release)", dlURL, err, slopfixBinEnv, slopfixVersionEnv)
 	}
 	logger.Info("slopfix-bootstrap: using %s", bin)
