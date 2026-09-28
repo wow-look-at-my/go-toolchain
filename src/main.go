@@ -21,6 +21,7 @@ func init() {
 	// it is: only the absence is filled.
 	if _, linked := cmd.LinkedGoArgs(os.Args); linked {
 		if os.Getenv("GOPROXY") == "" {
+			logger.WithSubsystem("proxy").Info("no GOPROXY in this environment, so this linked run configures its own")
 			configureGoEnv()
 		}
 		return
