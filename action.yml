@@ -106,13 +106,6 @@ runs:
       with:
         packages: bubblewrap
 
-    - name: Provision the sandbox backend (bubblewrap)
-      if: runner.os == 'Linux'
-      shell: bash
-      env:
-        ACTION_PATH: ${{ github.action_path }}
-      run: bash "$ACTION_PATH/.github/scripts/provision-bwrap.sh"
-
     - name: Download go-toolchain
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
@@ -178,14 +171,10 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        go=(go)
-        if ! command -v go >/dev/null; then
-          # The pipeline's go has no go.env beside it, so it carries no default module proxy or checksum database.
-          export GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}" GOSUMDB="${GOSUMDB:-sum.golang.org}"
-          mkdir -p "$RUNNER_TEMP/gt-go"
-          ln -sf "$(command -v go-toolchain)" "$RUNNER_TEMP/gt-go/go"
-          go=("$RUNNER_TEMP/gt-go/go")
-        fi
+        # The pipeline binary is the go command these generators build with, whatever else the runner has on PATH. It picks its own module proxy and checksum database in configureGoEnv, so nothing here names either. A stock go takes the runner's, which arrives empty, and the go command reads an empty proxy list as no entries and refuses.
+        mkdir -p "$RUNNER_TEMP/gt-go"
+        ln -sf "$(command -v go-toolchain)" "$RUNNER_TEMP/gt-go/go"
+        go=("$RUNNER_TEMP/gt-go/go")
         for pkg in \
           golang.org/x/tools/cmd/stringer@v0.49.0 \
           golang.org/x/tools/cmd/goyacc@v0.49.0 \
