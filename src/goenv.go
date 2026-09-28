@@ -9,18 +9,7 @@ import (
 )
 
 // ensureDirectFallback appends ",direct" so a module the proxy does not carry
-// still resolves. Comma falls through on not-found only; pipe would fall
-// through on any error, including a 502.
-//
-// The distinction decides a module's hash, not just its availability. A zip the
-// proxy serves and a zip cmd/go builds from git are not the same bytes for a
-// repo with submodules: git.addGitlinks writes a .gitlinks manifest of the
-// submodule commits, and the proxy's cached zips predate it. go.sum records one
-// hash per version, and haveModSumLocked rejects a download that matches no
-// recorded line, so a run that answers from the proxy and a run that falls
-// through to git cannot both verify. Pipe made proxy health decide which.
-//
-// A trailing "|direct" is downgraded; any other "direct" value is untouched.
+// still resolves.
 func ensureDirectFallback(goproxy string) string {
 	if strings.HasSuffix(goproxy, "|direct") {
 		return strings.TrimSuffix(goproxy, "|direct") + ",direct"
@@ -111,8 +100,7 @@ func configureGoEnv() {
 		return
 	}
 
-	// A GOSUMDB this run declined still sits in the environment every child
-	// reads, so it goes rather than staying as the setting nobody chose.
+	// A GOSUMDB this run declined still sits in the environment every child reads.
 	os.Unsetenv("GOSUMDB")
 	// GONOSUMDB, not GOSUMDB=off, so toolchain auto-downloads still work.
 	os.Setenv("GONOSUMDB", "*")

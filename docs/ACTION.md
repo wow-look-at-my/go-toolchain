@@ -68,15 +68,11 @@ A consumer therefore drops its own bubblewrap step. `dats/bwrap.dats` covers the
 
 ## 1c. Installing the binary
 
-The download goes straight to buildhost's `dl` endpoint with curl, and no npm is involved. `--compressed` advertises `Accept-Encoding`, zstd included where curl was built with it, so buildhost streams the stored zstd blob as-is and curl decompresses client-side. The server never pays the decompression cost. Where curl lacks zstd it just gets the plain binary. buildhost normalizes platform aliases natively (`RUNNER_OS` Linux/macOS/Windows, `RUNNER_ARCH` X64/ARM64), so those values pass through verbatim. It serves the branch tip `no-store`, so no cache-buster is needed. Download, the pre-install run, and the copy into `/usr/local/bin` are one step. Nothing in the org's action set can write there (the runner is not root), and dats' sandbox mounts only the standard paths. So a split will only move the `sudo cp` into a second step.
+buildhost's own `buildhost-download` action fetches the binary into `$RUNNER_TEMP/go-toolchain-bin`, and the next step puts that directory on `PATH`. The directory stays runner-writable. So a fat APE can self-assimilate on its first exec, which reopens the file read-write. No `sudo` and no copy into `/usr/local/bin` are involved.
 
-**The URL carries no `branch=` pin.** buildhost's bare "latest" resolves against the project's default branch. A pin will name a buildhost branch, not a git one, and will have to be kept in step with an operator setting the API.
+**The download carries no branch pin.** buildhost's bare "latest" resolves against the project's default branch.
 
-The install runs only on a successful download. A failure is reported rather than hidden behind `|| true`. And it is non-fatal at that point. Gating with `if` keeps `set -e` from skipping the probe and the source-build fallback below, which surface the reason and decide whether the build fails.
-
-**The binary runs once BEFORE the root-owned install.** Since the fat-APE migration the linux and windows/amd64 slots serve an APE polyglot that self-assimilates on first exec by reopening ITSELF read-write. That works while the file is still runner-writable in `/tmp`. It is impossible for the non-root runner once the file is root-owned in `/usr/local/bin`, which gives `line 11: ... Permission denied`. After that run the installed file is a plain native binary. For a native slot such as darwin/arm64 the run is only an early version check. Its failures are tolerated with `|| true`, because the probe that follows is the single pass/fail gate and it surfaces the reason.
-
-The probe captures its output rather than discarding it. So the real reason the binary is unusable is shown: a 404, a missing PATH entry, or a crash. A source build happens only where the caller opted in. A silent fallback hides a buildhost outage and ships a locally-compiled toolchain that can differ from the released one.
+The probe then runs `go-toolchain version` and captures its output rather than discarding it. So the real reason the binary is unusable is shown: a crash or an unrunnable binary. A source build happens only where the caller opted in, and it writes into the same directory. A silent fallback hides a buildhost outage and ships a locally-compiled toolchain that can differ from the released one.
 
 A caller-provided `binary:` is staged through `/tmp` and pre-run once for the same APE reason. Staging also keeps the caller's own file byte-identical. For a native binary this changes nothing.
 
@@ -84,7 +80,7 @@ A caller-provided `binary:` is staged through `/tmp` and pre-run once for the sa
 
 A dependency's `//go:generate` directives run when the dependency is fetched. A missing generator therefore fails the build. The step installs stringer, goyacc and gotext before the pipeline runs.
 
-It uses the runner's `go` when there is one. A self-hosted runner often has none. The step then runs go-toolchain as the go command, with `GO_TOOLCHAIN_LINKED_GO=1 go-toolchain go`. That go builds for `GOOS=cosmo`. Its `go install` writes into `$GOPATH/bin/cosmo_amd64` and ignores `GOBIN`. The step puts that directory on `PATH` beside `$GOPATH/bin`.
+It uses the runner's `go` when there is one. A self-hosted runner often has none. The step then links go-toolchain as `$RUNNER_TEMP/gt-go/go`, and the binary acts as the go command under that name. That go builds for `GOOS=cosmo`. Its `go install` writes into `$GOPATH/bin/cosmo_amd64` and ignores `GOBIN`. The step puts that directory on `PATH` beside `$GOPATH/bin`.
 
 That go has no `go.env` beside it. So without help it has an empty proxy list and fails with "GOPROXY list is not the empty string, but contains no entries". The step gives it Go's standard `GOPROXY` and `GOSUMDB` unless the runner already sets them. The generators are public modules, so the public checksum database discloses nothing.
 
@@ -162,50 +158,9 @@ Each fails the build without its grant — the build runs to completion and then
 
 The case that does not register is a publish whose target server is loopback or plain http (buildhost's own e2e spawns one on `http://localhost:18080`). A deployment asserts "this publish is live at `<environment_url>`", which is false for a server nothing outside the runner can reach. That is a property of the target, not an opt-out — every publish to a real https server registers. And a failure there is fatal.
 
-## 5. One set of org pins for a multi-job workflow
+## 5. One head per run across several jobs
 
-The action takes `GOORGPIN` from the job's environment. A job that leaves it empty resolves each org module once, at the start of its own run ([ORG-PINS.md](ORG-PINS.md#one-resolution-per-ci-run-goorgpin-srccmdorgpinenvgo)). That serves a workflow with a single building job.
-
-A workflow with several building jobs resolves once for all of them. Otherwise an org dependency that gets a commit mid-run reaches each job at a different commit. One pin job runs the fork's go command and exposes the pins as a job output. A job output carries a string, so no artifact is involved. Each building job `needs:` the pin job and sets `GOORGPIN` at job level:
-
-```yaml
-jobs:
-  org-pins:
-    runs-on: ubuntu-latest
-    outputs:
-      pins: ${{ steps.pins.outputs.pins }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
-        with:
-          project: gosmopolitan
-          branch: master
-          path: ${{ runner.temp }}/gosmopolitan.tar.gz
-          executable: false
-      - run: mkdir -p "$RUNNER_TEMP/fork" && tar -xzf "$RUNNER_TEMP/gosmopolitan.tar.gz" -C "$RUNNER_TEMP/fork"
-      - id: pins
-        uses: wow-look-at-my/actions@typescript#latest
-        env:
-          GOTOOLCHAIN: local
-        with:
-          script: |
-            const go = path.join(process.env.RUNNER_TEMP ?? "", "fork", "go", "bin", "go");
-            const format = "{{if not .Main}}{{.Path}}={{.Version}}{{with .Replace}} {{.Path}}={{.Version}}{{end}}{{end}}";
-            const listed = String(await $`${go} list -mod=readonly -m -f ${format} all`);
-            const pins = listed.split(/\s+/).filter((e: string) => e.startsWith("github.com/wow-look-at-my/") && !e.endsWith("="));
-            core.setOutput("pins", [...new Set(pins)].sort().join(" "));
-
-  test:
-    needs: org-pins
-    runs-on: ubuntu-latest
-    env:
-      GOORGPIN: ${{ needs.org-pins.outputs.pins }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: wow-look-at-my/go-toolchain@master
-```
-
-A private org dependency also needs the `secret-server` and git configuration steps in the pin job. This repository's own `ci.yml` has them, in its `org-pins` job.
+A workflow needs nothing for this. The fork's go command locks each org module's branch head per run attempt in buildhost, and every job of the attempt builds it ([ORG-PINS.md](ORG-PINS.md#one-head-per-ci-run-the-buildhost-run-lock)). The job only needs `id-token: write`, which the action already requires.
 
 ---
 
