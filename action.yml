@@ -179,8 +179,7 @@ runs:
         set -euo pipefail
         go=(go)
         if ! command -v go >/dev/null; then
-          # The pipeline's go has no go.env beside it, so it carries no default module proxy or checksum database.
-          export GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}" GOSUMDB="${GOSUMDB:-sum.golang.org}"
+          # The pipeline binary picks its own module proxy and checksum database in configureGoEnv: GOPROXY=direct with sumdb disabled. Naming the public pair here instead is refused, because the public checksum database discloses a private module's path.
           mkdir -p "$RUNNER_TEMP/gt-go"
           ln -sf "$(command -v go-toolchain)" "$RUNNER_TEMP/gt-go/go"
           go=("$RUNNER_TEMP/gt-go/go")
