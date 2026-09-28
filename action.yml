@@ -101,6 +101,7 @@ runs:
 
     # A dependency's generate directive and the dats phase both run confined. see docs/ACTION.md
     - name: Install bubblewrap
+      if: runner.os == 'Linux'
       uses: wow-look-at-my/actions@cached-apt#latest
       with:
         packages: bubblewrap
