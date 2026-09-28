@@ -180,9 +180,9 @@ runs:
           go=("$RUNNER_TEMP/gt-go/go")
         fi
         for pkg in \
-          golang.org/x/tools/cmd/stringer@latest \
-          golang.org/x/tools/cmd/goyacc@latest \
-          golang.org/x/text/cmd/gotext@latest \
+          golang.org/x/tools/cmd/stringer@v0.49.0 \
+          golang.org/x/tools/cmd/goyacc@v0.49.0 \
+          golang.org/x/text/cmd/gotext@v0.42.0 \
         ; do
           "${go[@]}" install "$pkg"
         done
