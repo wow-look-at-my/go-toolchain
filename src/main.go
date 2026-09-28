@@ -21,9 +21,8 @@ func init() {
 	// a default. An environment naming one is still taken as it is: only the
 	// absence is filled.
 	if _, linked := cmd.LinkedGoArgs(os.Args); linked {
-		if os.Getenv("GOPROXY") == "" {
-			logger.WithSubsystem("proxy").Info("no GOPROXY in this environment, so this linked run configures its own")
 		if !namesAProxy(os.Getenv("GOPROXY")) {
+			logger.WithSubsystem("proxy").Info("GOPROXY names no proxy in this environment, so this linked run configures its own")
 			configureGoEnv()
 		}
 		return
