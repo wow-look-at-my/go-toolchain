@@ -13,9 +13,6 @@ import (
 
 // Only the dup2 implementations reach these, and windows has none.
 
-// watchdogDisabled reports the GO_TOOLCHAIN_NO_WATCHDOG off-switch: a fault in fd forwarding can trap all output.
-func watchdogDisabled() bool { return os.Getenv("GO_TOOLCHAIN_NO_WATCHDOG") == "1" }
-
 // watchdogOff reports that no stall monitoring is running, and why. Every
 // startWatchdog path that gives up takes this: a build with no watchdog looks
 // exactly like a build that never stalled, so the absence has to be stated or

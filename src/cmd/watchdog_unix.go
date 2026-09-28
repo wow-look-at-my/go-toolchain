@@ -14,9 +14,6 @@ import (
 // forwarding all output to the original file descriptors while monitoring
 // for stalls. Returns nil if setup fails (non-fatal; build continues without monitoring).
 func startWatchdog(threshold time.Duration) *outputWatchdog {
-	if watchdogDisabled() {
-		return watchdogOff("GO_TOOLCHAIN_NO_WATCHDOG=1")
-	}
 	// Save original file descriptors
 	origStdoutFd, err := unix.Dup(1)
 	if err != nil {

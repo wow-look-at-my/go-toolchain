@@ -15,19 +15,14 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// TestWatchdogDisabledByEnv pins the GO_TOOLCHAIN_NO_WATCHDOG off-switch:
-// startWatchdog must decline to touch stdout/stderr and return nil (the build then
-// runs on its real stdio). Only the exact value the test sets disables it.
-func TestWatchdogDisabledByEnv(t *testing.T) {
+// TestWatchdogStartsOnEveryRun pins that nothing in the environment can
+// decline stall monitoring: a build that cannot be told it went silent is
+// exactly the build that goes silent for minutes and reports nothing.
+func TestWatchdogStartsOnEveryRun(t *testing.T) {
 	t.Serial()
-	t.Setenv("GO_TOOLCHAIN_NO_WATCHDOG", "1")
-	require.True(t, watchdogDisabled())
-	require.Nil(t, startWatchdog(time.Second))
-
-	t.Setenv("GO_TOOLCHAIN_NO_WATCHDOG", "")
-	require.False(t, watchdogDisabled())
-	t.Setenv("GO_TOOLCHAIN_NO_WATCHDOG", "0")
-	require.False(t, watchdogDisabled())
+	wd := startWatchdog(time.Second)
+	require.NotNil(t, wd)
+	wd.stop()
 }
 
 // TestWatchdogStopDoesNotDropBufferedOutput is a regression test for the pipe

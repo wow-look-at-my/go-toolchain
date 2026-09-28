@@ -18,9 +18,6 @@ import (
 // forwarding all output to the original file descriptors while monitoring
 // for stalls. Returns nil if setup fails (non-fatal; build continues without monitoring).
 func startWatchdog(threshold time.Duration) *outputWatchdog {
-	if watchdogDisabled() {
-		return watchdogOff("GO_TOOLCHAIN_NO_WATCHDOG=1")
-	}
 	// Save original file descriptors
 	origStdoutFd, err := syscall.Dup(1)
 	if err != nil {
@@ -56,7 +53,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 		stderrW.Close()
 		syscall.Close(origStdoutFd)
 		syscall.Close(origStderrFd)
-		return watchdogOff("pipe for stderr: %v", err)
+		return watchdogOff("dup2 onto fd 1: %v", err)
 	}
 	if err := syscall.Dup2(int(stderrW.Fd()), 2); err != nil {
 		// Restore stdout before bailing
@@ -67,7 +64,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 		stderrW.Close()
 		syscall.Close(origStdoutFd)
 		syscall.Close(origStderrFd)
-		return watchdogOff("pipe for stderr: %v", err)
+		return watchdogOff("dup2 onto fd 2: %v", err)
 	}
 
 	// Never reassign os.Stdout/Stderr via os.NewFile: piled-up finalizers eventually close real stdio out from under later code.
