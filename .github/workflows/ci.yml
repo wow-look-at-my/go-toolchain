@@ -20,100 +20,8 @@ env:
   GO_TOOLCHAIN_CACHE_LOOKAHEAD: "16"
 
 jobs:
-  # Every job below builds the same commit of each org dependency: cmd/go resolves a branch head per invocation, so a dependency that moves mid-run would otherwise reach each job at a different commit. see docs/ORG-PINS.md
-  org-pins:
-    runs-on: ubuntu-latest
-    outputs:
-      pins: ${{ steps.pins.outputs.pins }}
-      fork: ${{ steps.fork.outputs.commit }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - uses: wow-look-at-my/actions@secret-server#latest
-
-      - name: Configure git for private repos
-        if: env.PRIVATE_ORG_REPO_READ != ''
-        run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
-
-      - name: Configure Go proxy
-        run: |
-          {
-            echo "GOPROXY=direct"
-            echo "GONOSUMDB=*"
-            echo "GONOSUMCHECK=*"
-          } >> "$GITHUB_ENV"
-
-      # The fork's go command is the one that resolves an org module to a branch head.
-      - name: Take the fork's release
-        uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
-        with:
-          # No fmt: a GOROOT is stored as a tar.gz, and repackaging wraps it again.
-          project: gosmopolitan
-          branch: master
-          path: ${{ runner.temp }}/gosmopolitan.tar.gz
-          executable: false
-
-      - name: Install the fork's release
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/fork"
-          tar -xzf "$RUNNER_TEMP/gosmopolitan.tar.gz" -C "$RUNNER_TEMP/fork"
-
-      # The same query src/cmd/orgpinenv.go runs when a job resolves its own pins.
-      - name: Resolve each org module once for the whole run
-        id: pins
-        uses: wow-look-at-my/actions@typescript#latest
-        env:
-          GOTOOLCHAIN: local
-        with:
-          script: |
-            const go = path.join(process.env.RUNNER_TEMP ?? "", "fork", "go", "bin", "go");
-            const format = "{{if not .Main}}{{.Path}}={{.Version}}{{with .Replace}} {{.Path}}={{.Version}}{{end}}{{end}}";
-            const listed = String(await $`${go} list -mod=readonly -m -f ${format} all`);
-            const pins = new Set<string>();
-            for (const entry of listed.split(/\s+/)) {
-              const eq = entry.indexOf("=");
-              if (eq < 0 || eq === entry.length - 1) continue;
-              if (!entry.startsWith("github.com/wow-look-at-my/")) continue;
-              pins.add(entry);
-            }
-            if (pins.size === 0) {
-              core.setFailed("go list -m all named no org module, and this module requires several");
-              return;
-            }
-            const sorted = [...pins].sort();
-            for (const pin of sorted) core.info(pin);
-            core.setOutput("pins", sorted.join(" "));
-
-      # The fork follows a branch too, and the bot merges master into it mid-run. src/cmd/forksource.go resolves it the same way.
-      - name: Resolve the fork commit once for the whole run
-        id: fork
-        uses: wow-look-at-my/actions@typescript#latest
-        with:
-          script: |
-            const branch = `refs/heads/${github.ref_name}`;
-            const listed = String(await $`git ls-remote https://github.com/wow-look-at-my/gosmopolitan HEAD ${branch}`);
-            const refs = new Map<string, string>();
-            for (const line of listed.split("\n")) {
-              const [commit, ref] = line.trim().split(/\s+/);
-              if (commit && ref) refs.set(ref, commit);
-            }
-            const commit = refs.get(branch) ?? refs.get("HEAD");
-            if (!commit) {
-              core.setFailed(`gosmopolitan named neither ${branch} nor HEAD`);
-              return;
-            }
-            core.info(`gosmopolitan ${refs.has(branch) ? branch : "HEAD"} at ${commit}`);
-            core.setOutput("commit", commit);
-
   host-build:
-    needs: org-pins
     runs-on: ubuntu-latest
-    env:
-      GOORGPIN: ${{ needs.org-pins.outputs.pins }}
-      GO_TOOLCHAIN_FORK_COMMIT: ${{ needs.org-pins.outputs.fork }}
     steps:
       # No persisted credentials: the header checkout leaves in the workspace names THIS repository, so every git question about another is asked as the wrong identity.
       - uses: actions/checkout@v7
@@ -379,12 +287,8 @@ jobs:
 
   # The same build with no go-toolchain release involved: the fork's release runs the fork's make.bash, that go command builds the pipeline, and the pipeline builds itself; identical holds its APE to host-build's bytes. see docs/CI.md
   bootstrap-scratch:
-    needs: org-pins
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    env:
-      GOORGPIN: ${{ needs.org-pins.outputs.pins }}
-      GO_TOOLCHAIN_FORK_COMMIT: ${{ needs.org-pins.outputs.fork }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -514,11 +418,8 @@ jobs:
 
   # Build + test via the composite action with NO target inputs, which is exactly what a... see docs/CI.md
   build:
-    needs: [org-pins, host-build]
+    needs: host-build
     runs-on: ubuntu-latest
-    env:
-      GOORGPIN: ${{ needs.org-pins.outputs.pins }}
-      GO_TOOLCHAIN_FORK_COMMIT: ${{ needs.org-pins.outputs.fork }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -576,7 +477,7 @@ jobs:
 
   # Each non-linux host builds this repo's APE with the linux-built binary, so a difference in the output is the host and nothing else. see docs/CI.md
   build-everywhere:
-    needs: [org-pins, host-build]
+    needs: host-build
     strategy:
       matrix:
         origin: [darwin, windows]
@@ -589,8 +490,6 @@ jobs:
     env:
       # NT needs the suffix to exec what it copies.
       GT_APE: ${{ matrix.origin == 'windows' && 'gt-ape.exe' || 'gt-ape' }}
-      GOORGPIN: ${{ needs.org-pins.outputs.pins }}
-      GO_TOOLCHAIN_FORK_COMMIT: ${{ needs.org-pins.outputs.fork }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -770,7 +669,7 @@ jobs:
 
   # One suite, every host: a host-specific answer is paired with uname inside the fixture. see docs/CI.md
   smoke:
-    needs: [org-pins, host-build, build]
+    needs: [host-build, build]
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
@@ -780,9 +679,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     # A cold stdlib compile under the fork is slower on NT than on the other two hosts.
     timeout-minutes: 30
-    env:
-      GOORGPIN: ${{ needs.org-pins.outputs.pins }}
-      GO_TOOLCHAIN_FORK_COMMIT: ${{ needs.org-pins.outputs.fork }}
     steps:
       # Only for the dats fixtures in .github/dats-fixtures/ -- this job otherwise runs no repo code.
       - uses: actions/checkout@v7
