@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/wow-look-at-my/go-toolchain/src/cmd"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/logx"
 )
 
@@ -64,6 +65,7 @@ func main() {
 	cmd.ReportUpdateCheck()
 	logx.Flush()
 	if err != nil {
+		logger.Error("go-toolchain: %v", err)
 		os.Exit(1)
 	}
 }

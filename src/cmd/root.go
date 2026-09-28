@@ -83,6 +83,9 @@ var rootCmd = &cobra.Command{
 	Use:          "go-toolchain",
 	Short:        "Build Go projects with coverage enforcement",
 	SilenceUsage: true,
+	// main answers for the error through the logger, which is what makes it a
+	// GitHub Actions annotation rather than only a line in the log.
+	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// Install the logger so every command's output honors the
 		// requested level.
