@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"strings"
 
 	"github.com/wow-look-at-my/go-toolchain/src/cmd"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
@@ -15,12 +16,12 @@ func init() {
 	}
 	// The go command and its tools take the environment as it is, because the
 	// command that started them configured it. A caller that starts this
-	// binary as go itself has no such parent, and a runner hands it GOPROXY
-	// set to the empty value, which the go command reads as a proxy list with
-	// no entries and refuses. An environment naming a proxy is still taken as
-	// it is: only the absence is filled.
+	// binary as go itself has no such parent, and a runner hands it a GOPROXY
+	// that names no proxy, which the go command refuses rather than reading as
+	// a default. An environment naming one is still taken as it is: only the
+	// absence is filled.
 	if _, linked := cmd.LinkedGoArgs(os.Args); linked {
-		if os.Getenv("GOPROXY") == "" {
+		if !namesAProxy(os.Getenv("GOPROXY")) {
 			configureGoEnv()
 		}
 		return
@@ -101,4 +102,18 @@ func shouldCheckForUpdate() bool {
 		}
 	}
 	return true
+}
+
+// namesAProxy reports whether value selects at least one module proxy. The go
+// command separates entries with a comma or a pipe and refuses a list that
+// holds none, saying it "is not the empty string, but contains no entries", so
+// a lone separator or some spaces is a value that names nothing rather than a
+// value to be taken as it is.
+func namesAProxy(value string) bool {
+	for _, entry := range strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == '|' }) {
+		if strings.TrimSpace(entry) != "" {
+			return true
+		}
+	}
+	return false
 }
