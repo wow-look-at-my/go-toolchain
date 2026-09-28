@@ -172,7 +172,8 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        # The pipeline binary is the go command these generators build with, whatever else the runner has on PATH. It picks its own module proxy and checksum database in configureGoEnv, so nothing here names either. A stock go takes the runner's, which arrives empty, and the go command reads an empty proxy list as no entries and refuses.
+        # The pipeline binary is the go command these generators build with, whatever else the runner has on PATH. A runner supplies GOPROXY and GOSUMDB set to nothing, which the go command reads as a list naming no proxy and refuses, so a value is named here for whichever binary runs: an older published one fills nothing in for itself. A value the caller named is kept.
+        export GOPROXY="${GOPROXY:-direct}" GOSUMDB="${GOSUMDB:-off}"
         mkdir -p "$RUNNER_TEMP/gt-go"
         ln -sf "$(command -v go-toolchain)" "$RUNNER_TEMP/gt-go/go"
         go=("$RUNNER_TEMP/gt-go/go")
