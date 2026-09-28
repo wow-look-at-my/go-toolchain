@@ -5,12 +5,8 @@ import (
 	"sync"
 )
 
-// spool receives a single output stream of a child as it is produced and
-// serves it to a reader at the reader's pace. The child writes into an OS
-// pipe whose buffer is a few kilobytes on NT, so a stream nobody is reading
-// blocks the child at its next write; the spool's fill goroutine reads that
-// pipe as soon as the child starts, and a caller that reads stdout to its end
-// before it looks at stderr gets both, in full, from a child that has already exited.
+// spool drains a child's pipe as it fills, so reading a single stream
+// to its end never blocks the child on the other.
 type spool struct {
 	mu   sync.Mutex
 	cond *sync.Cond

@@ -1,12 +1,7 @@
-# The smoke suite. ONE file, run unchanged by every leg of the smoke job
-# (.github/workflows/ci.yml), because one APE is what every host downloads and
-# the question is the same on all of them: does the published artifact boot,
-# report the host it is actually on, and drive a whole pipeline here.
-#
-# A host-specific answer is asserted by PAIRING it with what the shell reports,
-# so the assertion holds everywhere without the file knowing where it runs: the
-# command prints the APE's answer and `uname -s` on one line, and the pattern
-# matches only the combinations that agree.
+# The smoke suite. A single file, run unchanged by every leg of the smoke job
+# (.github/workflows/ci.yml), because a single APE is what every host
+# downloads and the question is the same on all of them: does the published
+# artifact boot, report the host it is actually on, and drive a whole pipeline here.
 #
 # Every leg runs it SANDBOXED, like every other suite. Turning isolation off is
 # not available here and must not be reintroduced: the run-starter owns that
@@ -14,7 +9,7 @@
 # isolation a consumer gets.
 #
 # The APE is copied under an .exe name on every host. NT needs the suffix, a
-# posix host does not care, and one name is what keeps this file host-agnostic.
+# posix host does not care, and a single name is what keeps this file host-agnostic.
 
 shared:
 	copy:
@@ -31,8 +26,8 @@ tests:
 		stdout:
 			- "MZqFpD"
 
-	# An APE is a valid PE, a valid ELF and a valid Mach-O at once, so the
-	# payload each host selects has to start here rather than in theory.
+	# An APE is a valid PE, a valid ELF and a valid Mach-O at the same
+	# time, so the payload each host selects has to start here rather than in theory.
 	- desc: the APE's payload runs on this host
 	  cmd: '{shared.gt-ape.exe} version'
 	  timeout: 60s
@@ -132,7 +127,7 @@ tests:
 
 	# A directory that is neither a module nor a suite tree is the shipped
 	# artifact's own refusal, and it has to arrive before any toolchain is
-	# fetched for it. Pairing with uname keeps this one test on every host.
+	# fetched for it. Pairing with uname keeps this test on every host.
 	- desc: the APE names both halves where there is nothing to build
 	  cmd: 'mkdir -p {outputs.rundir}; cd {outputs.rundir}; out=$({shared.gt-ape.exe} 2>&1); printf "%s|%s\n" "$(uname -s)" "$(printf "%s" "$out" | tr "\n" " ")"'
 	  timeout: 5m

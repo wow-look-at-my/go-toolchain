@@ -245,8 +245,9 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 }
 
 // perRunEnv names the GitHub Actions variables that differ between runs of the same commit's tests.
+// GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT stay: a CI go command refuses to build without them.
 var perRunEnv = []string{
-	"GITHUB_SHA", "GITHUB_REF", "GITHUB_REF_NAME", "GITHUB_RUN_ID", "GITHUB_RUN_NUMBER", "GITHUB_RUN_ATTEMPT",
+	"GITHUB_SHA", "GITHUB_REF", "GITHUB_REF_NAME", "GITHUB_RUN_NUMBER",
 	"GITHUB_STEP_SUMMARY", "GITHUB_OUTPUT", "GITHUB_ENV", "GITHUB_PATH", "GITHUB_STATE",
 }
 
@@ -269,7 +270,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 		}
 	}
 	if coverFile != "" {
-		// A cached result replays its cover profile fragment, keyed by the covered packages' build IDs.
+		// No -count: the fork keys the coverprofile on the coverage metadata, so a cached run cannot replay a stale profile.
 		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...")
 	}
 	switch {

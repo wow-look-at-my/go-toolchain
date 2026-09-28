@@ -50,7 +50,6 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 		// Collect all diagnostics for this file
 		var diagnostics []fileDiagnostic
 
-		// Build set of "else if" statements (if statements that are the Else of another if)
 		elseIfStmts := set.New[*ast.IfStmt]()
 		ast.Inspect(file, func(n ast.Node) bool {
 			ifStmt, ok := n.(*ast.IfStmt)
@@ -105,7 +104,6 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 			if fix != nil {
 				fileToFixes[file] = append(fileToFixes[file], *fix)
 			}
-			// Always report diagnostic (without SuggestedFixes - AST fixes handle that)
 			pass.Reportf(d.ifStmt.Pos(), "%s", message)
 		}
 

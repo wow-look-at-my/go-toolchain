@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -145,7 +146,24 @@ func forkHead(r runner.CommandRunner) (string, error) {
 
 // resolveForkCommit asks the fork's remote for the head of this checkout's
 // branch, or of the default branch, in a single ls-remote.
+// In CI the answer is the head this run attempt locked in buildhost, which
+// checkout-fork-branch.sh locks under the same name.
 func resolveForkCommit(r runner.CommandRunner) (string, error) {
+	name, head, err := forkBranchHead(r)
+	if err != nil || !isGHA() {
+		return head, err
+	}
+	commit, err := lockedRunValue(forkModulePath+"@"+name, head)
+	if err != nil {
+		return "", err
+	}
+	logger.Info("gosmopolitan: building %s on %s, locked for this run", commit, name)
+	return commit, nil
+}
+
+// forkBranchHead answers the branch the fork follows and its head: the branch
+// named like this checkout, else master.
+func forkBranchHead(r runner.CommandRunner) (string, string, error) {
 	branch := currentBranch(r)
 	refs := []string{"HEAD"}
 	if branch != "" {
@@ -153,19 +171,19 @@ func resolveForkCommit(r runner.CommandRunner) (string, error) {
 	}
 	_, out, err := resolveGitURLAndRef(r, forkModulePath, refs...)
 	if err != nil {
-		return "", fmt.Errorf("asking %s for its branches: %w", forkModulePath, err)
+		return "", "", fmt.Errorf("asking %s for its branches: %w", forkModulePath, err)
 	}
 	found, _ := parseLsRemoteRefs(out)
 	if branch != "" {
 		if commit := found["refs/heads/"+branch]; commit != "" {
 			logger.Info("gosmopolitan: following the branch named like this checkout, %s, at %s", branch, commit)
-			return commit, nil
+			return branch, commit, nil
 		}
 	}
 	if commit := found["HEAD"]; commit != "" {
-		return commit, nil
+		return "master", commit, nil
 	}
-	return "", fmt.Errorf("%s named no HEAD", forkModulePath)
+	return "", "", fmt.Errorf("%s named no HEAD", forkModulePath)
 }
 
 // checkoutFork detaches the submodule at commit, fetching it earliest.
@@ -179,11 +197,37 @@ func checkoutFork(r runner.CommandRunner, commit string) error {
 	return nil
 }
 
-// updateForkSubmodules checks out the fork's own submodules, which cmd/go
-// builds in vendor mode from.
 func updateForkSubmodules(r runner.CommandRunner) error {
 	if _, err := gitOutput(r, "git", "-C", forkSubmoduleDir, "submodule", "update", "--init", "--recursive"); err != nil {
 		return fmt.Errorf("checking out gosmopolitan's submodules: %w", err)
+	}
+	return branchForkSubmodules(r)
+}
+
+// forkBranchScript is the fork's own answer to which commit an org submodule stands at.
+const forkBranchScript = "src/submodulebranch.bash"
+
+// branchForkSubmodules runs that script, naming this checkout's branch for it.
+// A pair of repositories developed in tandem carry the same branch name, and
+// the script falls back to the branch .gitmodules gives each submodule.
+//
+// A build that skips this step compiles the commit each gitlink names.
+func branchForkSubmodules(r runner.CommandRunner) error {
+	script := filepath.Join(forkSubmoduleDir, filepath.FromSlash(forkBranchScript))
+	if _, err := os.Stat(script); err != nil {
+		return fmt.Errorf("the fork checkout carries no %s: %w", forkBranchScript, err)
+	}
+	args := []string{script}
+	if branch := currentBranch(r); branch != "" {
+		args = append(args, branch)
+	}
+	proc, err := runner.Cmd("bash", args...).Run(r)
+	if err != nil {
+		return fmt.Errorf("running the fork's %s: %w", forkBranchScript, err)
+	}
+	io.Copy(io.Discard, proc.Stdout())
+	if err := proc.Wait(); err != nil {
+		return fmt.Errorf("running the fork's %s: %w", forkBranchScript, err)
 	}
 	return nil
 }

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // An org dependency has no version of its own.
@@ -42,9 +44,19 @@ func moduleRoot() string {
 	return filepath.Dir(findGoMod())
 }
 
-// checkOrgPins fails the run when a file in this repository freezes an org
-// dependency at a version, a tag or a commit.
+// checkOrgPins rewrites every org pin under root so that it follows a branch.
+// It fails the run only on a pin it cannot rewrite.
 func checkOrgPins(root string) error {
+	fixed, err := unpinOrgDeps(root)
+	if err != nil {
+		return err
+	}
+	if len(fixed) > 0 {
+		logger.Output("⇒ org pins: unpinned %d", len(fixed))
+		for _, p := range fixed {
+			logger.Output("   %s", p)
+		}
+	}
 	pins, err := findOrgPins(root)
 	if err != nil || len(pins) == 0 {
 		return err
@@ -55,9 +67,135 @@ func checkOrgPins(root string) error {
 	}
 	return fmt.Errorf("org dependencies are pinned:%s\n\n"+
 		"An org dependency follows a branch: this repository's own branch where the\n"+
-		"dependency has one of that name, and its default branch otherwise. Record the\n"+
-		"placeholder (v0.0.0, or vN.0.0 for a /vN path) in the version files, give the\n"+
-		"submodule a branch, and name a branch on the action step", b.String())
+		"dependency has one of that name, and its default branch otherwise. Give the\n"+
+		"submodule a branch; go-toolchain cannot choose one for it", b.String())
+}
+
+// unpinOrgDeps rewrites each pin it can in the files under root, and reports
+// what it rewrote. A go.mod or vendor version becomes the placeholder. An
+// action step moves to @master. A submodule is left alone.
+func unpinOrgDeps(root string) ([]orgPin, error) {
+	var fixed []orgPin
+	for _, pattern := range orgPinFiles {
+		matches, err := filepath.Glob(filepath.Join(root, filepath.FromSlash(pattern)))
+		if err != nil {
+			return nil, err
+		}
+		for _, path := range matches {
+			info, err := os.Stat(path)
+			if err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				return nil, err
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil, err
+			}
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				rel = path
+			}
+			text, pins := unpinFile(filepath.ToSlash(rel), string(data))
+			if len(pins) == 0 {
+				continue
+			}
+			if err := os.WriteFile(path, []byte(text), info.Mode().Perm()); err != nil {
+				return nil, fmt.Errorf("unpin %s: %w", rel, err)
+			}
+			fixed = append(fixed, pins...)
+		}
+	}
+	return fixed, nil
+}
+
+// unpinFile answers the text of a single file with its pins rewritten, and the
+// pins it rewrote.
+func unpinFile(name, text string) (string, []orgPin) {
+	if strings.HasSuffix(name, ".gitmodules") {
+		return text, nil
+	}
+	var pins []orgPin
+	var out []string
+	isSum := strings.HasSuffix(name, "go.sum")
+	for i, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || orgPrefixIn(trimmed) == "" {
+			out = append(out, line)
+			continue
+		}
+		if ref, ok := pinnedActionRef(trimmed); ok {
+			out = append(out, strings.Replace(line, "@"+ref, "@master", 1))
+			pins = append(pins, orgPin{name, i + 1, "org action " + ref + " -> master"})
+			continue
+		}
+		if isSum {
+			if version, ok := pinnedVersion(trimmed); ok {
+				pins = append(pins, orgPin{name, i + 1, "dropped the sum for " + version})
+				continue
+			}
+			out = append(out, line)
+			continue
+		}
+		rewritten, versions := unpinVersions(line)
+		for _, v := range versions {
+			pins = append(pins, orgPin{name, i + 1, "org module " + v})
+		}
+		out = append(out, rewritten)
+	}
+	return strings.Join(out, "\n"), pins
+}
+
+// unpinVersions replaces each version token that follows an org module path
+// with the placeholder for that path. It keeps the line's own spacing.
+func unpinVersions(line string) (string, []string) {
+	var b strings.Builder
+	var changes []string
+	prev := ""
+	rest := line
+	for rest != "" {
+		start := strings.IndexFunc(rest, func(r rune) bool { return r != ' ' && r != '\t' })
+		if start < 0 {
+			b.WriteString(rest)
+			break
+		}
+		b.WriteString(rest[:start])
+		rest = rest[start:]
+		end := strings.IndexAny(rest, " \t")
+		if end < 0 {
+			end = len(rest)
+		}
+		word := rest[:end]
+		rest = rest[end:]
+		if looksLikeVersionToken(word) && !isOrgPlaceholder(word) && isOrgModulePath(prev) {
+			placeholder := orgPlaceholderFor(prev)
+			changes = append(changes, word+" -> "+placeholder)
+			word = placeholder
+		}
+		b.WriteString(word)
+		prev = word
+	}
+	return b.String(), changes
+}
+
+func isOrgModulePath(word string) bool {
+	for _, prefix := range OrgModulePrefixes {
+		if strings.HasPrefix(word, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func orgPlaceholderFor(path string) string {
+	last := path[strings.LastIndex(path, "/")+1:]
+	if len(last) > 1 && last[0] == 'v' {
+		if n, err := strconv.Atoi(last[1:]); err == nil && n >= 2 {
+			return fmt.Sprintf("v%d.0.0", n)
+		}
+	}
+	return "v0.0.0"
 }
 
 // findOrgPins reports every pin under root, in file order.

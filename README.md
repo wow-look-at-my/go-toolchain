@@ -6,19 +6,19 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 
 - **Coverage enforcement** — the build fails below 80% coverage. And the failure is annotated in the GitHub Actions run UI.
 - **Coverage watermarking** — optionally locks in a coverage floor (with a 2.5% grace period) so it can only go up.
-- **Warnings budget** — more than 15 distinct warnings in a run fails the build, with a numbered recap. A repeated warning counts once. See [docs/WARNINGS-GATE.md](docs/WARNINGS-GATE.md).
+- **Warnings budget** — more than distinct warnings in a run fails the build, with a numbered recap. A repeated warning counts once. See [docs/WARNINGS-GATE.md](docs/WARNINGS-GATE.md).
 - **One binary, every platform** — `matrix` builds a single fat APE that runs natively on Linux x64, macOS ARM64 and Windows x64. It is the org's only native output. See [docs/MATRIX.md](docs/MATRIX.md).
 - **WebAssembly targets** — `wasm/js` and `wasm/wasip1`, opted into alongside (or instead of) the APE. See [docs/WASM.md](docs/WASM.md).
 - **Benchmarks** — run automatically after builds, compared against previous results stored in git notes.
 - **CLI test suites** — `*.dats` suites under `dats/` run against the freshly built binaries. A failure fails the build. See [docs/DATS-PHASE.md](docs/DATS-PHASE.md).
 - **Near-duplicate detection** — finds structurally similar functions by comparing ASTs.
-- **File length checks** — warns at 500 lines, fails at 750. Generated files are exempt unless `--count-generated` is passed.
+- **File length checks** — warns at lines, fails at 750. Generated files are exempt unless `--count-generated` is passed.
 - **Auto-fix, or CI check** — locally the linter fixes violations in place. On CI the same checks run read-only, and a non-canonical tree fails the build with a diff of the fix.
 - **testify migration** — rewrites fork and `gotest.tools` imports to upstream `stretchr/testify`, adding the type conversions upstream's strict comparisons need. See [docs/VET.md](docs/VET.md).
 - **Custom vet analyzers** — `mapset` and `sliceset` (a `map[K]bool` or a slice used as a set, rewritten in place to `go-containers/set`), `writeruns` (a document written one string at a time), `jsoninterp` (JSON built by formatting, concatenation or a template). See [docs/VET.md](docs/VET.md).
 - **Comment scan** — repairs a number written in any comment, in any language. It runs beside the dependency work and lands ahead of vet. slopfix owns the rule and the walk, and repairs every finding it reports. See [docs/COMMENT-SCAN.md](docs/COMMENT-SCAN.md).
 - **Go generate** — detects and runs `//go:generate` directives with hash-based approval.
-- **Dependency handling** — reports outdated dependencies, and submits a dependency snapshot. A `github.com/wow-look-at-my/` dependency carries no version this repo records: gosmopolitan's `cmd/go` resolves it to the head of a branch, so the token on its go.mod line is a placeholder. A frozen one fails the run ([docs/ORG-PINS.md](docs/ORG-PINS.md)).
+- **Dependency handling** — reports outdated dependencies, and submits a dependency snapshot. A `github.com/wow-look-at-my/` dependency carries no version this repo records. The `cmd/go` in gosmopolitan resolves it to the head of a branch, so the token on its go.mod line is a placeholder. A frozen one is rewritten to the placeholder ([docs/ORG-PINS.md](docs/ORG-PINS.md)).
 - **Dependency graph submission** — submits a dependency snapshot to GitHub in CI, feeding the repo's dependency graph. No opt-out. A failed submission fails the build.
 - **Automatic GOMEMLIMIT** — the compiler's runtime caps every binary's Go heap at the container's cgroup limit instead of being OOM-killed. `GOMEMLIMIT=off` opts out at run time.
 - **Revision stamping** — declare `var gitHash string` in a main package and the build fills it, covering the container builds where Go's own `vcs.revision` finds no `.git`. A `-ldflags` set in `GOFLAGS` is honored rather than replaced. See [docs/VCS-STAMP.md](docs/VCS-STAMP.md).
@@ -33,7 +33,7 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 - **Web-backed build cache** — the gosmopolitan fork's `cmd/go` shares a build cache across CI runs on its own. See [docs/CACHE.md](docs/CACHE.md).
 - **Build profile** — per-action timings: what the build spent its time on. See [docs/PROFILE.md](docs/PROFILE.md).
 - **Vanity URL resolution** — resolves vanity-URL module dependencies via the Go proxy or go-import meta tags.
-- **Go proxy/sumdb support** — reads `GO_PROXY_CONFIG` (base64 JSON) for the proxy URL, credentials and sumdb key.
+- **Go proxy/sumdb support** — honors `GOPROXY` and `GOSUMDB`, and fetches direct with sumdb off when neither is set. `GO_PROXY_CONFIG` is ignored.
 - **Generated code exclusion** — files carrying the standard `DO NOT EDIT.` marker are excluded from tests and coverage.
 - **Release management** — `release` creates a GitHub release with checksums, structured notes and rolling tags.
 - **Buildhost publishing** — CI publishes binaries to [buildhost](https://pazer.build) over OIDC, downloadable as raw binary, tar.gz, deb, Homebrew, npm or OCI.
@@ -66,6 +66,8 @@ The action fetches secrets, configures the Go proxy and private repo access, and
 
 **CodeQL** needs `security-events: write`. And the repo must have GitHub's *default* CodeQL setup disabled (*Settings → Code security → Code scanning → CodeQL → Default setup*). Opt out with `codeql: 'false'`.
 
+**Autorelease.** Every executable binary the build produces publishes to buildhost on that branch. There is no switch. A build with no executable binary, such as a library module, publishes nothing and needs no publish grants.
+
 **APE binfmt.** On a Linux runner the action registers a `binfmt_misc` entry. So the kernel starts a fat APE through `/bin/sh`. That is what makes a bare exec of one work. A runner that will not allow it gets a warning and builds as before — see [docs/ACTION.md](docs/ACTION.md).
 
 ### Inputs
@@ -79,7 +81,6 @@ The action fetches secrets, configures the Go proxy and private repo access, and
 | `targets`           | string   | `''`       | Comma-separated wasm targets to add (`wasm/js`, `wasm/wasip1`), plus the special value `cosmo`. Empty (the default) builds the APE alone |
 | `cosmo-platforms`   | string   | `linux/amd64,darwin/arm64,windows/amd64` | Platforms the one fat APE covers. `all` covers everything the fork can emit |
 | `cgo`               | string   | `false`    | Enable CGO (off by default, for static binaries) |
-| `autorelease`       | string   | `true`     | Publish `build/` to buildhost on every branch push (see [docs/ACTION.md](docs/ACTION.md)) |
 | `autorelease_args`  | string   | `''`       | Extra publish options as `key=value` pairs. Unknown keys fail the build |
 | `allow-source-build` | string  | `false`    | Build go-toolchain from source when the buildhost binary is unavailable, instead of failing fast |
 | `timeout`           | string   | `10`       | Timeout in minutes for the go-toolchain build step       |
@@ -183,7 +184,7 @@ Debug output goes to stderr and info to stdout. Warnings and errors become `::wa
   - `run` — run benchmarks and show deltas vs stored results
   - `save` — run benchmarks and store results in git notes
   - `show [commit]` — show stored benchmark results (default: HEAD)
-  - `compare <commit1> <commit2>` — compare benchmark results between two commits
+  - `compare <commit1> <commit2>` — compare benchmark results between commits
 - **`lint`** — detect near-duplicate code blocks using AST comparison
 - **`install`** — install the binary to `~/.local/bin`
 - **`release`** — create a GitHub release with checksums and structured release notes (`--tag`, `--from`, `--build`)
@@ -204,6 +205,7 @@ Debug output goes to stderr and info to stdout. Warnings and errors become `::wa
 - [docs/VCS-STAMP.md](docs/VCS-STAMP.md) — the revision stamp, and the `GOFLAGS` `-ldflags` a build used to discard
 - [docs/BUILD-OUTPUTS.md](docs/BUILD-OUTPUTS.md) — when `build/` artifacts are deleted
 - [docs/ACTION.md](docs/ACTION.md) — the composite GitHub Action
+- [docs/ORG-PINS.md](docs/ORG-PINS.md) — org dependencies: the pin check, and the buildhost run lock
 - [docs/CI.md](docs/CI.md) — this repo's own CI workflow
 - [docs/WARNINGS-GATE.md](docs/WARNINGS-GATE.md), [docs/BUILDHOST-MANIFEST.md](docs/BUILDHOST-MANIFEST.md)
 

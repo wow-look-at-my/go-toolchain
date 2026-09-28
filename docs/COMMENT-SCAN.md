@@ -8,7 +8,6 @@ A number in a comment is a count of what exists on the day it was written. The e
 // BAD                                 // GOOD
 // The four descriptor probes ...      // The descriptor probes ...
 // splits three ways:                  // splits several ways:
-// asked once per repository           // asked a single time per repository
 // warns at 500 lines, errors at 750   // warns past the warn threshold
 // grace = 57.5, effective = 57.5      // the grace floor is what applies
 ```
@@ -17,7 +16,7 @@ A number in a comment is a count of what exists on the day it was written. The e
 
 The rule was a vet analyzer, `src/vet/commentnumbers.go`. An analyzer runs on `*ast.File` values. `go/packages` produces those only after it resolves every import, reads every dependency's export data and type-checks the module. That is minutes of work before the first comment is read. None of it answers the question. A comment is bytes.
 
-The rule now lives in [`slopfix/commentfix`](https://github.com/wow-look-at-my/slopfix/tree/master/commentfix) and runs beside the dependency check, `go mod tidy` and `go generate`, ahead of vet. Two things follow.
+The rule now lives in [`slopfix/commentfix`](https://github.com/wow-look-at-my/slopfix/tree/master/commentfix) and runs beside the dependency check, `go mod tidy` and `go generate`, ahead of vet. Things follow.
 
 It answers on a tree that does not build. A missing import, an unresolvable module, a syntax error in another package: none of them stop the report, because nothing here parses the language.
 
@@ -30,6 +29,8 @@ The phase is `src/cmd/commentscanphase.go`. It is a start and a join around `com
 It starts only once `findGoModules` has answered. A repair is a write. A run begun in a directory that is not a module has no business rewriting whatever prose it finds there. A tree carrying `dats/` suites and no `go.mod` therefore gets no sweep at all.
 
 It runs on its own goroutine, beside the dependency resolution, `go mod tidy` and `go generate`. Each repaired file is renamed into place, so a reader beside the sweep sees a whole file either way. The test phase joins the sweep before vet, which rewrites the same files. The up-to-date path joins it before the build.
+
+Inside git it writes only the files the branch changed since its merge base with the default branch, including uncommitted and untracked ones. It writes nothing while a merge, rebase, cherry-pick or revert waits for the user, or when no merge base resolves, and prints why. Each file it writes prints as a diff under its rule, and a rewrite slopfix's guard threw away prints as a warning with its line.
 
 A finding it cannot repair is a defect in slopfix rather than a message for the author. The repair covers every number the rule reports. So the phase warns only when the rule and its repair have come apart.
 
@@ -45,12 +46,14 @@ A file whose extension `commentfix` has no comment syntax for is skipped rather 
 
 ## What counts as a number
 
-The check walks each comment's tokens -- runs of letters, digits and the name characters `_`, `.`, `/`, `:` and `-` -- and reports two shapes:
+The check walks each comment's tokens -- runs of letters, digits and the name characters `_`, `.`, `/`, `:` and `-` -- and reports shapes:
 
 - **A digit run**, unless it touches a letter or wears an ordinal suffix. So `sha256`, `amd64`, `p95`, `10ms` and `wasip1` are names and stay. A bare `500`, a `2.5`, and a version literal like `1.24.7` are numbers and go.
-- **A whole alphabetic word** naming a number: the cardinals up to `thousand`, `million` and `dozen`, the ordinals up to `thousandth`, and `once`/`twice`/`thrice`. Case does not matter, so `One` is reported like `one`. A word that merely contains one (`someone`, `oneShot`, `atonement`) is not a match, because the whole run must be the word.
+- **A whole alphabetic word** that can tally a set: the cardinals from `two` up, the scales `hundred` to `trillion`, and `dozen`. Case does not matter. A word that merely contains one (`twoPhase`, `threefold`) is not a match, because the whole run must be the word.
 
-A number behind a section sign is exempt. `§7.3` and `§ 4` cite a section of a document, and the sign is the spelling a reader looks it up by. It is the escape hatch for a document that publishes no slug -- the sign covers only the number it introduces.
+`zero`, `one`, `once`, `twice` and the ordinals are not reported. None of them counts a set that can grow. "exactly one is found" is a condition, "newest first" an order, "a zero deadline" a value.
+
+A number behind a section sign is exempt. `§7.3` and `§ 4` cite a section of a document. The sign is the spelling a reader looks it up by. It is the escape hatch for a document that publishes no slug -- the sign covers only the number it introduces.
 
 An HTTP status code is exempt, but only when the word `HTTP` (in any case) sits immediately before it. `HTTP 403` names a protocol answer that no edit changes, while a bare `403` is the shape of a line number or a row count. The exemption covers a status-code-width run of digits and nothing else, so `HTTP 4 retries` is a count and goes.
 
@@ -60,6 +63,6 @@ A token holding `://` is a URL and is skipped whole. So citing an issue by its f
 
 ## Scope
 
-A finding is a WARNING, in every module -- unlike the set checks in [VET.md](VET.md), org code is not held to a harder severity here. A stale count is prose, not broken code. So it must not fail a build on its own. They arrive by the dozen though. So the warnings budget ([WARNINGS-GATE.md](WARNINGS-GATE.md)) is what turns a repo full of them red.
+A finding is a WARNING, in every module. Unlike the set checks in [VET.md](VET.md), org code is not held to a harder severity here. A stale count is prose, not broken code. So it must not fail a build on its own. They arrive by the dozen though. So the warnings budget ([WARNINGS-GATE.md](WARNINGS-GATE.md)) is what turns a repo full of them red.
 
 There is no opt-out marker and no module exemption. A warning is spent per `file:line`. So a sentence naming several numbers costs a single warning: the repair is a rewrite of the line, whatever it counts.

@@ -56,7 +56,7 @@ RUN GO_TOOLCHAIN_VCS_REVISION="${GIT_HASH}" go-toolchain
 
 A revision holding whitespace or a quote is rejected (`usableRevision`) rather than passed through. The go command re-splits the `-ldflags` value, so such a revision will silently become extra flags.
 
-When a package declares a stamp variable and NO source names a revision, the build warns and leaves the variable alone. The binary then ships its placeholder, which is exactly the state that used to pass unnoticed.
+When a package declares a stamp variable and NO source names a revision, the build warns and leaves the variable alone. The binary then ships its placeholder, which is exactly the state.
 
 ## Why the caller trails the stamp
 

@@ -48,16 +48,26 @@ func waitForCommentScan() {
 // output and cannot narrate itself while it works.
 func (c *commentScan) report() {
 	result := c.result
+	if result.Skipped != "" {
+		logger.Output("⇒ comment scan: %s", result.Skipped)
+	}
 	if len(result.Repaired) > 0 {
 		logger.Output("⇒ comment scan: repaired %d of %d files %s",
 			len(result.Repaired), result.Read, fmtDuration(c.took))
+	}
+	// Each rewrite prints as a diff under its rule, so the author sees every edit.
+	for _, rewrite := range result.Rewrites {
+		logger.Output("   [%s] %s\n%s", rewrite.Rule, rewrite.Path, rewrite.Diff)
+	}
+	for _, rejected := range result.Rejected {
+		logger.WarnFile(rejected.Path, "%s", rejected)
 	}
 	// A cut sentence is gone from the tree, so this is the only record of it.
 	for _, removal := range result.Removed {
 		logger.Output("   %s: the comment repair cut %q", removal.Path, removal.Text)
 	}
-	// slopfix repairs every finding it reports, so this loop is a guard: a
-	// warning here says the rule and its repair have come apart.
+	// An ste finding has no repair by design, so these are what the sweep
+	// leaves for the author rather than a sign the rule and its repair parted.
 	for _, finding := range result.Findings {
 		logger.WarnFile(finding.Path, "%s:%d:%d: %q is a number in a comment: %s",
 			finding.Path, finding.Line, finding.Col, finding.Number, commentfix.Remedy)
