@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	gocmd "cmd/go"
+
+	"github.com/wow-look-at-my/go-containers/set"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // LinkedGoArgs answers the go command line argv asks for, and whether it asks
@@ -19,7 +21,7 @@ func LinkedGoArgs(argv []string) ([]string, bool) {
 	if isGoName(argv[0]) {
 		return argv, true
 	}
-	if len(argv) >= 3 && argv[1] == "tool" && linkedTools[argv[2]] {
+	if len(argv) >= 3 && argv[1] == "tool" && linkedTools.Contains(argv[2]) {
 		return argv, true
 	}
 	return nil, false
@@ -27,10 +29,10 @@ func LinkedGoArgs(argv []string) ([]string, bool) {
 
 // linkedTools are the tools the fork's go command links, from
 // _gosmopolitan/src/cmd/go/internal/selftool/tools.go.
-var linkedTools = map[string]bool{
-	"asm": true, "cgo": true, "compile": true, "covdata": true, "cover": true,
-	"embedstd": true, "fix": true, "link": true, "preprofile": true, "vet": true,
-}
+var linkedTools = set.Of(
+	"asm", "cgo", "compile", "covdata", "cover",
+	"embedstd", "fix", "link", "preprofile", "vet",
+)
 
 // RunLinkedGo runs the go command or tool argv asks for and answers its
 // exit status, or reports that argv asks for the pipeline instead.
@@ -44,7 +46,7 @@ func RunLinkedGo(argv []string) (int, bool) {
 	}
 	self, err := goProgramPath(argv[0])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "go: %v\n", err)
+		logger.Error("go: %v", err)
 		return 2, true
 	}
 	return gocmd.RunAs(goArgs, []string{self}), true
