@@ -19,17 +19,17 @@ import (
 // for stalls. Returns nil if setup fails (non-fatal; build continues without monitoring).
 func startWatchdog(threshold time.Duration) *outputWatchdog {
 	if watchdogDisabled() {
-		return nil
+		return watchdogOff("GO_TOOLCHAIN_NO_WATCHDOG=1")
 	}
 	// Save original file descriptors
 	origStdoutFd, err := syscall.Dup(1)
 	if err != nil {
-		return nil
+		return watchdogOff("setup failed: %v", err)
 	}
 	origStderrFd, err := syscall.Dup(2)
 	if err != nil {
 		syscall.Close(origStdoutFd)
-		return nil
+		return watchdogOff("setup failed: %v", err)
 	}
 
 	// Create pipes for stdout and stderr
@@ -37,7 +37,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 	if err != nil {
 		syscall.Close(origStdoutFd)
 		syscall.Close(origStderrFd)
-		return nil
+		return watchdogOff("pipe for stdout: %v", err)
 	}
 	stderrR, stderrW, err := os.Pipe()
 	if err != nil {
@@ -45,7 +45,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 		stdoutW.Close()
 		syscall.Close(origStdoutFd)
 		syscall.Close(origStderrFd)
-		return nil
+		return watchdogOff("pipe for stderr: %v", err)
 	}
 
 	// Replace the stdout and stderr descriptors with pipe write-ends
@@ -56,7 +56,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 		stderrW.Close()
 		syscall.Close(origStdoutFd)
 		syscall.Close(origStderrFd)
-		return nil
+		return watchdogOff("pipe for stderr: %v", err)
 	}
 	if err := syscall.Dup2(int(stderrW.Fd()), 2); err != nil {
 		// Restore stdout before bailing
@@ -67,7 +67,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 		stderrW.Close()
 		syscall.Close(origStdoutFd)
 		syscall.Close(origStderrFd)
-		return nil
+		return watchdogOff("pipe for stderr: %v", err)
 	}
 
 	// Never reassign os.Stdout/Stderr via os.NewFile: piled-up finalizers eventually close real stdio out from under later code.
