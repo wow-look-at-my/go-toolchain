@@ -14,18 +14,15 @@ import (
 // forwarding all output to the original file descriptors while monitoring
 // for stalls. Returns nil if setup fails (non-fatal; build continues without monitoring).
 func startWatchdog(threshold time.Duration) *outputWatchdog {
-	if watchdogDisabled() {
-		return nil
-	}
 	// Save original file descriptors
 	origStdoutFd, err := unix.Dup(1)
 	if err != nil {
-		return nil
+		return watchdogOff("dup stdout: %v", err)
 	}
 	origStderrFd, err := unix.Dup(2)
 	if err != nil {
 		unix.Close(origStdoutFd)
-		return nil
+		return watchdogOff("dup stderr: %v", err)
 	}
 
 	// Create pipes for stdout and stderr
@@ -33,7 +30,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 	if err != nil {
 		unix.Close(origStdoutFd)
 		unix.Close(origStderrFd)
-		return nil
+		return watchdogOff("pipe for stdout: %v", err)
 	}
 	stderrR, stderrW, err := os.Pipe()
 	if err != nil {
@@ -41,7 +38,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 		stdoutW.Close()
 		unix.Close(origStdoutFd)
 		unix.Close(origStderrFd)
-		return nil
+		return watchdogOff("pipe for stderr: %v", err)
 	}
 
 	// Replace the stdout and stderr descriptors with pipe write-ends
@@ -52,7 +49,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 		stderrW.Close()
 		unix.Close(origStdoutFd)
 		unix.Close(origStderrFd)
-		return nil
+		return watchdogOff("dup2 onto fd 1: %v", err)
 	}
 	if err := unix.Dup2(int(stderrW.Fd()), 2); err != nil {
 		// Restore stdout before bailing
@@ -63,7 +60,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 		stderrW.Close()
 		unix.Close(origStdoutFd)
 		unix.Close(origStderrFd)
-		return nil
+		return watchdogOff("dup2 onto fd 2: %v", err)
 	}
 
 	// Do NOT reassign via os.NewFile on the stdio descriptors: repeated cycles leak finalizers that later close real stdout/stderr.

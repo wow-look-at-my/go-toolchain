@@ -290,13 +290,19 @@ func submodulePins(name string, lines []string) []orgPin {
 		}
 		switch strings.TrimSpace(key) {
 		case "url":
-			isOrg = orgPrefixIn(value) != ""
+			isOrg = orgPrefixIn(value) != "" && !isSpecRepo(value)
 		case "branch":
 			tracked = strings.TrimSpace(value) != ""
 		}
 	}
 	flush()
 	return pins
+}
+
+// isSpecRepo reports whether a submodule url names a `-spec` repository. A spec
+// stays on its pinned commit: each bump of the pin is a review of the spec.
+func isSpecRepo(url string) bool {
+	return strings.HasSuffix(strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(url), "/"), ".git"), "-spec")
 }
 
 // submoduleName reads the name out of a `[submodule "name"]` header.

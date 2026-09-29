@@ -16,6 +16,13 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 )
 
+// libraryModulesAllowed lets a module with no main package pass through the
+// build phase with an empty job list instead of failing the run.
+var (
+	libraryModulesAllowed bool
+	matrixBuiltBinaries   int
+)
+
 func runReleaseWithRunner(r runner.CommandRunner) error {
 	return runReleaseInto(r, nil)
 }
@@ -83,7 +90,7 @@ func runReleaseInto(r runner.CommandRunner, sd *summary.SummaryData) (err error)
 	if err != nil {
 		return err
 	}
-	if !anyMains {
+	if !anyMains && !libraryModulesAllowed {
 		return fmt.Errorf("no main packages found to build")
 	}
 
@@ -110,11 +117,14 @@ func runReleaseInto(r runner.CommandRunner, sd *summary.SummaryData) (err error)
 		}
 	}
 
-	if len(matrixTargets) == 0 {
+	if len(jobs) == 0 {
+		logger.Info("⇒ No main package here, so there is nothing to cross-compile")
+	} else if len(matrixTargets) == 0 {
 		logger.Info("⇒ Building %d fat APE(s) covering %s", len(jobs), platformList(apeCoverage(apePlatforms)))
 	} else {
 		logger.Info("⇒ Building %d binaries (%d targets)", len(jobs), len(platforms))
 	}
+	matrixBuiltBinaries += len(jobs)
 	buildStart := time.Now()
 
 	// Run builds in parallel
@@ -236,14 +246,16 @@ func runReleaseInto(r runner.CommandRunner, sd *summary.SummaryData) (err error)
 		}
 	}
 
-	// Host/bare symlinks; skipped in CI, since upload-artifact dereferences symlinks into full duplicate copies.
-	if os.Getenv("CI") == "" {
+	// Create _host and bare symlinks for the current platform.
+	if os.Getenv("CI") == "" && len(jobs) > 0 {
 		if err := createHostSymlinks(hostTargets, outputDir); err != nil {
 			return err
 		}
 	}
 
-	logger.Info("⇒ All %d binaries built successfully in %s/ %s", len(jobs), outputDir, fmtDuration(time.Since(buildStart)))
+	if len(jobs) > 0 {
+		logger.Info("⇒ All %d binaries built successfully in %s/ %s", len(jobs), outputDir, fmtDuration(time.Since(buildStart)))
+	}
 
 	// Run benchmarks after successful build
 	if !noBenchmark {

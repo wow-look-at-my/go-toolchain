@@ -33,6 +33,7 @@ func TestExecStdoutPipeWedgesOnALingeringGrandchild(t *testing.T) {
 
 // The runner bounds that wedge, so the same shape returns the output it got.
 func TestStdoutReadEndsWhenAGrandchildHoldsThePipe(t *testing.T) {
+	t.Serial()
 	restore := drainGrace
 	drainGrace = 300 * time.Millisecond
 	defer func() { drainGrace = restore }()
@@ -58,6 +59,7 @@ func TestStdoutReadEndsWhenAGrandchildHoldsThePipe(t *testing.T) {
 
 // The ordinary case must still reach a real EOF, not wait out drainGrace.
 func TestStdoutReachesEOFWithoutWaitingOutTheGrace(t *testing.T) {
+	t.Serial()
 	restore := drainGrace
 	drainGrace = 30 * time.Second
 	defer func() { drainGrace = restore }()

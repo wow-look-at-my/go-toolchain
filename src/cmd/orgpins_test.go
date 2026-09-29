@@ -133,6 +133,19 @@ func TestFindOrgPinsRefusesASubmoduleWithNoBranch(t *testing.T) {
 	assert.Equal(t, ".gitmodules:1: submodule dep names no branch to follow", pins[0].String())
 }
 
+func TestFindOrgPinsLeavesASpecSubmoduleOnItsCommit(t *testing.T) {
+	root := writeOrgPinFiles(t, map[string]string{
+		".gitmodules": "[submodule \"docs/spec\"]\n\tpath = docs/spec\n\turl = https://github.com/wow-look-at-my/foo-spec.git\n" +
+			"[submodule \"plain\"]\n\tpath = plain\n\turl = https://github.com/wow-look-at-my/foo-spec\n" +
+			"[submodule \"dep\"]\n\tpath = dep\n\turl = https://github.com/wow-look-at-my/spec-tools.git\n",
+	})
+
+	pins, err := findOrgPins(root)
+	require.NoError(t, err)
+	require.Len(t, pins, 1, "a -spec repository stays pinned; any other org submodule still needs a branch")
+	assert.Equal(t, ".gitmodules:7: submodule dep names no branch to follow", pins[0].String())
+}
+
 func TestFindOrgPinsRefusesAnActionAtATagOrACommit(t *testing.T) {
 	root := writeOrgPinFiles(t, map[string]string{
 		".github/workflows/ci.yml": `jobs:

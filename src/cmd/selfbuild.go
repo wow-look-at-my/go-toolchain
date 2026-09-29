@@ -13,9 +13,11 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// apeAppendEnv names the file the fork's linker appends past an APE's load
-// span, which is how a go binary carries its standard library.
+// apeAppendEnv names the file the fork's linker appends past an APE's load span.
 const apeAppendEnv = "GOCOSMOAPPEND"
+
+// embedstdProgressEnv asks the fork's embedstd for a line per source file it compiles. An older embedstd ignores it.
+const embedstdProgressEnv = "GOEMBEDSTD_PROGRESS"
 
 // selfBuildPasses is the most passes a self-build makes.
 const selfBuildPasses = 3
@@ -107,26 +109,33 @@ func buildSelfPass(r runner.CommandRunner, job buildJob, goCmd []string, work st
 		return "", err
 	}
 	blob := filepath.Join(dir, "std.blob")
+	logger.Info("  pass %d: compiling the standard library for cosmo/amd64 and cosmo/arm64", pass)
+	stdStep := logSubStep(fmt.Sprintf("pass %d: standard library", pass), "main")
 	if err := writeStdBlob(r, blobWriter(goCmd, job.goroot), job.goroot, blob); err != nil {
+		stdStep.failed()
 		return "", err
 	}
+	stdStep.done()
 	passJob := job
 	passJob.goCmd = goCmd
 	passJob.apeAppend = blob
 	passJob.outputPath = filepath.Join(dir, filepath.Base(job.outputPath))
 	passJob.selfHosted = false
 	passJob.ldflags = joinLDFlags(passJob.ldflags, "-X "+forkCommitVar+"="+resolvedForkCommit)
+	logger.Info("  pass %d: building both payloads and merging the APE", pass)
+	buildStep := logSubStep(fmt.Sprintf("pass %d: build and merge", pass), "main")
 	if err := runBuild(r, passJob, onFirstOutput); err != nil {
+		buildStep.failed()
 		return "", err
 	}
+	buildStep.done()
 	logger.Info("  pass %d: %s, standard library %s", pass, fileSizeText(passJob.outputPath), fileSizeText(blob))
 	return passJob.outputPath, nil
 }
 
 // blobWriter answers the go command that writes the blob. A go command
-// carrying its own standard library lists only what it carries. A
-// package it lacks stays lacking in every blob it writes. The checkout
-// reads the whole tree.
+// carrying its own standard library lists only what it carries. A package it
+// lacks stays lacking in every blob it writes.
 func blobWriter(goCmd []string, goroot string) []string {
 	forkGo := filepath.Join(goroot, "bin", "go")
 	if info, err := os.Stat(forkGo); err == nil && !info.IsDir() {
@@ -143,18 +152,21 @@ func writeStdBlob(r runner.CommandRunner, goCmd []string, goroot, blob string) e
 	for _, word := range goCmd {
 		args = append(args, "-go", word)
 	}
+	// embedstd prints a line per source file it compiles, so a cold pass shows its progress.
+	var stderr bytes.Buffer
 	cmd := runner.Cmd(goCmd[0], args...).
 		WithEnv("GOTOOLCHAIN", "local").
 		WithEnv("GOROOT", goroot).
+		WithEnv(embedstdProgressEnv, "1").
+		WithStderrWriter(io.MultiWriter(&stderr, os.Stderr)).
 		WithQuiet()
 	proc, err := cmd.Run(r)
 	if err != nil {
 		return fmt.Errorf("embedding the standard library: %w", err)
 	}
 	stdout, _ := io.ReadAll(proc.Stdout())
-	stderr, _ := io.ReadAll(proc.Stderr())
 	if err := proc.Wait(); err != nil {
-		said := bytes.TrimSpace(bytes.Join([][]byte{stderr, stdout}, []byte("\n")))
+		said := bytes.TrimSpace(bytes.Join([][]byte{stderr.Bytes(), stdout}, []byte("\n")))
 		if len(said) == 0 {
 			said = []byte("it printed nothing on either stream")
 		}
