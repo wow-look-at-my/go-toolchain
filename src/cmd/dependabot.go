@@ -89,7 +89,7 @@ func buildDepSnapshot() (*depSnapshot, error) {
 	}
 
 	sourceLocation := "go.mod"
-	if workspace := os.Getenv("GITHUB_WORKSPACE"); workspace != "" {
+	if workspace := workspaceDir(); workspace != "" {
 		absGoMod, err := filepath.Abs(goModPath)
 		if err == nil {
 			if rel, err := filepath.Rel(workspace, absGoMod); err == nil {
@@ -104,7 +104,7 @@ func buildDepSnapshot() (*depSnapshot, error) {
 	}
 
 	correlator := "go-toolchain"
-	if wd := os.Getenv("GITHUB_WORKSPACE"); wd != "" {
+	if wd := workspaceDir(); wd != "" {
 		if cwd, err := os.Getwd(); err == nil {
 			if rel, err := filepath.Rel(wd, cwd); err == nil && rel != "." {
 				correlator += "-" + filepath.ToSlash(rel)
@@ -198,12 +198,31 @@ func resolveLinks(path string) string {
 	return path
 }
 
+// workspaceDir returns GITHUB_WORKSPACE in the form os.Getwd uses.
+func workspaceDir() string {
+	return unixDrivePath(os.Getenv("GITHUB_WORKSPACE"))
+}
+
+// unixDrivePath spells a Windows drive path as a cosmo binary sees it: D:\a\b
+// is /d/a/b. The runner hands a cosmo binary on Windows the Windows spelling,
+// and Unix path rules read that spelling as a relative name.
+func unixDrivePath(path string) string {
+	if filepath.Separator != '/' || len(path) < 3 || path[1] != ':' || (path[2] != '\\' && path[2] != '/') {
+		return path
+	}
+	drive := path[0] | 0x20
+	if drive < 'a' || drive > 'z' {
+		return path
+	}
+	return "/" + string(drive) + strings.ReplaceAll(path[2:], `\`, "/")
+}
+
 // insideWorkspace reports whether the working directory is inside
 // GITHUB_WORKSPACE, i.e. the module being built is the checked-out repository's
 // own. A snapshot describes GITHUB_REPOSITORY at GITHUB_SHA, so it is only
 // meaningful for that repository's module.
 func insideWorkspace() bool {
-	workspace := os.Getenv("GITHUB_WORKSPACE")
+	workspace := workspaceDir()
 	if workspace == "" {
 		return false
 	}
