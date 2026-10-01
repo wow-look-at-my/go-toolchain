@@ -5,16 +5,18 @@ import (
 	"os"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCompareNilReports(t *testing.T) {
+	t.Serial()
 	comp := Compare(nil, nil)
 	assert.Equal(t, 0, len(comp.Packages))
 }
 
 func TestCompareNoPrevious(t *testing.T) {
+	t.Serial()
 	current := &BenchmarkReport{
 		Packages: map[string][]BenchmarkResult{
 			"pkg": {{Name: "BenchmarkFoo-8", NsPerOp: 1000}},
@@ -32,6 +34,7 @@ func TestCompareNoPrevious(t *testing.T) {
 }
 
 func TestCompareWithPrevious(t *testing.T) {
+	t.Serial()
 	current := &BenchmarkReport{
 		Packages: map[string][]BenchmarkResult{
 			"pkg": {{Name: "BenchmarkFoo-8", NsPerOp: 900, BytesPerOp: 200, AllocsPerOp: 4}},
@@ -50,17 +53,13 @@ func TestCompareWithPrevious(t *testing.T) {
 	d := deltas[0]
 	require.NotNil(t, d.Previous)
 
-	// 900 vs 1000 = -10%
 	assert.False(t, d.NsPerOpDelta < -10.1 || d.NsPerOpDelta > -9.9)
-
-	// 200 vs 250 = -20%
 	assert.False(t, d.BytesDelta < -20.1 || d.BytesDelta > -19.9)
-
-	// 4 vs 5 = -20%
 	assert.False(t, d.AllocsDelta < -20.1 || d.AllocsDelta > -19.9)
 }
 
 func TestCompareRegression(t *testing.T) {
+	t.Serial()
 	current := &BenchmarkReport{
 		Packages: map[string][]BenchmarkResult{
 			"pkg": {{Name: "BenchmarkFoo-8", NsPerOp: 1100}},
@@ -75,11 +74,11 @@ func TestCompareRegression(t *testing.T) {
 	comp := Compare(current, previous)
 	d := comp.Packages["pkg"][0]
 
-	// 1100 vs 1000 = +10%
 	assert.False(t, d.NsPerOpDelta < 9.9 || d.NsPerOpDelta > 10.1)
 }
 
 func TestCompareNewBenchmark(t *testing.T) {
+	t.Serial()
 	current := &BenchmarkReport{
 		Packages: map[string][]BenchmarkResult{
 			"pkg": {
@@ -112,6 +111,7 @@ func TestCompareNewBenchmark(t *testing.T) {
 }
 
 func TestHasDeltas(t *testing.T) {
+	t.Serial()
 	// No previous data
 	comp := &Comparison{
 		Packages: map[string][]Delta{
@@ -127,6 +127,7 @@ func TestHasDeltas(t *testing.T) {
 }
 
 func TestStripCPUSuffix(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		input    string
 		expected string
@@ -144,6 +145,9 @@ func TestStripCPUSuffix(t *testing.T) {
 }
 
 func TestComparisonPrint(t *testing.T) {
+	// os.Stdout is process-wide: a concurrent swapper empties this buffer mid-Print.
+	t.Serial()
+
 	comp := &Comparison{
 		Packages: map[string][]Delta{
 			"example.com/pkg": {
@@ -174,6 +178,8 @@ func TestComparisonPrint(t *testing.T) {
 }
 
 func TestComparisonPrintEmpty(t *testing.T) {
+	t.Serial() // swaps os.Stdout; see TestComparisonPrint
+
 	comp := &Comparison{
 		Packages: map[string][]Delta{},
 	}
@@ -195,6 +201,7 @@ func TestComparisonPrintEmpty(t *testing.T) {
 }
 
 func TestFormatDelta(t *testing.T) {
+	t.Serial()
 	// No previous - should show dash
 	result := formatDelta(0, false)
 	assert.Contains(t, result, "-")

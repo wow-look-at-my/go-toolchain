@@ -2,39 +2,48 @@ package cmd
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
-	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/wow-look-at-my/go-toolchain/src/build"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
+	"github.com/wow-look-at-my/go-toolchain/src/summary"
 )
 
 var (
-	matrixOS      []string
-	matrixArch    []string
+	matrixTargets   []string
+	cosmoPlatforms  []string
 	releaseParallel int
-)
-
-var (
-	DefaultOS   = []string{"linux", "darwin", "windows"}
-	DefaultArch = []string{"amd64", "arm64"}
 )
 
 func init() {
 	matrixCmd := &cobra.Command{
-		Use:          "matrix",
-		Short:        "Cross-compile for multiple platforms",
-		Long:         "Builds binaries for multiple GOOS/GOARCH combinations in parallel.",
+		Use:   "matrix",
+		Short: "Build the release APE (and optional wasm targets)",
+		Long: `Builds ONE fat Actually Portable Executable: the org's only native release
+output (see docs/MATRIX.md).
+
+By default the build produces a single cosmo APE (artifact <name>) covering
+--cosmo-platforms: linux/amd64, darwin/arm64 and windows/amd64. One file runs
+on all three.
+
+The WebAssembly targets wasm/js (browser/Node.js) and wasm/wasip1 (WASI) are
+built with the gosmopolitan fork toolchain (it carries the org's wasm runtime
+fixes) and opted into with --targets, e.g. --targets cosmo,wasm/js to build
+both, or --targets wasm/js,wasm/wasip1 for wasm alone. The GOOS-order
+spellings js/wasm and wasip1/wasm are accepted as compatibility aliases for
+the same targets. Their artifacts use buildhost's publishable wasm naming
+(<name>_wasm_js, <name>_wasm_wasip1 — os=wasm with arch=js/wasip1, no file
+extension); publishing them requires a buildhost with wasm artifact support.
+Set GO_TOOLCHAIN_WASM_PUBLISH=0 to use the excluded <name>_<goos>_wasm.wasm
+naming instead, which never reaches the buildhost publish upload set.`,
 		SilenceUsage: true,
 		RunE:         runRelease,
 	}
-	matrixCmd.Flags().StringSliceVar(&matrixOS, "os", DefaultOS, "Target operating systems")
-	matrixCmd.Flags().StringSliceVar(&matrixArch, "arch", DefaultArch, "Target architectures")
+	addMatrixTargetFlags(matrixCmd)
 	matrixCmd.Flags().IntVarP(&releaseParallel, "parallel", "p", runtime.NumCPU(), "Number of parallel builds")
 	matrixCmd.Flags().BoolVar(&noBenchmark, "no-benchmark", false, "Skip benchmarks after build")
 	matrixCmd.Flags().StringVar(&benchTime, "benchtime", "", "Duration or count for each benchmark (e.g. 5s, 1000x)")
@@ -43,12 +52,30 @@ func init() {
 	rootCmd.AddCommand(matrixCmd)
 }
 
+// addMatrixTargetFlags registers the target-selection flags shared by the
+// matrix command and release --build.
+func addMatrixTargetFlags(cmd *cobra.Command) {
+	cmd.Flags().StringSliceVar(&matrixTargets, "targets", nil, `Wasm targets to add (wasm/js, wasm/wasip1, built with the gosmopolitan toolchain) plus the special value "cosmo" (a gosmopolitan fat APE); default is "cosmo" alone`)
+	cmd.Flags().StringSliceVar(&cosmoPlatforms, "cosmo-platforms", DefaultCosmoPlatforms, `Host platforms the cosmo fat APE must cover, as os/arch pairs ("all" covers every platform the fork can emit)`)
+}
+
 type buildJob struct {
 	goos       string
 	goarch     string
 	srcPath    string
 	outputPath string
-	ldflags    string
+	// ldflags is the revision stamp plus whatever the caller put in GOFLAGS; runBuild appends its own.
+	ldflags string
+	// goCmd starts the go command that compiles the job.
+	goCmd []string
+	// goroot is the GOROOT that go command reads.
+	goroot string
+	// apeAppend is a file the linker appends past the APE's load span, empty for none.
+	apeAppend string
+	// cosmoPlatforms is GOCOSMOPLATFORMS for a fat-APE job; empty leaves it unset (the fork's everything-default).
+	cosmoPlatforms string
+	// selfHosted marks this pipeline's own binary, which is built in passes and carries its standard library.
+	selfHosted bool
 }
 
 type buildResult struct {
@@ -57,202 +84,89 @@ type buildResult struct {
 	duration time.Duration
 }
 
-func runRelease(cmd *cobra.Command, args []string) error {
-	r := runner.New()
-	return runReleaseWithRunner(r)
+// runMatrixModules cross-compiles every module in the tree, the way the
+// default pipeline gates every module.
+func runMatrixModules(r runner.CommandRunner) error {
+	return runMatrixModulesInto(r, nil)
 }
 
-func runReleaseWithRunner(r runner.CommandRunner) error {
-	setupCGOEnvironment()
-	if len(matrixOS) == 0 || len(matrixArch) == 0 {
-		return fmt.Errorf("no platforms specified (need at least one --os and one --arch)")
+// runMatrixModulesInto is runMatrixModules recording each module's test phase into sd when it is not nil.
+func runMatrixModulesInto(r runner.CommandRunner, sd *summary.SummaryData) error {
+	modules := findGoModules()
+	if len(modules) == 0 {
+		// Suites without a module are the whole run, as in the default
+		// pipeline: the CLI a suite drives does not have to be Go.
+		if hasDatsSuites(".") {
+			return runDatsOnly()
+		}
+		return fmt.Errorf("no go.mod and no dats/ suites found — initialize a module with: go mod init <module-path>")
 	}
 
-	// Run tests with coverage first (same as default command)
-	if _, _, err := RunTestsWithCoverage(r, false); err != nil {
-		return err
-	}
-
-	// Resolve what to build
-	targets, err := build.ResolveBuildTargets(r)
+	startDir, err := os.Getwd()
 	if err != nil {
 		return err
 	}
+	defer os.Chdir(startDir)
 
-	if len(targets) == 0 {
-		return fmt.Errorf("no main packages found to build")
-	}
+	libraryModulesAllowed = len(modules) > 1
+	matrixBuiltBinaries = 0
 
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return fmt.Errorf("failed to create output directory: %w", err)
-	}
-	ensureBuildDirInGitignore()
-
-	// Collect git info once for all builds
-	info := collectGitInfo()
-	ldflags := info.ldflags()
-
-	// Build job queue - cartesian product of OS x Arch x Targets
-	var jobs []buildJob
-	for _, goos := range matrixOS {
-		for _, goarch := range matrixArch {
-			for _, target := range targets {
-				outputName := build.BinaryName(target.OutputName, goos, goarch)
-				jobs = append(jobs, buildJob{
-					goos:       goos,
-					goarch:     goarch,
-					srcPath:    target.ImportPath,
-					outputPath: filepath.Join(outputDir, outputName),
-					ldflags:    ldflags,
-				})
+	for i, modDir := range modules {
+		if len(modules) > 1 {
+			if i > 0 {
+				logger.Info("")
+			}
+			logger.Info("⇒ Module: %s", modDir)
+		}
+		if modDir != "." {
+			if err := os.Chdir(filepath.Join(startDir, modDir)); err != nil {
+				return fmt.Errorf("failed to enter %s: %w", modDir, err)
 			}
 		}
-	}
-
-	fmt.Printf("==> Building %d binaries (%d OS x %d arch)\n", len(jobs), len(matrixOS), len(matrixArch))
-	buildStart := time.Now()
-
-	// Run builds in parallel
-	results := make(chan buildResult, len(jobs))
-	jobChan := make(chan buildJob, len(jobs))
-
-	var wg sync.WaitGroup
-	workerCount := releaseParallel
-	if workerCount > len(jobs) {
-		workerCount = len(jobs)
-	}
-
-	for i := 0; i < workerCount; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for job := range jobChan {
-				jobStart := time.Now()
-				err := runBuild(r, job, nil)
-				results <- buildResult{job: job, err: err, duration: time.Since(jobStart)}
-			}
-		}()
-	}
-
-	for _, job := range jobs {
-		jobChan <- job
-	}
-	close(jobChan)
-
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	// Collect results
-	var failed []buildResult
-	var builtFiles []string
-	completed := 0
-	for result := range results {
-		completed++
-		if result.err != nil {
-			fmt.Printf("  FAIL [%d/%d] %s/%s: %v %s\n", completed, len(jobs), result.job.goos, result.job.goarch, result.err, fmtDuration(result.duration))
-			failed = append(failed, result)
-		} else {
-			fmt.Printf("  OK   [%d/%d] %s %s\n", completed, len(jobs), result.job.outputPath, fmtDuration(result.duration))
-			if _, statErr := os.Stat(result.job.outputPath); statErr == nil {
-				builtFiles = append(builtFiles, result.job.outputPath)
-			}
-		}
-	}
-
-	if len(failed) > 0 {
-		return fmt.Errorf("%d/%d builds failed", len(failed), len(jobs))
-	}
-
-	// Generate SHA-256 checksums for release artifacts
-	if len(builtFiles) > 0 {
-		if _, err := generateChecksums(outputDir, builtFiles); err != nil {
-			return fmt.Errorf("checksum generation failed: %w", err)
-		}
-	}
-
-	// Create _host and bare symlinks for the current platform
-	if err := createHostSymlinks(targets, outputDir); err != nil {
-		return err
-	}
-
-	fmt.Printf("==> All %d binaries built successfully in %s/ %s\n", len(jobs), outputDir, fmtDuration(time.Since(buildStart)))
-
-	// Run benchmarks after successful build
-	if !noBenchmark {
-		if _, err := runBenchmarkInBuild(r); err != nil {
+		if err := runReleaseInto(r, sd); err != nil {
 			return err
 		}
 	}
 
-	return nil
-}
-
-func createHostSymlinks(targets []build.Target, outDir string) error {
-	hostOS := runtime.GOOS
-	hostArch := runtime.GOARCH
-
-	for _, target := range targets {
-		hostBinary := build.BinaryName(target.OutputName, hostOS, hostArch)
-		ext := ""
-		if hostOS == "windows" {
-			ext = ".exe"
-		}
-
-		// Verify the host binary exists in the output directory
-		hostPath := filepath.Join(outDir, hostBinary)
-		if _, err := os.Stat(hostPath); err != nil {
-			fmt.Printf("  SKIP symlink for %s (host binary %s not found)\n", target.OutputName, hostBinary)
-			continue
-		}
-
-		// Create <name>_host and <name> symlinks (relative, pointing to the host binary)
-		for _, suffix := range []string{"_host", ""} {
-			linkName := target.OutputName + suffix + ext
-			linkPath := filepath.Join(outDir, linkName)
-			os.Remove(linkPath) // remove any stale symlink
-			if err := os.Symlink(hostBinary, linkPath); err != nil {
-				return fmt.Errorf("failed to create symlink %s: %w", linkName, err)
-			}
-			fmt.Printf("  LINK %s -> %s\n", linkPath, hostBinary)
-		}
+	// Every module was a library. The command exists to produce binaries, so
+	// a run that produced none is a failure, not a quiet success.
+	if matrixBuiltBinaries == 0 {
+		return fmt.Errorf("no main packages found to build in any of the %d modules", len(modules))
 	}
 	return nil
 }
 
-// runBuild compiles a single binary. If onFirstOutput is non-nil, it is
-// called when the compiler produces its first output (used for progress
-// indicators on the default build path).
-func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error {
-	cmd := runner.Cmd("go", "build", "-ldflags", job.ldflags, "-o", job.outputPath, job.srcPath)
-	if job.goos != "" {
-		cmd = cmd.WithEnv("GOOS", job.goos)
-	}
-	if job.goarch != "" {
-		cmd = cmd.WithEnv("GOARCH", job.goarch)
-	}
-	if onFirstOutput != nil {
-		cmd = cmd.WithOnFirstOutput(onFirstOutput)
-	} else {
-		cmd = cmd.WithQuiet()
-	}
-	if !cgoEnabled {
-		cmd = cmd.WithEnv("CGO_ENABLED", "0")
-	}
-	proc, err := cmd.Run(r)
-	if err != nil {
+func runRelease(cmd *cobra.Command, args []string) error {
+	InitTimeline()
+	// A dependency's generated output enters through the compiler, so it lands
+	// before the toolchain is built, as on the root path.
+	if err := generateForDeps(approvedGenerateHash()); err != nil {
 		return err
 	}
-	// Drain pipes before Wait to capture compiler errors and prevent deadlocks
-	io.Copy(io.Discard, proc.Stdout())
-	stderr, _ := io.ReadAll(proc.Stderr())
-	if err := proc.Wait(); err != nil {
-		if len(stderr) > 0 {
-			return fmt.Errorf("%w\n%s", err, stderr)
-		}
+	if err := reexecUnderOwnBuild(); err != nil {
 		return err
 	}
-	return nil
-}
+	// Collects per-action build profiles; no Chrome trace here, but the deferred capture still parses graphs for emitBuildProfile.
+	initBuildProfile()
+	defer captureProfileTrace()
+	r := runner.New()
+	var sd summary.SummaryData
+	if err := runMatrixModulesInto(r, &sd); err != nil {
+		return err
+	}
 
+	if err := maybeSubmitDeps(); err != nil {
+		return err
+	}
+
+	// Write GitHub Step Summary with timeline
+	if tl := GetTimeline(); tl != nil {
+		sd.Timeline = tl.Entries()
+		if writeErr := summary.Write(&sd); writeErr != nil {
+			logger.Warn("⇒ Warning: failed to write step summary: %v", writeErr)
+		}
+	}
+
+	// Fails the run after every phase has printed if warnings exceed maxWarnings (same gate as the default pipeline).
+	return checkWarningsGate()
+}

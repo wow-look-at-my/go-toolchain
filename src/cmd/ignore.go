@@ -1,11 +1,11 @@
 package cmd
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 )
 
@@ -22,72 +22,25 @@ var ignoreCoverageCmd = &cobra.Command{
 	RunE:         runIgnoreCoverage,
 }
 
-var ignoreLinesCmd = &cobra.Command{
-	Use:          "lines <file> [file...]",
-	Short:        "Exempt files from file-length checks",
-	Args:         cobra.MinimumNArgs(1),
-	SilenceUsage: true,
-	RunE:         runIgnoreLines,
-}
-
 func init() {
-	ignoreCmd.AddCommand(ignoreCoverageCmd, ignoreLinesCmd)
+	ignoreCmd.AddCommand(ignoreCoverageCmd)
 	rootCmd.AddCommand(ignoreCmd)
 }
 
 func runIgnoreCoverage(cmd *cobra.Command, args []string) error {
+	if os.Getenv("CI") != "" || os.Getenv("CLAUDE_CODE_REMOTE") != "" {
+		return fmt.Errorf("can't use ignore coverage on CI! Stop being lazy and write those tests!")
+	}
+
 	existing, exists, err := gotest.GetWatermark(".")
 	if err == nil && exists {
-		fmt.Printf("Watermark already set (%.1f%%).\n", existing)
+		logger.Output("Watermark already set (%.1f%%).", existing)
 		return nil
 	}
 
 	if err := gotest.SetWatermark(".", 0); err != nil {
 		return fmt.Errorf("failed to set watermark: %w", err)
 	}
-	fmt.Println("Coverage watermark enabled. Next build will set it to actual coverage.")
+	logger.Output("Coverage watermark enabled. Next build will set it to actual coverage.")
 	return nil
 }
-
-func runIgnoreLines(cmd *cobra.Command, args []string) error {
-	for _, path := range args {
-		lines, err := countLines(path)
-		if err != nil {
-			return fmt.Errorf("%s: %w", path, err)
-		}
-		if lines <= fileLengthError {
-			return fmt.Errorf("%s: %d lines — only files exceeding %d lines can be exempted", path, lines, fileLengthError)
-		}
-		if err := gotest.ExemptFileLength(path); err != nil {
-			return err
-		}
-		fmt.Printf("File-length exemption set for %s\n", path)
-	}
-	return nil
-}
-
-func countLines(path string) (int, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
-
-	n := 0
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		n++
-	}
-	if err := scanner.Err(); err != nil {
-		return 0, err
-	}
-	if n == 0 {
-		// Check if the file had content but no trailing newline
-		info, err := os.Stat(path)
-		if err == nil && info.Size() > 0 {
-			n = 1
-		}
-	}
-	return n, nil
-}
-

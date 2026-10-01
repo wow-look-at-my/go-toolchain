@@ -1,23 +1,25 @@
 package vet
 
 import (
+	"bytes"
 	"go/ast"
 	"go/parser"
 	"go/printer"
 	"go/token"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	ansi "github.com/wow-look-at-my/ansi-writer"
+	"github.com/wow-look-at-my/go-containers/set"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 )
 
 const (
 	gotestAssert    = "gotest.tools/v3/assert"
 	gotestAssertCmp = "gotest.tools/v3/assert/cmp"
-	testifyRequire  = "github.com/wow-look-at-my/testify/require"
-	testifyAssert   = "github.com/wow-look-at-my/testify/assert"
+	testifyRequire  = "github.com/stretchr/testify/require"
+	testifyAssert   = "github.com/stretchr/testify/assert"
 )
 
 // gotestFuncRenames maps gotest.tools function names to their testify/require equivalents.
@@ -67,11 +69,16 @@ func extractCmpCall(expr ast.Expr) (*ast.CallExpr, *ast.SelectorExpr, bool) {
 	return call, sel, true
 }
 
-// MigrateGotestTools scans all Go files and migrates gotest.tools/v3/assert
-// imports to github.com/wow-look-at-my/testify/require. Returns true if any
-// files were modified.
-func MigrateGotestTools() (bool, error) {
-	var anyFixed bool
+// MigrateGotestTools scans all Go files for gotest.tools/v3/assert imports and
+// routes each offending file through ed: a fix-mode editor migrates it to
+// github.com/stretchr/testify and resyncs the module graph (go mod tidy, plus
+// go mod vendor when vendored); a check-mode (CI) editor records a violation
+// instead, so a tree still on gotest.tools fails CI rather than passing green —
+// the same enforcement FixTestifyImports gives the removed testify fork.
+//
+// Returns whether any file was written (only possible with a fix-mode editor).
+func MigrateGotestTools(ed Editor) (bool, error) {
+	var anyWrote bool
 
 	err := filepath.WalkDir(".", func(p string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -80,14 +87,19 @@ func MigrateGotestTools() (bool, error) {
 		if d.IsDir() && (d.Name() == "vendor" || d.Name() == ".git" || d.Name() == "testdata") {
 			return filepath.SkipDir
 		}
-		if !d.IsDir() && strings.HasSuffix(p, ".go") {
-			fixed, err := migrateFileGotestTools(p)
-			if err != nil {
-				return err
-			}
-			if fixed {
-				anyFixed = true
-			}
+		// Never rewrite a nested module's files.
+		if d.IsDir() && gomod.IsNestedModule(p) {
+			return filepath.SkipDir
+		}
+		if d.IsDir() || !strings.HasSuffix(p, ".go") {
+			return nil
+		}
+		wrote, err := migrateFileGotestTools(ed, p)
+		if err != nil {
+			return err
+		}
+		if wrote {
+			anyWrote = true
 		}
 		return nil
 	})
@@ -96,25 +108,24 @@ func MigrateGotestTools() (bool, error) {
 		return false, err
 	}
 
-	if anyFixed {
-		cmd := exec.Command("go", "mod", "tidy")
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return anyFixed, err
+	if anyWrote {
+		if err := syncModuleGraph(); err != nil {
+			return anyWrote, err
 		}
 	}
 
-	return anyFixed, nil
+	return anyWrote, nil
 }
 
-// migrateFileGotestTools migrates gotest.tools imports in a single file.
-// Returns true if the file was modified.
-func migrateFileGotestTools(filename string) (bool, error) {
+// migrateFileGotestTools rewrites gotest.tools imports/calls in a single file
+// and routes the result through ed (write locally, record a violation on CI).
+// Returns whether the file was written.
+func migrateFileGotestTools(ed Editor, filename string) (bool, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
 	if err != nil {
-		return false, err
+		// Unparseable file: skip; the type-check/go vet pass reports the syntax error properly.
+		return false, nil
 	}
 
 	var hasAssertImport bool  // tracks if gotest.tools/v3/assert was present
@@ -130,7 +141,7 @@ func migrateFileGotestTools(filename string) (bool, error) {
 		}
 	}
 
-	// Phase 1: Rewrite imports
+	// Rewrite imports
 	var gotestImportSpec *ast.ImportSpec
 	for _, imp := range f.Imports {
 		path := strings.Trim(imp.Path.Value, `"`)
@@ -160,11 +171,11 @@ func migrateFileGotestTools(filename string) (bool, error) {
 		}
 	}
 
-	printGotestFix(filename, gotestAssert, testifyRequire)
+	// Record fixes to print only if the change is actually written (fix mode).
+	fixLog := [][2]string{{gotestAssert, testifyRequire}}
 
-	// Phase 2: Walk call expressions to rename functions and unwrap cmp calls.
-	// Track which idents should stay as "assert" (non-fatal Check paths).
-	keepAsAssert := map[*ast.Ident]bool{}
+	// Rename functions, unwrap cmp calls, and track idents that stay "assert" (Check paths).
+	keepAsAssert := set.New[*ast.Ident]()
 
 	ast.Inspect(f, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
@@ -201,12 +212,12 @@ func migrateFileGotestTools(filename string) (bool, error) {
 					call.Args = append(call.Args[:1], cmpArgs...)
 
 					if funcName == "Check" {
-						keepAsAssert[ident] = true
+						keepAsAssert.Add(ident)
 						needAssertImport = true
 					} else {
 						ident.Name = "require"
 					}
-				
+
 					return true
 				}
 			}
@@ -215,9 +226,9 @@ func migrateFileGotestTools(filename string) (bool, error) {
 		// Check without cmp → assert.True (non-fatal)
 		if funcName == "Check" {
 			needAssertImport = true
-			keepAsAssert[ident] = true
+			keepAsAssert.Add(ident)
 			sel.Sel.Name = "True"
-		
+
 			return true
 		}
 
@@ -227,7 +238,6 @@ func migrateFileGotestTools(filename string) (bool, error) {
 			sel.Sel.Name = newName
 		}
 
-	
 		return true
 	})
 
@@ -242,14 +252,14 @@ func migrateFileGotestTools(filename string) (bool, error) {
 		if !ok {
 			return true
 		}
-		if ident.Name == "assert" && !keepAsAssert[ident] {
+		if ident.Name == "assert" && !keepAsAssert.Contains(ident) {
 			ident.Name = "require"
-		
+
 		}
 		return true
 	})
 
-	// Phase 3: Remove cmp import if present
+	// Remove cmp import if present
 	if hasCmpImport {
 		for _, imp := range f.Imports {
 			if strings.Trim(imp.Path.Value, `"`) == gotestAssertCmp {
@@ -257,29 +267,33 @@ func migrateFileGotestTools(filename string) (bool, error) {
 				break
 			}
 		}
-		printGotestFix(filename, gotestAssertCmp, "(removed)")
+		fixLog = append(fixLog, [2]string{gotestAssertCmp, "(removed)"})
 	}
 
-	// Phase 4: Add testify/assert import if non-fatal (Check) calls were found
+	// Add testify/assert import if non-fatal (Check) calls were found
 	if needAssertImport {
 		addImport(f, testifyAssert)
 	}
 
-	// Write back
-	out, err := os.Create(filename)
+	var buf bytes.Buffer
+	if err := printer.Fprint(&buf, fset, f); err != nil {
+		return false, err
+	}
+	// go/printer output isn't gofmt-clean (tabs, unsorted imports, doc quotes); canonicalize it to match.
+	out := canonicalizeGoSource(buf.Bytes())
+	wrote, err := ed.Require(filename, out, "imports gotest.tools/v3/assert; migrate to github.com/stretchr/testify")
 	if err != nil {
 		return false, err
 	}
-	defer out.Close()
-
-	if err := printer.Fprint(out, fset, f); err != nil {
-		return false, err
+	if wrote {
+		for _, fx := range fixLog {
+			printGotestFix(filename, fx[0], fx[1])
+		}
 	}
-
-	return true, nil
+	return wrote, nil
 }
 
-// addImport adds an import path to the file's first import declaration.
+// addImport adds an import path to the file's leading import declaration.
 // Does nothing if the import already exists.
 func addImport(f *ast.File, path string) {
 	for _, imp := range f.Imports {
@@ -295,7 +309,7 @@ func addImport(f *ast.File, path string) {
 		},
 	}
 
-	// Add to the first import group
+	// Add to the leading import group
 	for _, decl := range f.Decls {
 		genDecl, ok := decl.(*ast.GenDecl)
 		if !ok || genDecl.Tok != token.IMPORT {
@@ -306,7 +320,7 @@ func addImport(f *ast.File, path string) {
 		return
 	}
 
-	// No import decl exists — create one
+	// No import decl exists — create it
 	genDecl := &ast.GenDecl{
 		Tok:   token.IMPORT,
 		Specs: []ast.Spec{newSpec},

@@ -6,8 +6,8 @@ import (
 	"go/token"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func parseSource(t *testing.T, src string) (*ast.File, *token.FileSet) {
@@ -19,6 +19,7 @@ func parseSource(t *testing.T, src string) (*ast.File, *token.FileSet) {
 }
 
 func TestLinearize_SimpleFunction(t *testing.T) {
+	t.Serial()
 	src := `package p
 func foo() {
 	x := 1
@@ -35,12 +36,13 @@ func foo() {
 
 	// Check that we have expected structural symbols
 	seq := SequenceString(tokens)
-	assert.Contains(t, seq, "A") // AssignStmt for x := 1
+	assert.Contains(t, seq, "A") // AssignStmt for x
 	assert.Contains(t, seq, "I") // IfStmt
 	assert.Contains(t, seq, "R") // ReturnStmt
 }
 
 func TestLinearize_PreservesConcreteValues(t *testing.T) {
+	t.Serial()
 	src := `package p
 func foo() {
 	x := 42
@@ -61,7 +63,8 @@ func foo() {
 }
 
 func TestLinearize_StripsConcretesFromSymbols(t *testing.T) {
-	// Two functions with same structure but different names/literals
+	t.Serial()
+	// A pair of functions with same structure but different names/literals
 	// should produce identical symbol sequences.
 	src := `package p
 func foo() {
@@ -88,6 +91,7 @@ func bar() {
 }
 
 func TestLinearize_DifferentStructures(t *testing.T) {
+	t.Serial()
 	src := `package p
 func foo() {
 	if true {
@@ -111,6 +115,7 @@ func bar() {
 }
 
 func TestExtractBlocks_MinNodes(t *testing.T) {
+	t.Serial()
 	src := `package p
 func tiny() { return }
 func bigger() {
@@ -131,13 +136,13 @@ func bigger() {
 	assert.Len(t, blocks, 1)
 	assert.Equal(t, "bigger", blocks[0].FuncName)
 
-	// With minNodes=1, both functions + inner blocks are included
+	// With the smallest minNodes, both functions and their inner blocks are included
 	blocks = ExtractBlocks(f, fset, 1)
-	// tiny(1) + bigger(1) + bigger/if(1) + bigger/for(1) = 4
 	assert.Len(t, blocks, 4)
 }
 
 func TestExtractBlocks_FuncName(t *testing.T) {
+	t.Serial()
 	src := `package p
 func alpha() { x := 1; _ = x }
 func beta() { y := 2; _ = y }
@@ -154,6 +159,7 @@ func beta() { y := 2; _ = y }
 }
 
 func TestSequenceString(t *testing.T) {
+	t.Serial()
 	tokens := []Token{
 		{Symbol: 'I'},
 		{Symbol: '_', Concrete: "x"},
@@ -163,6 +169,7 @@ func TestSequenceString(t *testing.T) {
 }
 
 func TestNodeTypeName(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		node     ast.Node
 		expected string
@@ -206,6 +213,7 @@ func TestNodeTypeName(t *testing.T) {
 }
 
 func TestLinearize_AllNodeTypes(t *testing.T) {
+	t.Serial()
 	// Exercise as many AST node types as possible in a single function
 	src := `package p
 
@@ -314,6 +322,7 @@ done:
 }
 
 func TestExtractBlocks_InnerBlocks(t *testing.T) {
+	t.Serial()
 	src := `package p
 
 func example() {
@@ -331,10 +340,10 @@ func example() {
 `
 	f, fset := parseSource(t, src)
 
-	// Use minNodes=1 to capture all blocks
+	// Use the smallest minNodes to capture all blocks
 	blocks := ExtractBlocks(f, fset, 1)
 
-	// Should have: function-level + if-body + else-body = 3 blocks
+	// Should have the function-level, if-body and else-body blocks
 	assert.Len(t, blocks, 3)
 
 	names := make([]string, len(blocks))
@@ -348,6 +357,7 @@ func example() {
 }
 
 func TestExtractBlocks_InnerBlocks_MinNodesFilter(t *testing.T) {
+	t.Serial()
 	src := `package p
 
 func example() {

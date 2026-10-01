@@ -1,13 +1,13 @@
 package test
 
 import (
+	"github.com/stretchr/testify/require"
 	"os"
 	"testing"
-	"github.com/wow-look-at-my/testify/require"
-
 )
 
 func TestWatermarkGetSetRoundTrip(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	require.NoError(t, SetWatermark(dir, 85.3))
@@ -19,6 +19,7 @@ func TestWatermarkGetSetRoundTrip(t *testing.T) {
 }
 
 func TestWatermarkGetWhenNoneExists(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	val, exists, err := GetWatermark(dir)
@@ -28,6 +29,7 @@ func TestWatermarkGetWhenNoneExists(t *testing.T) {
 }
 
 func TestWatermarkRemove(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	require.NoError(t, SetWatermark(dir, 90.0))
@@ -40,6 +42,7 @@ func TestWatermarkRemove(t *testing.T) {
 }
 
 func TestWatermarkRemoveWhenNoneExists(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	// Should not error when removing a non-existent watermark
@@ -47,6 +50,7 @@ func TestWatermarkRemoveWhenNoneExists(t *testing.T) {
 }
 
 func TestWatermarkGetOnFile(t *testing.T) {
+	t.Serial()
 	// Verify it works on a file too, not just directories
 	f, err := os.CreateTemp(t.TempDir(), "watermark-test")
 	require.Nil(t, err)

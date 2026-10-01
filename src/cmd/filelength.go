@@ -3,11 +3,14 @@ package cmd
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
-	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 const (
@@ -15,10 +18,78 @@ const (
 	fileLengthError = 750
 )
 
-// checkFileLength walks all .go files under root (excluding generated files)
-// and warns at 500 lines, errors at 750 lines.
+// generatedFileRe matches the canonical "// Code generated ... DO NOT EDIT." marker line, the same rule `go help generate` and gofmt use.
+var generatedFileRe = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
+
+// isGeneratedFile reports whether r is a generated Go source file per the
+// canonical convention. It scans only the file header: leading `//go:build` /
+// `// +build` constraints, ordinary `//` line comments, `/* ... */` block
+// comments, and blank lines may precede the marker. Scanning stops at the earliest
+// line that is non-blank, not a comment, and not a build constraint (normally
+// the `package` clause), so a marker appearing after that point does not count.
+func isGeneratedFile(r io.Reader) bool {
+	scanner := bufio.NewScanner(r)
+	// Allow long lines (generated files can have very long header lines).
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	inBlockComment := false
+	for scanner.Scan() {
+		line := strings.TrimSuffix(scanner.Text(), "\r")
+		trimmed := strings.TrimSpace(line)
+
+		// Inside a /* ... */ block comment: keep consuming until it closes.
+		if inBlockComment {
+			if idx := strings.Index(trimmed, "*/"); idx >= 0 {
+				inBlockComment = false
+			}
+			continue
+		}
+
+		// Blank lines are part of the header.
+		if trimmed == "" {
+			continue
+		}
+
+		// The canonical marker, on a line by itself.
+		if generatedFileRe.MatchString(trimmed) {
+			return true
+		}
+
+		// Line comments and build constraints are header lines.
+		if strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+
+		// Start of a block comment that may span multiple lines.
+		if strings.HasPrefix(trimmed, "/*") {
+			// A single-line /* ... */ closes on the same line.
+			if !strings.Contains(trimmed[2:], "*/") {
+				inBlockComment = true
+			}
+			continue
+		}
+
+		// A real (non-comment, non-blank) line — the header is over.
+		return false
+	}
+	return false
+}
+
+// isGeneratedPath opens path and reports whether it is a generated file.
+func isGeneratedPath(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	return isGeneratedFile(f)
+}
+
+// checkFileLength walks all .go files under root and warns past the warn
+// threshold, erroring past the error threshold (both below). Generated files
+// (per isGeneratedFile) are skipped unless the
+// --count-generated flag is set.
 func checkFileLength(root string) error {
-	var nWarn, nErr int
+	var nWarn, nErr, nSkipped int
 
 	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -29,9 +100,21 @@ func checkFileLength(root string) error {
 			if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata" || name == "node_modules") {
 				return filepath.SkipDir
 			}
+			// A nested module's files follow their upstream's conventions,
+			// not this repo's length limits.
+			if path != root && gomod.IsNestedModule(path) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+
+		// Skip generated files unless asked to count them; detection reopens the file, and
+		// line counting opens it again below.
+		if !countGenerated && isGeneratedPath(path) {
+			nSkipped++
 			return nil
 		}
 
@@ -43,30 +126,13 @@ func checkFileLength(root string) error {
 
 		scanner := bufio.NewScanner(f)
 		lineNum := 0
-		headerDone := false
 		for scanner.Scan() {
 			lineNum++
-			// Check file header for generated marker before package clause
-			if !headerDone {
-				text := scanner.Text()
-				if strings.Contains(text, "Code generated") {
-					return nil
-				}
-				if strings.HasPrefix(text, "package ") {
-					headerDone = true
-				}
-			}
 		}
 
 		if lineNum >= fileLengthError {
-			exempt, _ := gotest.IsFileLengthExempt(path)
-			if exempt {
-				logWarning(path, fmt.Sprintf("%s: %d lines (exempt, warning at %d)", path, lineNum, fileLengthWarn))
-				nWarn++
-			} else {
-				logError(path, fmt.Sprintf("%s: %d lines (max %d)", path, lineNum, fileLengthError))
-				nErr++
-			}
+			logError(path, fmt.Sprintf("%s: %d lines (max %d)", path, lineNum, fileLengthError))
+			nErr++
 		} else if lineNum >= fileLengthWarn {
 			logWarning(path, fmt.Sprintf("%s: %d lines (consider splitting, warning at %d)", path, lineNum, fileLengthWarn))
 			nWarn++
@@ -75,7 +141,11 @@ func checkFileLength(root string) error {
 	})
 
 	if nWarn > 0 || nErr > 0 {
-		fmt.Println()
+		logger.Info("")
+	}
+
+	if nSkipped > 0 {
+		logger.Info("  File length check: skipped %d generated file(s)", nSkipped)
 	}
 
 	if nErr > 0 {

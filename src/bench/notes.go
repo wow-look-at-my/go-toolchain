@@ -36,7 +36,7 @@ func StoreNotes(r runner.CommandRunner, report *BenchmarkReport) error {
 // FetchPrevious retrieves the most recent stored benchmark results
 // Returns the report, commit SHA, and any error
 func FetchPrevious(r runner.CommandRunner) (*BenchmarkReport, string, error) {
-	// Get commits that have benchmark notes, most recent first
+	// Get commits that have benchmark notes, newest at the top
 	proc, err := runner.Cmd("git", "log", "--format=%H", "--notes=benchmarks", "--grep=", "-1").
 		WithQuiet().
 		Run(r)

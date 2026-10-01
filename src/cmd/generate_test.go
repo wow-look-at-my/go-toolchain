@@ -3,14 +3,16 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseDirectives(t *testing.T) {
+	t.Serial()
 	// Create a temp directory with a test file
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.go")
@@ -35,11 +37,11 @@ func TestParseDirectives(t *testing.T) {
 }
 
 func TestParseDirectivesLongLines(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.go")
 
-	// Build a file with a line far exceeding bufio's default 4KB buffer.
-	// The directive must still be found on lines before and after the long line.
+	// The directive must be found on lines before and after a line exceeding bufio's buffer.
 	longLine := "var x = \"" + strings.Repeat("A", 100_000) + "\"\n"
 
 	content := "package main\n\n" +
@@ -59,6 +61,7 @@ func TestParseDirectivesLongLines(t *testing.T) {
 }
 
 func TestParseDirectivesNoDirectives(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.go")
 
@@ -74,7 +77,36 @@ func main() {}
 	require.Equal(t, 0, len(directives))
 }
 
+func TestParseDirectivesRejectsGoFmt(t *testing.T) {
+	t.Serial()
+	dir := t.TempDir()
+	testFile := filepath.Join(dir, "test.go")
+
+	content := "package main\n\n" +
+		"//go:generate go fmt ./...\n"
+	require.NoError(t, os.WriteFile(testFile, []byte(content), 0644))
+
+	_, err := parseDirectives(testFile)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "go fmt is not allowed")
+}
+
+func TestParseDirectivesRejectsShellWrappedGoFmt(t *testing.T) {
+	t.Serial()
+	dir := t.TempDir()
+	testFile := filepath.Join(dir, "test.go")
+
+	content := "package main\n\n" +
+		"//go:generate sh -c \"go fmt ./...\"\n"
+	require.NoError(t, os.WriteFile(testFile, []byte(content), 0644))
+
+	_, err := parseDirectives(testFile)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "go fmt is not allowed")
+}
+
 func TestFindGenerateDirectives(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	// Create subdirectory
@@ -100,6 +132,7 @@ func TestFindGenerateDirectives(t *testing.T) {
 }
 
 func TestFindGenerateDirectivesSkipsVendor(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	// Create vendor directory
@@ -123,6 +156,7 @@ func TestFindGenerateDirectivesSkipsVendor(t *testing.T) {
 }
 
 func TestExecuteDirectiveSuccess(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.go")
 	require.NoError(t, os.WriteFile(testFile, []byte("package main\n"), 0644))
@@ -138,6 +172,7 @@ func TestExecuteDirectiveSuccess(t *testing.T) {
 }
 
 func TestExecuteDirectiveFailure(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.go")
 	require.NoError(t, os.WriteFile(testFile, []byte("package main\n"), 0644))
@@ -145,7 +180,7 @@ func TestExecuteDirectiveFailure(t *testing.T) {
 	d := generateDirective{
 		File:    testFile,
 		Line:    1,
-		Command: "exit 1",
+		Command: "false",
 	}
 
 	err := executeDirective(d, true)
@@ -154,6 +189,7 @@ func TestExecuteDirectiveFailure(t *testing.T) {
 }
 
 func TestPrefixOutput(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		name   string
 		input  string
@@ -190,6 +226,7 @@ func TestPrefixOutput(t *testing.T) {
 }
 
 func TestGuessPackage(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		path   string
 		expect string
@@ -207,14 +244,10 @@ func TestGuessPackage(t *testing.T) {
 }
 
 func TestRunGenerateWithHash(t *testing.T) {
-	// Save current directory
-	origDir, err := os.Getwd()
-	require.Nil(t, err)
-	defer os.Chdir(origDir)
-
+	t.Serial() // t.Chdir forks, and children racing the run's shared gocoverdir fail on windows.
 	// Create temp directory with a generate directive
 	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	t.Chdir(dir)
 
 	testFile := filepath.Join(dir, "main.go")
 	outputFile := filepath.Join(dir, "generated.txt")
@@ -223,7 +256,7 @@ func TestRunGenerateWithHash(t *testing.T) {
 		"//go:generate sh -c \"echo generated > generated.txt\"\n"
 	require.NoError(t, os.WriteFile(testFile, []byte(content), 0644))
 
-	// First, get the hash by finding directives
+	// Get the hash by finding directives
 	directives, err := findGenerateDirectives(".")
 	require.Nil(t, err)
 	hash := computeDirectivesHash(directives)
@@ -242,14 +275,10 @@ func TestRunGenerateWithHash(t *testing.T) {
 }
 
 func TestRunGenerateWrongHash(t *testing.T) {
-	// Save current directory
-	origDir, err := os.Getwd()
-	require.Nil(t, err)
-	defer os.Chdir(origDir)
-
+	t.Serial()
 	// Create temp directory with a generate directive
 	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	t.Chdir(dir)
 
 	testFile := filepath.Join(dir, "main.go")
 	outputFile := filepath.Join(dir, "generated.txt")
@@ -259,21 +288,17 @@ func TestRunGenerateWrongHash(t *testing.T) {
 	require.NoError(t, os.WriteFile(testFile, []byte(content), 0644))
 
 	// With wrong hash, command should NOT run and should return error
-	err = runGenerate(true, "wronghash123")
+	err := runGenerate(true, "wronghash123")
 	require.NotNil(t, err)
 	_, err = os.Stat(outputFile)
 	assert.True(t, os.IsNotExist(err))
 }
 
 func TestRunGenerateSkip(t *testing.T) {
-	// Save current directory
-	origDir, err := os.Getwd()
-	require.Nil(t, err)
-	defer os.Chdir(origDir)
-
+	t.Serial()
 	// Create temp directory with a generate directive
 	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	t.Chdir(dir)
 
 	testFile := filepath.Join(dir, "main.go")
 	outputFile := filepath.Join(dir, "generated.txt")
@@ -283,30 +308,27 @@ func TestRunGenerateSkip(t *testing.T) {
 	require.NoError(t, os.WriteFile(testFile, []byte(content), 0644))
 
 	// With "skip", command should NOT run but should succeed
-	err = runGenerate(true, "skip")
+	err := runGenerate(true, "skip")
 	require.Nil(t, err)
 	_, err = os.Stat(outputFile)
 	assert.True(t, os.IsNotExist(err))
 }
 
 func TestRunGenerateNoDirectives(t *testing.T) {
-	// Save current directory
-	origDir, err := os.Getwd()
-	require.Nil(t, err)
-	defer os.Chdir(origDir)
-
+	t.Serial()
 	// Create temp directory with no generate directives
 	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	t.Chdir(dir)
 
 	testFile := filepath.Join(dir, "main.go")
 	require.NoError(t, os.WriteFile(testFile, []byte("package main\n"), 0644))
 
-	err = runGenerate(true, "")
+	err := runGenerate(true, "")
 	require.Nil(t, err)
 }
 
 func TestComputeDirectivesHash(t *testing.T) {
+	t.Serial()
 	directives := []generateDirective{
 		{File: "a.go", Line: 1, Command: "echo a"},
 		{File: "b.go", Line: 2, Command: "echo b"},
@@ -329,4 +351,144 @@ func TestComputeDirectivesHash(t *testing.T) {
 	}
 	hash3 := computeDirectivesHash(different)
 	assert.NotEqual(t, hash3, hash1)
+}
+
+func TestSplitGenerateCommand(t *testing.T) {
+	t.Serial()
+	tests := []struct {
+		name    string
+		input   string
+		want    []string
+		wantErr bool
+	}{
+		{
+			name:  "simple",
+			input: "echo hello",
+			want:  []string{"echo", "hello"},
+		},
+		{
+			name:  "double quoted",
+			input: `sh -c "echo hello world"`,
+			want:  []string{"sh", "-c", "echo hello world"},
+		},
+		{
+			name:  "backtick quoted",
+			input: "sh -c `echo hello world`",
+			want:  []string{"sh", "-c", "echo hello world"},
+		},
+		{
+			name:  "brace expansion with comma",
+			input: `go run ./cmd/gen -regex [a-z]+@[a-z]+\.[a-z]{2,}`,
+			want:  []string{"go", "run", "./cmd/gen", "-regex", `[a-z]+@[a-z]+\.[a-z]{2,}`},
+		},
+		{
+			name:  "glob star",
+			input: `go run ./cmd/gen -regex [A-Za-z_][A-Za-z0-9_]*`,
+			want:  []string{"go", "run", "./cmd/gen", "-regex", `[A-Za-z_][A-Za-z0-9_]*`},
+		},
+		{
+			name:  "parentheses and question mark",
+			input: `go run ./cmd/gen -regex (https?://)?[a-z]+\.[a-z]{2,}`,
+			want:  []string{"go", "run", "./cmd/gen", "-regex", `(https?://)?[a-z]+\.[a-z]{2,}`},
+		},
+		{
+			name:  "hash character",
+			input: `go run ./cmd/gen -regex #[0-9a-f]{6}`,
+			want:  []string{"go", "run", "./cmd/gen", "-regex", `#[0-9a-f]{6}`},
+		},
+		{
+			name:  "backslash digit sequence",
+			input: `go run ./cmd/gen -regex \d{3}-\d{2}-\d{4}`,
+			want:  []string{"go", "run", "./cmd/gen", "-regex", `\d{3}-\d{2}-\d{4}`},
+		},
+		{
+			name:  "group with flag",
+			input: `go run ./cmd/gen -regex (?i)hello`,
+			want:  []string{"go", "run", "./cmd/gen", "-regex", `(?i)hello`},
+		},
+		{
+			name:  "extra whitespace",
+			input: "  echo   hello  world  ",
+			want:  []string{"echo", "hello", "world"},
+		},
+		{
+			name:  "tabs",
+			input: "echo\thello",
+			want:  []string{"echo", "hello"},
+		},
+		{
+			name:  "escaped chars in double quotes",
+			input: `echo "hello\tworld"`,
+			want:  []string{"echo", "hello\tworld"},
+		},
+		{
+			name:    "unterminated double quote",
+			input:   `echo "hello`,
+			wantErr: true,
+		},
+		{
+			name:    "unterminated backtick",
+			input:   "echo `hello",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := splitGenerateCommand(tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestExpandGenerateVars(t *testing.T) {
+	t.Serial()
+	d := generateDirective{
+		File:    "sub/foo.go",
+		Line:    42,
+		Command: "ignored",
+	}
+
+	got := expandGenerateVars("$GOFILE $GOLINE $GOPACKAGE $GOARCH $GOOS", d)
+	assert.Contains(t, got, "foo.go")
+	assert.Contains(t, got, "42")
+	assert.Contains(t, got, "sub")
+	assert.Contains(t, got, runtime.GOARCH)
+	assert.Contains(t, got, runtime.GOOS)
+
+	got = expandGenerateVars("price is $DOLLAR 5", d)
+	assert.Equal(t, "price is $ 5", got)
+}
+
+func TestExecuteDirectivePreservesMetachars(t *testing.T) {
+	t.Serial()
+	requireShebangHelper(t)
+	dir := t.TempDir()
+
+	helper := filepath.Join(dir, "dump-args")
+	outFile := filepath.Join(dir, "args.txt")
+	script := "#!/bin/sh\nfor arg; do printf '%s\\n' \"$arg\"; done > " + outFile + "\n"
+	require.NoError(t, os.WriteFile(helper, []byte(script), 0755))
+
+	testFile := filepath.Join(dir, "test.go")
+	require.NoError(t, os.WriteFile(testFile, []byte("package main\n"), 0644))
+
+	d := generateDirective{
+		File:    testFile,
+		Line:    1,
+		Command: helper + ` -regex [A-Za-z_][A-Za-z0-9_]* -func E`,
+	}
+
+	err := executeDirective(d, true)
+	require.Nil(t, err)
+
+	content, err := os.ReadFile(outFile)
+	require.Nil(t, err)
+	lines := strings.Split(strings.TrimSpace(string(content)), "\n")
+	assert.Equal(t, []string{"-regex", "[A-Za-z_][A-Za-z0-9_]*", "-func", "E"}, lines)
 }

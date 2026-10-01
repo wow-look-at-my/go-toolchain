@@ -5,18 +5,22 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/bench"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
 )
 
 func TestGenerateMarkdownEmpty(t *testing.T) {
+	t.Serial()
 	assert.Empty(t, GenerateMarkdown(nil))
 }
 
 func TestGenerateMarkdownBasic(t *testing.T) {
+	t.Serial()
 	data := &SummaryData{
 		Coverage: &gotest.Report{Total: 85.2},
 		TestCases: []gotest.TestCaseResult{
@@ -46,6 +50,7 @@ func TestGenerateMarkdownBasic(t *testing.T) {
 }
 
 func TestGenerateMarkdownSubtests(t *testing.T) {
+	t.Serial()
 	data := &SummaryData{
 		Coverage: &gotest.Report{Total: 90.0},
 		TestCases: []gotest.TestCaseResult{
@@ -65,6 +70,7 @@ func TestGenerateMarkdownSubtests(t *testing.T) {
 }
 
 func TestGenerateMarkdownBenchmarks(t *testing.T) {
+	t.Serial()
 	data := &SummaryData{
 		Coverage: &gotest.Report{Total: 80.0},
 		Benchmarks: &bench.BenchmarkReport{
@@ -84,6 +90,7 @@ func TestGenerateMarkdownBenchmarks(t *testing.T) {
 }
 
 func TestGenerateMarkdownBenchComparison(t *testing.T) {
+	t.Serial()
 	current := &bench.BenchmarkReport{
 		Packages: map[string][]bench.BenchmarkResult{
 			"example.com/pkg": {
@@ -115,6 +122,7 @@ func TestGenerateMarkdownBenchComparison(t *testing.T) {
 }
 
 func TestGenerateMarkdownSubbenchmarks(t *testing.T) {
+	t.Serial()
 	data := &SummaryData{
 		Coverage: &gotest.Report{Total: 80.0},
 		Benchmarks: &bench.BenchmarkReport{
@@ -134,6 +142,7 @@ func TestGenerateMarkdownSubbenchmarks(t *testing.T) {
 }
 
 func TestWriteAppendsToFile(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	summaryFile := filepath.Join(tmpDir, "summary.md")
 
@@ -155,11 +164,13 @@ func TestWriteAppendsToFile(t *testing.T) {
 }
 
 func TestWriteNoopWithoutEnv(t *testing.T) {
+	t.Serial()
 	t.Setenv("GITHUB_STEP_SUMMARY", "")
 	assert.NoError(t, Write(&SummaryData{}))
 }
 
 func TestPkgToDir(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		pkg, module, expected string
 	}{
@@ -174,36 +185,42 @@ func TestPkgToDir(t *testing.T) {
 }
 
 func TestRootTestFunc(t *testing.T) {
+	t.Serial()
 	assert.Equal(t, "TestFoo", rootTestFunc("TestFoo"))
 	assert.Equal(t, "TestFoo", rootTestFunc("TestFoo/case_a"))
 	assert.Equal(t, "TestFoo", rootTestFunc("TestFoo/nested/deep"))
 }
 
 func TestFormatTestName(t *testing.T) {
+	t.Serial()
 	assert.Equal(t, "TestFoo", formatTestName("TestFoo"))
 	assert.Contains(t, formatTestName("TestFoo/bar"), "&nbsp;&nbsp;&nbsp;&nbsp;")
 	assert.Contains(t, formatTestName("TestFoo/bar"), "TestFoo/bar")
 }
 
 func TestStatusEmoji(t *testing.T) {
+	t.Serial()
 	assert.Equal(t, ":white_check_mark:", statusEmoji("pass"))
 	assert.Equal(t, ":x:", statusEmoji("fail"))
 	assert.Equal(t, ":fast_forward:", statusEmoji("skip"))
 }
 
 func TestFormatBenchDelta(t *testing.T) {
+	t.Serial()
 	assert.Contains(t, formatBenchDelta(-5.0), ":arrow_down:")
 	assert.Contains(t, formatBenchDelta(5.0), ":arrow_up:")
 	assert.Contains(t, formatBenchDelta(0.5), "~0%")
 }
 
 func TestBenchDisplayName(t *testing.T) {
+	t.Serial()
 	assert.Equal(t, "Parse", benchDisplayName("BenchmarkParse-8", "pkg"))
 	assert.Equal(t, "Parse/small", benchDisplayName("BenchmarkParse/small-8", "pkg"))
 	assert.Equal(t, "Foo", benchDisplayName("BenchmarkFoo-16", "pkg"))
 }
 
 func TestFindTestFuncsInDir(t *testing.T) {
+	t.Serial()
 	// Create a temporary test file
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "example_test.go")
@@ -217,7 +234,7 @@ func helperNotATest() {}
 `
 	os.WriteFile(testFile, []byte(content), 0644)
 
-	funcs := findTestFuncsInDir(tmpDir, map[string]bool{"TestAlpha": true, "TestBeta": true})
+	funcs := findTestFuncsInDir(tmpDir, set.Of("TestAlpha", "TestBeta"))
 
 	assert.Contains(t, funcs, "TestAlpha")
 	assert.Contains(t, funcs, "TestBeta")
@@ -226,6 +243,7 @@ func helperNotATest() {}
 }
 
 func TestSourceURL(t *testing.T) {
+	t.Serial()
 	cache := map[string]testFuncLocation{
 		"example.com/pkg.TestFoo": {file: "src/pkg/foo_test.go", line: 42},
 	}
@@ -244,6 +262,7 @@ func TestSourceURL(t *testing.T) {
 }
 
 func TestFormatTestNameWithLink(t *testing.T) {
+	t.Serial()
 	cache := map[string]testFuncLocation{
 		"example.com/pkg.TestFoo": {file: "src/pkg/foo_test.go", line: 42},
 	}
@@ -268,6 +287,7 @@ func TestFormatTestNameWithLink(t *testing.T) {
 }
 
 func TestGenerateMarkdownMultiPackage(t *testing.T) {
+	t.Serial()
 	data := &SummaryData{
 		Coverage: &gotest.Report{Total: 80.0},
 		TestCases: []gotest.TestCaseResult{
@@ -283,7 +303,7 @@ func TestGenerateMarkdownMultiPackage(t *testing.T) {
 	// Each package gets its own collapsed section
 	assert.Contains(t, md, "cmd (2 passed)")
 	assert.Contains(t, md, "lib (1 passed, 1 failed)")
-	// Two separate <details> blocks
+	// Separate <details> blocks
 	assert.Equal(t, 2, strings.Count(md, "<details>"))
 	assert.Equal(t, 2, strings.Count(md, "</details>"))
 	// Summary rows
@@ -292,6 +312,7 @@ func TestGenerateMarkdownMultiPackage(t *testing.T) {
 }
 
 func TestSortTestCases(t *testing.T) {
+	t.Serial()
 	// Simulate Go's test output order: subtests before parent
 	cases := []gotest.TestCaseResult{
 		{Test: "TestFoo/case_a", Status: "pass"},
@@ -311,6 +332,7 @@ func TestSortTestCases(t *testing.T) {
 }
 
 func TestCountTestStatuses(t *testing.T) {
+	t.Serial()
 	cases := []gotest.TestCaseResult{
 		{Status: "pass"}, {Status: "pass"}, {Status: "fail"}, {Status: "skip"},
 	}
@@ -318,4 +340,36 @@ func TestCountTestStatuses(t *testing.T) {
 	assert.Equal(t, 2, p)
 	assert.Equal(t, 1, f)
 	assert.Equal(t, 1, s)
+}
+
+func TestGenerateMarkdownWithTimeline(t *testing.T) {
+	t.Serial()
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	data := &SummaryData{
+		Coverage: &gotest.Report{Total: 80.0},
+		Timeline: []TimelineEntry{
+			{Label: "go mod tidy", Thread: "main", Start: base, End: base.Add(500 * time.Millisecond)},
+			{Label: "go test", Thread: "main", Start: base.Add(500 * time.Millisecond), End: base.Add(2 * time.Second)},
+		},
+	}
+
+	md := GenerateMarkdown(data)
+
+	assert.Contains(t, md, "Pipeline Timeline")
+	assert.Contains(t, md, "```mermaid")
+	assert.Contains(t, md, "gantt")
+	assert.Contains(t, md, "go mod tidy")
+	assert.Contains(t, md, "go test")
+}
+
+func TestGenerateMarkdownWithoutTimeline(t *testing.T) {
+	t.Serial()
+	data := &SummaryData{
+		Coverage: &gotest.Report{Total: 80.0},
+	}
+
+	md := GenerateMarkdown(data)
+
+	assert.NotContains(t, md, "Pipeline Timeline")
+	assert.NotContains(t, md, "```mermaid")
 }

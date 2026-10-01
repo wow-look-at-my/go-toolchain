@@ -1,15 +1,18 @@
 package bench
 
 import (
+	"bytes"
 	"fmt"
+	"os"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
 func TestBuildBenchArgsDefaults(t *testing.T) {
+	t.Serial()
 	opts := Options{}
 	args := buildBenchArgs(opts)
 
@@ -21,6 +24,7 @@ func TestBuildBenchArgsDefaults(t *testing.T) {
 }
 
 func TestBuildBenchArgsAllOptions(t *testing.T) {
+	t.Serial()
 	opts := Options{
 		Time:    "5s",
 		Count:   3,
@@ -39,6 +43,7 @@ func TestBuildBenchArgsAllOptions(t *testing.T) {
 }
 
 func TestBuildBenchArgsBenchmemAlwaysPresent(t *testing.T) {
+	t.Serial()
 	opts := Options{}
 	args := buildBenchArgs(opts)
 
@@ -52,6 +57,7 @@ func TestBuildBenchArgsBenchmemAlwaysPresent(t *testing.T) {
 }
 
 func TestRunBenchmarksSuccess(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	baseArgs := buildBenchArgs(Options{})
 	jsonArgs := append([]string{baseArgs[0], "-json"}, baseArgs[1:]...)
@@ -64,6 +70,7 @@ func TestRunBenchmarksSuccess(t *testing.T) {
 }
 
 func TestRunBenchmarksFails(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	baseArgs := buildBenchArgs(Options{})
 	jsonArgs := append([]string{baseArgs[0], "-json"}, baseArgs[1:]...)
@@ -75,6 +82,7 @@ func TestRunBenchmarksFails(t *testing.T) {
 }
 
 func TestRunBenchmarksFailsWithPartialResults(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	baseArgs := buildBenchArgs(Options{})
 	jsonArgs := append([]string{baseArgs[0], "-json"}, baseArgs[1:]...)
@@ -85,6 +93,59 @@ func TestRunBenchmarksFailsWithPartialResults(t *testing.T) {
 	assert.NotNil(t, err)
 	// Should still return partial results
 	assert.NotNil(t, report)
+}
+
+func TestRunBenchmarksStreamsResults(t *testing.T) {
+	t.Serial()
+	mock := runner.NewMock()
+	baseArgs := buildBenchArgs(Options{})
+	jsonArgs := append([]string{baseArgs[0], "-json"}, baseArgs[1:]...)
+	output := []byte(`{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\t  56 B/op\t  3 allocs/op\n"}
+{"Action":"output","Package":"pkg","Output":"BenchmarkBar-8   \t 500\t  5678 ns/op\n"}
+{"Action":"pass","Package":"pkg"}
+`)
+	mock.SetResponse("go", jsonArgs, output, nil)
+
+	var streamed bytes.Buffer
+	report, err := RunBenchmarks(mock, Options{StreamTo: &streamed})
+	assert.Nil(t, err)
+	require.NotNil(t, report)
+	assert.True(t, report.HasResults())
+
+	got := streamed.String()
+	assert.Contains(t, got, "BenchmarkFoo-8")
+	assert.Contains(t, got, "1234 ns/op")
+	assert.Contains(t, got, "BenchmarkBar-8")
+	assert.Contains(t, got, "5678 ns/op")
+}
+
+func TestRunBenchmarksNoStreamWhenNil(t *testing.T) {
+	t.Serial()
+	mock := runner.NewMock()
+	baseArgs := buildBenchArgs(Options{})
+	jsonArgs := append([]string{baseArgs[0], "-json"}, baseArgs[1:]...)
+	mock.SetResponse("go", jsonArgs, []byte(`{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`), nil)
+
+	report, err := RunBenchmarks(mock, Options{})
+	assert.Nil(t, err)
+	require.NotNil(t, report)
+	assert.True(t, report.HasResults())
+}
+
+func TestHasBenchmarksFindsNone(t *testing.T) {
+	t.Serial()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(dir+"/main_test.go", []byte("package main\nfunc TestFoo(t *testing.T) {}\n"), 0644))
+
+	assert.False(t, HasBenchmarks(dir))
+}
+
+func TestHasBenchmarksFindsOne(t *testing.T) {
+	t.Serial()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(dir+"/bench_test.go", []byte("package main\n\nimport \"testing\"\n\nfunc BenchmarkFoo(b *testing.B) {}\n"), 0644))
+
+	assert.True(t, HasBenchmarks(dir))
 }
 
 // assertContains checks that args contains the given sequence of values

@@ -8,19 +8,22 @@ import (
 	"strings"
 )
 
-// ensureBuildDirInGitignore adds the build output directory to .gitignore
-// if the current working directory is inside a git repository and the
-// directory isn't already ignored. It's a best-effort operation: errors
-// are silently ignored so they never block the build.
+// ensureBuildDirInGitignore ignores the build output directory.
 func ensureBuildDirInGitignore() {
+	ensureGitignored("/" + outputDir + "/")
+}
+
+// ensureGitignored appends entry to the repository's .gitignore when the
+// current directory is inside a git repo and the entry isn't already present.
+// It's a best-effort operation: any error is silently ignored so it never
+// blocks the build.
+func ensureGitignored(entry string) {
 	gitRoot := findGitRoot()
 	if gitRoot == "" {
 		return
 	}
 
-	entry := "/" + outputDir + "/"
 	gitignorePath := filepath.Join(gitRoot, ".gitignore")
-
 	if gitignoreContains(gitignorePath, entry) {
 		return
 	}
@@ -31,7 +34,7 @@ func ensureBuildDirInGitignore() {
 	}
 	defer f.Close()
 
-	// If the file is non-empty and doesn't end with a newline, add one first.
+	// If the file is non-empty and doesn't end with a newline, add the newline before appending.
 	if needsLeadingNewline(gitignorePath) {
 		fmt.Fprint(f, "\n")
 	}

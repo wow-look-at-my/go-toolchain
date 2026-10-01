@@ -1,56 +1,138 @@
 package cmd
 
 import (
-	"bufio"
-	"encoding/json"
+	"context"
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"math"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
+	"github.com/wow-look-at-my/go-toolchain/src/codeql"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
+	"github.com/wow-look-at-my/go-toolchain/src/integration"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
-	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
+	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"github.com/wow-look-at-my/go-toolchain/src/vet"
 )
 
+// activeTrace collects fine-grained trace events for Chrome trace export.
+var activeTrace *gotrace.Trace
+
 var (
-	outputDir     = "build"
-	jsonOutput    bool
-	verbose       bool
-	generateHash  string
-	dupcode bool
-	lintThreshold float64
-	lintMinNodes  int
-	cgoEnabled    bool
+	outputDir      = "build"
+	jsonOutput     bool
+	verbose        bool
+	cacheMisses    bool
+	generateHash   string
+	dupcode        bool
+	lintThreshold  float64
+	lintMinNodes   int
+	cgoEnabled     bool
+	countGenerated bool
+	// treeUnchanged is what inputsUnchanged answered at startup.
+	treeUnchanged bool
 )
+
+// skipUpToDateCheck reports whether cmd or an ancestor skips the
+// fingerprint "up to date" fast exit. A subcommand inherits it.
+func skipUpToDateCheck(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		switch c.Name() {
+		case "version", "install", "release":
+			return true
+		}
+	}
+	return false
+}
+
+// toolchainlessCmds run no go command, so they set none up.
+var toolchainlessCmds = set.Of("version", "verify-identical")
+
+// checkTargetFlags validates --targets and --cosmo-platforms, for the commands
+// that have them. The build path parses them again where it uses them; this
+// only moves the rejection ahead of the toolchain download.
+func checkTargetFlags(cmd *cobra.Command) error {
+	if cmd.Flags().Lookup("targets") == nil {
+		return nil
+	}
+	if _, err := resolveMatrixPlatforms(); err != nil {
+		return err
+	}
+	_, err := parseCosmoPlatforms(cosmoPlatforms)
+	return err
+}
+
+// skipToolchain reports whether cmd runs without the gosmopolitan toolchain.
+func skipToolchain(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if toolchainlessCmds.Contains(c.Name()) {
+			return true
+		}
+	}
+	return false
+}
 
 var rootCmd = &cobra.Command{
 	Use:          "go-toolchain",
 	Short:        "Build Go projects with coverage enforcement",
 	SilenceUsage: true,
-	RunE:         run,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// Install the logger so every command's output honors the
+		// requested level.
+		if err := initLogging(cmd); err != nil {
+			return err
+		}
+		// Snapshot env before phases add vars, so fingerprint matches what the next run checks.
+		captureRunEnv()
+		// A target set nothing can build is rejected before a compiler is fetched for it.
+		if err := checkTargetFlags(cmd); err != nil {
+			return err
+		}
+		// After cobra parses, so --help and a mistyped flag set up no toolchain.
+		if !skipToolchain(cmd) {
+			if err := EnsureGoVersion(); err != nil {
+				discardBuildOutputsFromCWD()
+				return fmt.Errorf("go bootstrap: %w", err)
+			}
+		}
+		if skipUpToDateCheck(cmd) {
+			return nil
+		}
+		if cmd.Parent() == nil {
+			r := runner.New()
+			// Read here, before clearBuildOutputs deletes what outputsPresent looks for.
+			treeUnchanged = inputsUnchanged(r)
+			if treeUnchanged && outputsPresent(r) {
+				logger.Output("⇒ Up to date, nothing to do")
+				ReportUpdateCheck()
+				os.Exit(0)
+			}
+		}
+		return nil
+	},
+	RunE: run,
 }
 
 func init() {
 	rootCmd.Long = rootCmd.Short + "\n\nRuns go mod tidy, go test with coverage, and go build.\n\n" + installStatus()
 	// Use PersistentFlags for flags shared with subcommands (like matrix)
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output coverage report as JSON")
-	// rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Show test output line by line")
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output: debug log level, plus per-test output lines")
 	rootCmd.PersistentFlags().StringVar(&generateHash, "generate", "", "Run go:generate directives matching this hash")
 	// rootCmd.PersistentFlags().BoolVar(&dupcode, "dupcode", true, "Run near-duplicate code detection (warnings only)")
 	rootCmd.PersistentFlags().Float64Var(&lintThreshold, "threshold", lint.DefaultThreshold, "Similarity threshold for duplicate detection (0.0-1.0)")
 	rootCmd.PersistentFlags().IntVar(&lintMinNodes, "min-nodes", lint.DefaultMinNodes, "Minimum AST node count for duplicate detection")
 	rootCmd.PersistentFlags().BoolVar(&cgoEnabled, "cgo", false, "Enable CGO (default: disabled for static binaries)")
+	rootCmd.PersistentFlags().BoolVar(&cacheMisses, "cache-misses", false, "Show packages that missed the build cache")
+	rootCmd.PersistentFlags().BoolVar(&countGenerated, "count-generated", false, "Count generated files (Code generated ... DO NOT EDIT.) in the file length check instead of skipping them")
+	rootCmd.PersistentFlags().BoolVar(&noProfile, "no-profile", false, "Skip the per-action build profile (actiongraph collection, console section, and profile.json)")
 
 	// Silent no-op flags — accepted without error for tool compatibility
 	rootCmd.Flags().Bool("build", false, "")
@@ -64,32 +146,102 @@ func init() {
 	rootCmd.Flags().IntVarP(&benchCount, "count", "n", 1, "Number of times to run each benchmark")
 	rootCmd.Flags().StringVar(&benchCPU, "cpu", "", "GOMAXPROCS values to test with (comma-separated, e.g. 1,2,4)")
 
+	// Fingerprint covers the invoked flags -- LocalFlags folds the persistent flags in. See flagFingerprint.
+	fingerprintFlags = rootCmd.LocalFlags()
+	// Kept apart: Flags() merges these in only at parse time, so flagFingerprint visits both sets and dedupes by name.
+	fingerprintPersistentFlags = rootCmd.PersistentFlags()
+
 	Register(rootCmd)
 }
 
 // Execute runs the root command.
 func Execute() error {
+	defer emitBuildProfile()
+	defer removeFixedPointSelf()
 	return rootCmd.Execute()
 }
 
-func run(cmd *cobra.Command, args []string) error {
+func run(cmd *cobra.Command, args []string) (err error) {
+	InitTimeline()
+
+	// Runs last (registered at the head) so a later phase's failure still discards
+	// the binary the build just re-created.
+	defer func() {
+		if err != nil {
+			discardBuildOutputs()
+		}
+	}()
+
+	if cacheMisses {
+		tracker := newCacheMissTracker(os.Stderr)
+		activeMissTracker = tracker
+		defer tracker.Print()
+	}
+
+	wd := startWatchdog(5 * time.Second)
+	if wd != nil {
+		activeWatchdog = wd
+		defer func() {
+			activeWatchdog = nil
+			wd.stop()
+		}()
+	}
+
+	// The comment rule is imported, and its extractor reads a parse table that a generate step writes: a dependency ships
+	// the directive and not
+	if err := generateForDeps(approvedGenerateHash()); err != nil {
+		return err
+	}
+	if err := reexecUnderOwnBuild(); err != nil {
+		return err
+	}
+
 	modules := findGoModules()
 	if len(modules) == 0 {
-		return fmt.Errorf("no go.mod found — initialize with: go mod init <module-path>")
+		// A repo can own dats suites with no go.mod (the tested CLI need not
+		// be Go); the suites ARE the run then.
+		if hasDatsSuites(".") {
+			return runDatsOnly()
+		}
+		return fmt.Errorf("no go.mod and no dats/ suites found — initialize a module with: go mod init <module-path>")
 	}
 
 	r := runner.New()
 	startDir, _ := os.Getwd()
 
-	// Accumulate summary data across all modules; write once at the end.
+	// Only now, and at an absolute root: the loop below chdirs as it sweeps.
+	activeCommentScan = startCommentScan(startDir)
+	defer waitForCommentScan()
+
+	// Create global trace for fine-grained events.
+	activeTrace = gotrace.NewTrace()
+	vet.ActiveTrace = activeTrace
+
+	// Always write Chrome trace on exit, even if the build fails.
+	defer func() {
+		var entries []summary.TimelineEntry
+		if tl := GetTimeline(); tl != nil {
+			entries = tl.Entries()
+		}
+		tracePath := filepath.Join(profileDir(), "trace.json")
+		if err := gotrace.WriteChrome(tracePath, entries, activeTrace); err != nil {
+			logger.Warn("⇒ Warning: failed to write Chrome trace: %v", err)
+		}
+	}()
+
+	// Collect per-action profiles; captureProfileTrace runs after WriteChrome (LIFO), before the final report.
+	initBuildProfile()
+	defer captureProfileTrace()
+
+	// Accumulate summary data across all modules; write it at the end.
 	var allSummary summary.SummaryData
 
 	for i, modDir := range modules {
 		if len(modules) > 1 {
 			if i > 0 {
-				fmt.Println()
+				logger.Info("")
 			}
-			fmt.Printf("==> Module: %s\n", modDir)
+			logger.Info("⇒ Module: %s", modDir)
 		}
 
 		if modDir != "." {
@@ -103,36 +255,72 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Write GitHub Step Summary once after all modules complete
-	if writeErr := summary.Write(&allSummary); writeErr != nil {
-		fmt.Fprintf(os.Stderr, "==> Warning: failed to write step summary: %v\n", writeErr)
+	if err := maybeSubmitDeps(); err != nil {
+		return err
 	}
 
+	// Populate timeline data for Gantt chart
+	if tl := GetTimeline(); tl != nil {
+		allSummary.Timeline = tl.Entries()
+	}
+	allSummary.Artifacts = builtArtifactSizes()
+
+	// Write the GitHub Step Summary after all modules complete
+	if writeErr := summary.Write(&allSummary); writeErr != nil {
+		logger.Warn("⇒ Warning: failed to write step summary: %v", writeErr)
+	}
+
+	os.Chdir(startDir)
+
+	// Fail before saveFingerprint when warnings exceed budget, so a failed
+	// run is never stamped up-to-date.
+	if err := checkWarningsGate(); err != nil {
+		return err
+	}
+
+	saveFingerprint(r)
 	return nil
 }
 
 // findGoModules searches for go.mod files in the current directory and subdirectories.
 func findGoModules() []string {
-	// Check current directory first
+	// A root module leads the list: it is what a caller means by "this repo".
+	var found []string
 	if _, err := os.Stat("go.mod"); err == nil {
-		return []string{"."}
+		found = append(found, ".")
 	}
 
-	// Search subdirectories
-	var found []string
+	// Then every nested module. A root go.mod does NOT end the search: a
+	// repo that keeps a tool, an example or another service in its own
+	// module still has to build and test it, and returning the root alone
+	// reported a whole module green without compiling a line of it.
 	filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "node_modules") {
+			// go itself ignores testdata, so a go.mod there is a fixture.
+			if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "node_modules" || name == "testdata") {
 				return filepath.SkipDir
+			}
+			// The fork checkout holds the standard library's modules, which the fork builds.
+			if isForkSubmodulePath(path) {
+				return filepath.SkipDir
+			}
+			// A directory with its own .git is another repository, such as a
+			// submodule. That repository builds and tests its own modules.
+			if name != "." {
+				if _, err := os.Lstat(filepath.Join(path, ".git")); err == nil {
+					return filepath.SkipDir
+				}
 			}
 			return nil
 		}
 		if d.Name() == "go.mod" {
-			found = append(found, filepath.Dir(path))
+			if dir := filepath.Dir(path); dir != "." {
+				found = append(found, dir)
+			}
 		}
 		return nil
 	})
@@ -142,19 +330,54 @@ func findGoModules() []string {
 
 func runWithRunner(r runner.CommandRunner, sd *summary.SummaryData) error {
 	setupCGOEnvironment()
+	// Delete outputs before any phase runs, so a run that dies anywhere
+	// leaves nothing behind to mistake for a result.
+	if err := clearBuildOutputs(r); err != nil {
+		return err
+	}
 	return runWithRunnerOnce(r, false, sd)
 }
 
 func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.SummaryData) error {
 	quiet := jsonOutput
 
+	// Ahead of the unchanged-tree exit below: a tree that has not changed since
+	// the last green run can still predate this rule.
+	if err := checkOrgPins(moduleRoot()); err != nil {
+		return err
+	}
+
 	// Check for dep updates before tests so we don't run the full
-	// test suite twice when a dependency is outdated.
+	// test suite again when a dependency is outdated.
 	if !quiet && !isRetry {
 		depChecker := CheckOutdatedDeps()
 		if WaitForOutdatedDeps(depChecker) {
-			fmt.Println()
+			logger.Info("")
 		}
+	}
+
+	// Vet and the tests read the inputs, and the inputs are what they answer
+	// about. An unchanged tree that lost its outputs has to build again, and
+	// asking that question again only re-runs a suite whose answer is on file.
+	// It is also the path that reaches the build with no coverage to report.
+	if treeUnchanged && !isRetry {
+		waitForCommentScan() // This path reaches no vet, so the sweep lands here.
+		logger.Output("⇒ Tests and vet skipped: the tree has not changed since the last green run")
+		br, builtArtifacts, err := runBuildPhase(r, quiet)
+		if err != nil {
+			return err
+		}
+		if err := integration.Run(context.Background(), "tests"); err != nil {
+			return err
+		}
+		if err := runDatsPhase(quiet, builtArtifacts); err != nil {
+			return err
+		}
+		if sd != nil && br != nil {
+			sd.Benchmarks = br.Report
+			sd.BenchComp = br.Comparison
+		}
+		return nil
 	}
 
 	filesChanged, testResult, err := RunTestsWithCoverage(r, quiet)
@@ -164,12 +387,30 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 
 	// If vet applied fixes, re-run tests with the corrected code
 	if !isRetry && filesChanged {
-		fmt.Println("\n==> Files changed, rebuilding...")
+		logger.Info("\n⇒ Files changed, rebuilding...")
 		return runWithRunnerOnce(r, true, sd)
 	}
 
-	br, err := runBuildPhase(r, quiet)
+	if codeql.Enabled() {
+		ex := logStep("codeql extract")
+		if err := codeql.Extract(r); err != nil {
+			ex.failed()
+			return err
+		}
+		ex.done()
+	}
+
+	br, builtArtifacts, err := runBuildPhase(r, quiet)
 	if err != nil {
+		return err
+	}
+
+	if err := integration.Run(context.Background(), "tests"); err != nil {
+		return err
+	}
+
+	// Runs after the build phase; a failing suite fails before saveFingerprint.
+	if err := runDatsPhase(quiet, builtArtifacts); err != nil {
 		return err
 	}
 
@@ -187,28 +428,34 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 	return nil
 }
 
-func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
+// runBuildPhase builds every target and runs benchmarks. It also returns the
+// built artifacts so the dats phase can stage host-runnable copies for suites.
+func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, []datsArtifact, error) {
+	// Runs before go-toolchain writes its own artifacts, catching only uncommitted source.
+	if err := checkDirtyInCI(); err != nil {
+		return nil, nil, err
+	}
+
 	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	// The same fat APE the matrix path publishes, so nothing here can differ from what ships.
+	warnCGOUnavailable(true, false)
+	forkEnv, err := resolveForkBuildEnv(true)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
+		return nil, nil, fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
 	}
 	ensureBuildDirInGitignore()
-	info := collectGitInfo()
-	ldflags := info.ldflags()
-	if !quiet {
-		fmt.Printf("==> Embedding version: %s\n", info)
-	}
-	inDocker := build.InDocker()
+	var artifacts []datsArtifact
 	for _, t := range targets {
-		outputName := t.OutputName
-		if inDocker {
-			outputName = build.BinaryName(outputName, runtime.GOOS, runtime.GOARCH)
-		}
-		outPath := filepath.Join(outputDir, outputName)
+		// The APE carries no platform suffix: the same file runs on every host.
+		outPath := filepath.Join(outputDir, build.BinaryName(t.OutputName, cosmoOS, cosmoFatArch))
 		var buildStep *step
 		if !quiet {
 			buildStep = logStep(fmt.Sprintf("go build -o %s %s", outPath, t.ImportPath))
@@ -217,331 +464,30 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 		if buildStep != nil {
 			onFirstOutput = buildStep.noteOutput
 		}
-		job := buildJob{
-			srcPath:    t.ImportPath,
-			outputPath: outPath,
-			ldflags:    ldflags,
-		}
-		if err := runBuild(r, job, onFirstOutput); err != nil {
-			return nil, fmt.Errorf("go build failed: %w", err)
+		if err := runBuild(r, forkEnv.apeJob(t.ImportPath, outPath), onFirstOutput); err != nil {
+			return nil, nil, fmt.Errorf("go build failed: %w", err)
 		}
 		if buildStep != nil {
 			buildStep.done()
 		}
+		artifacts = append(artifacts, datsArtifact{
+			sourcePath: outPath,
+			name:       datsArtifactName(t.OutputName, hostos.GOOS()),
+		})
+		recordArtifactSize(outPath)
 	}
 
 	if !quiet {
-		fmt.Println("==> Build successful")
+		logger.Info("⇒ Build successful")
 	}
 
 	if !noBenchmark {
 		br, err := runBenchmarkInBuild(r)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return br, nil
+		return br, artifacts, nil
 	}
 
-	return nil, nil
-}
-
-// RunTestsWithCoverage runs go mod tidy, go vet, tests with coverage, and
-// checks coverage against the threshold. Used by both the default command
-// and the matrix command.
-// Returns (filesChanged, testResult, error) where filesChanged indicates if vet applied any fixes.
-func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.TestResult, error) {
-	// Fix any v0.0.0 dependencies before go mod tidy
-	if err := FixBogusDepsVersions(r); err != nil {
-		return false, nil, err
-	}
-
-	// Handle vanity-URL modules: inject replace directives for unreachable hosts
-	vanityReplaces, vanityErr := injectVanityReplaces()
-	if vanityErr != nil {
-		return false, nil, fmt.Errorf("vanity URL handling failed: %w", vanityErr)
-	}
-
-	var modTidyStep *step
-	if !quiet {
-		modTidyStep = logStep("go mod tidy")
-	}
-	timedStderr := newTimedLineWriter(os.Stderr)
-	proc, err := runner.Cmd("go", "mod", "tidy").WithStderrWriter(timedStderr).WithOnFirstOutput(func() {
-		if modTidyStep != nil {
-			modTidyStep.noteOutput()
-		}
-	}).Run(r)
-	if err != nil {
-		return false, nil, fmt.Errorf("go mod tidy failed: %w", err)
-	}
-	if err := proc.Wait(); err != nil {
-		if _, statErr := os.Stat("go.mod"); statErr != nil {
-			return false, nil, fmt.Errorf("no go.mod found — initialize with: go mod init <module-path>")
-		}
-		return false, nil, fmt.Errorf("go mod tidy failed: %w", err)
-	}
-	timedStderr.Flush()
-	if modTidyStep != nil {
-		modTidyStep.done()
-	}
-
-	if needsGenerate() {
-		var genStep *step
-		if !quiet {
-			genStep = logStep("go generate ./...")
-		}
-		if err := runGenerate(quiet, generateHash); err != nil {
-			return false, nil, fmt.Errorf("go generate failed: %w", err)
-		}
-		if genStep != nil {
-			genStep.noteOutput() // generate always prints directives
-			genStep.done()
-		}
-		// Run tidy again after generate in case new imports were added
-		var tidyStep2 *step
-		if !quiet {
-			tidyStep2 = logStep("go mod tidy (post-generate)")
-		}
-		proc, err := runner.Cmd("go", "mod", "tidy").WithOnFirstOutput(func() {
-			if tidyStep2 != nil {
-				tidyStep2.noteOutput()
-			}
-		}).Run(r)
-		if err != nil {
-			return false, nil, fmt.Errorf("go mod tidy failed: %w", err)
-		}
-		if err := proc.Wait(); err != nil {
-			return false, nil, fmt.Errorf("go mod tidy failed: %w", err)
-		}
-		if tidyStep2 != nil {
-			tidyStep2.done()
-		}
-	}
-
-	// Remove vanity replace directives now that tidy is done
-	if err := removeVanityReplaces(vanityReplaces); err != nil {
-		return false, nil, fmt.Errorf("failed to clean up vanity replaces: %w", err)
-	}
-
-	var vetStep *step
-	if !quiet {
-		vetStep = logStep("go vet ./...")
-	}
-	var vetPhaseStart time.Time
-	var vetPhaseName string
-	vetProgress := func(phase string) {
-		if quiet {
-			return
-		}
-		now := time.Now()
-		if vetPhaseName != "" {
-			fmt.Fprintf(os.Stderr, "    %s %s\n", vetPhaseName, fmtDuration(now.Sub(vetPhaseStart)))
-		} else if vetStep != nil {
-			vetStep.noteOutput()
-		}
-		vetPhaseName = phase
-		vetPhaseStart = now
-	}
-	fix := os.Getenv("CI") == "" // disable auto-fix on CI
-	filesChanged, err := vet.RunWithProgress(fix, vetProgress)
-	if err != nil {
-		return false, nil, fmt.Errorf("vet failed: %w", err)
-	}
-	// Print the last phase timing
-	if !quiet && vetPhaseName != "" {
-		fmt.Fprintf(os.Stderr, "    %s %s\n", vetPhaseName, fmtDuration(time.Since(vetPhaseStart)))
-	}
-	if vetStep != nil {
-		vetStep.done()
-	}
-
-	if dupcode {
-		runDuplicateCheck()
-	}
-
-	if err := checkFileLength("."); err != nil {
-		return false, nil, err
-	}
-
-	var testStep *step
-	if !quiet {
-		testStep = logStep("Running tests with coverage")
-	}
-
-	tmpDir, err := os.MkdirTemp("", "go-toolchain-*")
-	if err != nil {
-		return false, nil, fmt.Errorf("failed to create temp dir: %w", err)
-	}
-	defer os.RemoveAll(tmpDir)
-	coverFile := filepath.Join(tmpDir, "coverage.out")
-
-	var onTestOutput func()
-	if testStep != nil {
-		onTestOutput = testStep.noteOutput
-	}
-	result, testErr := gotest.RunTests(r, verbose, coverFile, onTestOutput)
-	if result == nil {
-		if testStep != nil {
-			testStep.failed()
-		}
-		return false, nil, fmt.Errorf("tests failed: %w", testErr)
-	}
-	if testErr != nil && testStep != nil {
-		testStep.failed()
-	} else if testStep != nil {
-		testStep.done()
-	}
-
-	report := &result.Coverage
-
-	// If tests failed, show failure details and return error (no coverage output)
-	if testErr != nil {
-		if !quiet && result.FailureOutput != "" {
-			fmt.Println("\n==> Test failures:")
-			fmt.Print(colorRed + result.FailureOutput + colorReset)
-		}
-		return false, result, fmt.Errorf("tests failed: %w", testErr)
-	}
-
-	if quiet {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "\t")
-		if err := enc.Encode(report); err != nil {
-			return false, nil, fmt.Errorf("failed to encode JSON: %w", err)
-		}
-	} else {
-		fmt.Println("\n==> Package coverage:")
-		report.Print()
-
-		fmt.Printf("\n==> Total coverage: %s\n", colorPct(ColorPct{Pct: report.Total, Format: "%.1f%%"}))
-	}
-
-	// Coverage enforcement: default 80%, or watermark-2.5% if lower
-	var effectiveMin float32 = 80.0
-	wm, wmExists, wmErr := gotest.GetWatermark(".")
-	if wmErr != nil {
-		// Watermark read failed (e.g., xattrs not supported) - warn and use default
-		if !quiet {
-			fmt.Printf("==> Warning: %v (using default %.0f%%)\n", wmErr, effectiveMin)
-		}
-		wmExists = false
-	}
-	if wmExists {
-		grace := wm - 2.5
-		if grace < effectiveMin {
-			effectiveMin = grace
-		}
-		if !quiet {
-			fmt.Printf("==> Watermark: %.1f%% (effective minimum: %.1f%%)\n", wm, effectiveMin)
-		}
-		// Ratchet up: update watermark if coverage improved
-		if report.Total > wm {
-			if err := gotest.SetWatermark(".", report.Total); err != nil {
-				if !quiet {
-					fmt.Printf("==> Warning: failed to update watermark: %v\n", err)
-				}
-			} else if !quiet {
-				fmt.Printf("==> Watermark updated: %.1f%% -> %.1f%%\n", wm, report.Total)
-			}
-		}
-	}
-
-	// Round to 1 decimal place for comparison (same precision as display)
-	roundedTotal := float32(math.Round(float64(report.Total)*10) / 10)
-	roundedMin := float32(math.Round(float64(effectiveMin)*10) / 10)
-	if roundedTotal < roundedMin {
-		// Calculate total uncovered statements across all packages
-		var totalUncovered int
-		for _, pkg := range report.Packages {
-			totalUncovered += pkg.Uncovered()
-		}
-		// Allow reduced coverage if fewer than 10 statements are uncovered
-		// (e.g. small programs where main() can't be easily covered)
-		if totalUncovered < 10 {
-			if !quiet {
-				fmt.Printf("==> Coverage %.1f%% is below minimum %.1f%%, but only %d statements uncovered — allowing\n", report.Total, effectiveMin, totalUncovered)
-			}
-		} else {
-			return false, result, fmt.Errorf("coverage %.1f%% is below minimum %.1f%%", report.Total, effectiveMin)
-		}
-	}
-
-	return filesChanged, result, nil
-}
-
-var errFound = fmt.Errorf("found")
-
-// needsGenerate returns true if any .go file contains a //go:generate directive.
-func needsGenerate() bool {
-	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() || !strings.HasSuffix(path, ".go") {
-			return nil
-		}
-		f, err := os.Open(path)
-		if err != nil {
-			return nil
-		}
-		defer f.Close()
-		scanner := bufio.NewScanner(f)
-		for scanner.Scan() {
-			if strings.HasPrefix(scanner.Text(), "//go:generate ") {
-				return errFound
-			}
-		}
-		return nil
-	})
-	return err == errFound
-}
-
-
-// runDuplicateCheck scans Go source files for near-duplicate function bodies
-// and prints warnings. It never causes a build failure.
-func runDuplicateCheck() {
-	if !jsonOutput {
-		fmt.Println("==> Checking for near-duplicate code")
-	}
-
-	paths, err := walkGoFiles(".")
-	if err != nil || len(paths) == 0 {
-		return
-	}
-
-	fset := token.NewFileSet()
-	allFiles := make(map[string]*ast.File)
-	for _, path := range paths {
-		f, parseErr := parser.ParseFile(fset, path, nil, 0)
-		if parseErr != nil {
-			continue
-		}
-		allFiles[path] = f
-	}
-
-	if len(allFiles) == 0 {
-		return
-	}
-
-	reports := lint.RunOnFiles(allFiles, fset, lintThreshold, lintMinNodes)
-	if len(reports) == 0 {
-		return
-	}
-
-	if jsonOutput {
-		return
-	}
-
-	fmt.Printf("\n%s near-duplicate code: found %d pair(s)%s\n", colorYellow, len(reports), colorReset)
-	for i, r := range reports {
-		fmt.Printf("  %d. %.0f%% similar: %s (%s:%d) and %s (%s:%d)\n",
-			i+1, r.Similarity*100,
-			r.FuncA, r.FileA, r.LineA,
-			r.FuncB, r.FileB, r.LineB,
-		)
-		if verbose {
-			fmt.Printf("     %s\n", r.Suggestion.Description)
-		}
-	}
-	fmt.Println()
+	return nil, artifacts, nil
 }
