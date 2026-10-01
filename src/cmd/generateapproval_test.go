@@ -15,8 +15,8 @@ const approvalGoMod = `module example.com/m // go-toolchain:generate=own123
 go 1.27
 
 require (
-	github.com/wow/plain v1.0.0 // go-toolchain:auto-branch; go-toolchain:generate=abc123
-	github.com/wow/deep v0.0.0-20260913013131-12eca33b8f79 // indirect; go-toolchain:auto-branch; go-toolchain:generate=def456
+	github.com/wow/plain v1.0.0 // go-toolchain:generate=abc123
+	github.com/wow/deep v0.0.0-20260913013131-12eca33b8f79 // indirect; go-toolchain:generate=def456
 	github.com/wow/bare v1.0.0
 	github.com/up/fork v1.0.0
 )
@@ -98,7 +98,7 @@ func TestTheApprovedLineKeepsTheExistingComment(t *testing.T) {
 		"github.com/wow/bare v1.0.0 // go-toolchain:generate=new789",
 		approvedLine(f, "github.com/wow/bare", "v1.0.0", "new789"))
 	assert.Equal(t,
-		"github.com/wow/deep v0.0.0-20260913013131-12eca33b8f79 // indirect; go-toolchain:auto-branch; go-toolchain:generate=new789",
+		"github.com/wow/deep v0.0.0-20260913013131-12eca33b8f79 // indirect; go-toolchain:generate=new789",
 		approvedLine(f, "github.com/wow/deep", "v0.0.0-20260913013131-12eca33b8f79", "new789"),
 		"a stale hash is replaced, not repeated")
 	assert.Equal(t, "def456", dependencyApproval(f, "github.com/wow/deep"), "the file itself is untouched")
@@ -121,20 +121,8 @@ func TestTheApprovedModuleLineReplacesTheOldHash(t *testing.T) {
 		approvedModuleLine(t.TempDir(), "new789"), "with no go.mod there is only the marker to name")
 }
 
-// The tracking marker still reads on a line that also records an approval, in
-// either order.
-func TestTheTrackingMarkerReadsBesideAnApproval(t *testing.T) {
-	f := parsedGoMod(t)
-	m := parseMarker(moduleLine(f, "github.com/wow/plain"))
-	assert.True(t, m.tracks)
-	assert.Empty(t, m.branch)
-
-	named := &modfile.Line{Comments: modfile.Comments{Suffix: []modfile.Comment{{Token: "// go-toolchain:generate=abc123; go-toolchain:auto-branch=dev"}}}}
-	assert.Equal(t, "dev", parseMarker(named).branch)
+// The approval is read off a line that carries another comment beside it.
+func TestTheApprovalReadsBesideAnotherComment(t *testing.T) {
+	named := &modfile.Line{Comments: modfile.Comments{Suffix: []modfile.Comment{{Token: "// indirect; go-toolchain:generate=abc123"}}}}
 	assert.Equal(t, "abc123", parseGenerateMarker(named))
-}
-
-// Rewriting the tracking marker keeps the approval beside it.
-func TestStrippingTheTrackingMarkerKeepsTheApproval(t *testing.T) {
-	assert.Equal(t, "// go-toolchain:generate=abc123", stripMarkers("// go-toolchain:auto-branch; go-toolchain:generate=abc123"))
 }

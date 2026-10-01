@@ -1,6 +1,8 @@
 package runner
 
 import (
+	"io"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -301,6 +303,29 @@ func TestRealRunnerStderr(t *testing.T) {
 	assert.Contains(t, string(buf[:n]), "error")
 
 	proc.Wait()
+}
+
+// TestRealRunnerReadsBothStreamsWhileTheCallerReadsOne pins the shape that
+// hung the test phase on NT: the child fills stderr past any pipe buffer
+// before it writes stdout, and the caller reads stdout to its end earliest.
+func TestRealRunnerReadsBothStreamsWhileTheCallerReadsOne(t *testing.T) {
+	t.Serial()
+	r := New()
+	proc, err := r.Run(Config{
+		Name:  "sh",
+		Args:  []string{"-c", "i=0; while [ $i -lt 4000 ]; do echo 'a line of stderr noise the parent is not reading yet, over and over' >&2; i=$((i+1)); done; echo done-stdout"},
+		Quiet: true,
+	})
+	assert.Nil(t, err)
+
+	out, err := io.ReadAll(proc.Stdout())
+	assert.Nil(t, err)
+	assert.Equal(t, "done-stdout\n", string(out))
+
+	errOut, err := io.ReadAll(proc.Stderr())
+	assert.Nil(t, err)
+	assert.Equal(t, 4000, strings.Count(string(errOut), "\n"))
+	assert.Nil(t, proc.Wait())
 }
 
 func TestRealRunnerFailingCommand(t *testing.T) {

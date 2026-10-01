@@ -12,6 +12,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestUnixDrivePath(t *testing.T) {
+	cases := map[string]string{
+		`D:\a\go-ipc\go-ipc`: "/d/a/go-ipc/go-ipc",
+		`c:/Users/x`:         "/c/Users/x",
+		`/home/runner/work`:  "/home/runner/work",
+		`relative\dir`:       `relative\dir`,
+		`1:\not-a-drive`:     `1:\not-a-drive`,
+		`D:`:                 "D:",
+		``:                   "",
+	}
+	for in, want := range cases {
+		assert.Equal(t, want, unixDrivePath(in), "input %q", in)
+	}
+}
+
+func TestInsideWorkspace_WindowsDriveSpelling(t *testing.T) {
+	t.Serial()
+	t.Setenv("GITHUB_WORKSPACE", `D:\a\go-ipc\go-ipc`)
+	assert.Equal(t, "/d/a/go-ipc/go-ipc", workspaceDir(), "a cosmo binary compares the workspace in its own spelling")
+}
+
 func TestBuildDepSnapshot_MissingSHA(t *testing.T) {
 	t.Serial()
 	t.Setenv("GITHUB_SHA", "")

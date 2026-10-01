@@ -117,6 +117,50 @@ type step struct {
 	noisy  bool
 	sub    bool // sub-step: indented output, no "⇒" prefix
 	once   sync.Once
+	stopHB chan struct{}
+	hbOnce sync.Once
+}
+
+// heartbeatEvery is how often a step with no output of its own says it is
+// still running. A test phase can compile for minutes before the first test
+// prints, and a log that says nothing for that long is indistinguishable
+// from a hang.
+const heartbeatEvery = 20 * time.Second
+
+// heartbeat starts reporting elapsed time until the step finishes. detail
+// answers what the step is doing now, or "" when it has nothing to add.
+func (s *step) heartbeat(detail func() string) {
+	s.stopHB = make(chan struct{})
+	go func() {
+		t := time.NewTicker(heartbeatEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-s.stopHB:
+				return
+			case <-t.C:
+				s.noteOutput()
+				line := ""
+				if detail != nil {
+					line = detail()
+				}
+				if line != "" {
+					line = ": " + line
+				}
+				fmt.Fprintf(os.Stdout, "    %s still running%s %s\n", s.label, line, fmtDuration(time.Since(s.start)))
+			}
+		}
+	}()
+}
+
+// stopHeartbeat ends the reporting started by heartbeat. It is safe to call
+// when none was started, and safe to call twice.
+func (s *step) stopHeartbeat() {
+	s.hbOnce.Do(func() {
+		if s.stopHB != nil {
+			close(s.stopHB)
+		}
+	})
 }
 
 // logStep prints "⇒ label..." without a newline and returns a step
@@ -159,6 +203,7 @@ func fmtDuration(d time.Duration) string {
 
 // finish prints the completion message with elapsed time and a status word.
 func (s *step) finish(status string) {
+	s.stopHeartbeat()
 	end := time.Now()
 	d := end.Sub(s.start)
 	if s.sub {

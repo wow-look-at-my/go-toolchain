@@ -244,6 +244,13 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 	return nil
 }
 
+// perRunEnv names the GitHub Actions variables that differ between runs of the same commit's tests.
+// GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT stay: a CI go command refuses to build without them.
+var perRunEnv = []string{
+	"GITHUB_SHA", "GITHUB_REF", "GITHUB_REF_NAME", "GITHUB_RUN_NUMBER",
+	"GITHUB_STEP_SUMMARY", "GITHUB_OUTPUT", "GITHUB_ENV", "GITHUB_PATH", "GITHUB_STATE",
+}
+
 // runTestsOnce executes go test for a single build-tag configuration.
 func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutput func(),
 	timeline TimelineRecorder, tagCfg buildtags.Config, only []string,
@@ -263,8 +270,8 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 		}
 	}
 	if coverFile != "" {
-		// -count disables result caching only; stale coverprofile fragments otherwise corrupt coverage (https://go.dev/issue/74873).
-		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...", "-count=1")
+		// No -count: the fork keys the coverprofile on the coverage metadata, so a cached run cannot replay a stale profile.
+		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...")
 	}
 	switch {
 	case len(only) > 0:
@@ -280,7 +287,11 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 	// Tee stderr to console and a buffer, for progress and error reporting.
 	var stderrBuf bytes.Buffer
 	stderrTee := io.MultiWriter(&stderrBuf, os.Stderr)
-	proc, err := runner.Cmd("go", args...).WithStderrWriter(stderrTee).Run(r)
+	cmd := runner.Cmd("go", args...).WithStderrWriter(stderrTee)
+	for _, name := range perRunEnv {
+		cmd = cmd.WithEnv(name, "")
+	}
+	proc, err := cmd.Run(r)
 	if err != nil {
 		return nil, err
 	}

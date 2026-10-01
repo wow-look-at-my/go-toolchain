@@ -17,130 +17,45 @@ func write(t *testing.T, dir, path, body string) {
 	require.NoError(t, os.WriteFile(full, []byte(body), 0o644))
 }
 
-// TestTheScanReadsEveryLanguageTheExtractorKnows is the reason the rule left
-// vet: a shell script and a workflow carry the same stale prose a Go comment
-// does, and no Go analyzer ever looked at either.
-func TestTheScanReadsEveryLanguageTheExtractorKnows(t *testing.T) {
+// What this file owns is the WIRING. Which files carry prose, what a number in
+// a comment is, and what a repair writes instead are slopfix's, and its own
+// suites answer for them.
+
+// The sweep repairs the tree the caller names, and a join answers what it did.
+func TestTheSweepRepairsTheTreeAndReportsIt(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, "go.mod", "module x\n")
-	write(t, dir, "a.go", "package p\n\n// the walk has 3 phases\n")
-	write(t, dir, "run.sh", "#!/bin/sh\n# the sweep runs twice\n")
-	write(t, dir, "ci.yml", "# holds 4 jobs\njobs: {}\n")
+	write(t, dir, "a.go", "package p\n\n// The walk holds 3 phases.\nfunc f() {}\n")
 
-	found := map[string]string{}
-	for _, path := range commentScanFiles(dir) {
-		src, err := os.ReadFile(path)
-		require.NoError(t, err)
-		for _, hit := range commentNumberFindings(path, string(src)) {
-			found[filepath.Base(path)] = hit.Number
-		}
-	}
-	assert.Equal(t, map[string]string{"a.go": "3", "run.sh": "twice", "ci.yml": "4"}, found)
+	scan := startCommentScan(dir)
+	<-scan.done
+	require.Len(t, scan.result.Repaired, 1)
+	assert.Empty(t, scan.result.Findings, "slopfix repairs every finding it reports")
+
+	src, err := os.ReadFile(filepath.Join(dir, "a.go"))
+	require.NoError(t, err)
+	assert.NotContains(t, string(src), "3 phases")
+	assert.Contains(t, string(src), "func f() {}", "the repair stays inside the comment")
 }
 
-// TestAFindingNamesItsLineAndColumn pins what a warning points at. A report
-// that names the file alone leaves the reader searching it.
-func TestAFindingNamesItsLineAndColumn(t *testing.T) {
-	hits := commentNumberFindings("x.go", "package p\n\n// fine\n// holds 5 entries\n")
-	require.Len(t, hits, 1)
-	assert.Equal(t, 4, hits[0].Line)
-	assert.Equal(t, 10, hits[0].Col)
+// The join is what the build waits on, and a run that started no sweep must
+// not wait at all. Every caller reaching no module is in that case.
+func TestJoiningWithoutASweepAnswersAtOnce(t *testing.T) {
+	t.Serial()
+	activeCommentScan = nil
+	assert.NotPanics(t, waitForCommentScan)
 }
 
-// TestASentenceNamingSeveralNumbersCostsOneWarning pins the budget's unit: the
-// repair is a rewrite of the line, whatever it counts.
-func TestASentenceNamingSeveralNumbersCostsOneWarning(t *testing.T) {
-	hits := commentNumberFindings("x.go", "package p\n\n// holds 5 entries across 3 shards\n")
-	assert.Len(t, hits, 1)
-}
-
-// TestTheScanSkipsTextItsAuthorDoesNotOwn pins the exclusions. A nested module
-// keeps its own prose, and a build output is written rather than authored.
-func TestTheScanSkipsTextItsAuthorDoesNotOwn(t *testing.T) {
+// The join is spent a single time. The test phase and the deferred join in run
+// both call it, and the next must not block on a channel already drained.
+func TestJoiningTwiceIsSafe(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	write(t, dir, "go.mod", "module x\n")
-	write(t, dir, "keep.go", "package p\n")
-	write(t, dir, "inner/go.mod", "module y\n")
-	write(t, dir, "inner/skip.go", "package q\n")
-	write(t, dir, "vendor/dep/skip.go", "package r\n")
-	write(t, dir, ".git/hooks/skip.sh", "# hook\n")
-	write(t, dir, filepath.Join(outputDir, "skip.go"), "package s\n")
+	write(t, dir, "a.go", "package p\n")
 
-	var names []string
-	for _, path := range commentScanFiles(dir) {
-		names = append(names, filepath.Base(path))
-	}
-	assert.Equal(t, []string{"keep.go"}, names)
-}
-
-// TestATreeWithNoModuleAtItsRootIsStillScanned pins the case the nested-module
-// skip would otherwise empty: a repo whose modules all sit below the root.
-func TestATreeWithNoModuleAtItsRootIsStillScanned(t *testing.T) {
-	dir := t.TempDir()
-	write(t, dir, "svc/go.mod", "module x\n")
-	write(t, dir, "svc/a.go", "package p\n\n// holds 3 entries\n")
-
-	var names []string
-	for _, path := range commentScanFiles(dir) {
-		names = append(names, filepath.Base(path))
-	}
-	assert.Contains(t, names, "a.go")
-}
-
-// TestAFileTooLargeToBeProseIsSkipped pins the bound. A committed blob costs
-// more to read than the prose it holds.
-func TestAFileTooLargeToBeProseIsSkipped(t *testing.T) {
-	dir := t.TempDir()
-	write(t, dir, "go.mod", "module x\n")
-	write(t, dir, "big.go", "package p\n// "+string(make([]byte, commentScanMaxFileBytes))+"\n")
-
-	assert.Empty(t, commentScanFiles(dir))
-}
-
-// A digit against a letter is a name, per COMMENT-SCAN.md. The hardware words
-// a driver is written in take that shape, and a stale dependency reported them.
-func TestADigitAgainstALetterIsANameAndStays(t *testing.T) {
-	src := "// chapter-12 tables, 64-bit ops, a 32-bit multiply and amd64\npackage p\n"
-	assert.Empty(t, commentNumberFindings("p.go", src))
-}
-
-// The exemption is narrow. A digit standing alone is still a count.
-func TestADigitStandingAloneIsStillACount(t *testing.T) {
-	src := "// The tables run to 12 sections.\npackage p\n"
-	assert.NotEmpty(t, commentNumberFindings("p.go", src))
-}
-
-// A git submodule is another repository's checkout, and its prose belongs to
-// that repository: it owns the wording and it takes the fix. The skip list
-// already holds text nobody here authored, so this extends the same principle
-// to the shape it missed -- and a submodule of C or Rust is invisible to
-// the nested-module predicate, which reads go.mod and nothing else.
-func TestASubmodulesProseBelongsToItsOwnRepository(t *testing.T) {
-	dir := t.TempDir()
-	write(t, dir, "go.mod", "module x\n")
-	write(t, dir, "ours.go", "package p\n")
-	write(t, dir, filepath.Join("upstream", ".git"), "gitdir: ../.git/modules/upstream\n")
-	write(t, dir, filepath.Join("upstream", "theirs.c"), "/* Copyright 2023 */\n")
-
-	var names []string
-	for _, path := range commentScanFiles(dir) {
-		names = append(names, filepath.Base(path))
-	}
-	assert.Contains(t, names, "ours.go")
-	assert.NotContains(t, names, "theirs.c")
-}
-
-// The skip reads the marker, not the name: a directory called .git inside an
-// ordinary checkout is that checkout's own, and its files are ours to fix.
-func TestAnOrdinaryCheckoutIsStillWalked(t *testing.T) {
-	dir := t.TempDir()
-	write(t, dir, "go.mod", "module x\n")
-	write(t, dir, filepath.Join("inner", ".git", "HEAD"), "ref: refs/heads/master\n")
-	write(t, dir, filepath.Join("inner", "lib.go"), "package inner\n")
-
-	var names []string
-	for _, path := range commentScanFiles(dir) {
-		names = append(names, filepath.Base(path))
-	}
-	assert.Contains(t, names, "lib.go")
+	activeCommentScan = startCommentScan(dir)
+	waitForCommentScan()
+	assert.Nil(t, activeCommentScan)
+	assert.NotPanics(t, waitForCommentScan)
 }

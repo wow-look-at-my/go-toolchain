@@ -126,9 +126,37 @@ func TestOnlyAMissingNamedOutputIsOwed(t *testing.T) {
 	assert.True(t, owesOutput(at("go run tool -out parser.go in.c")), "named and absent")
 	assert.False(t, owesOutput(at("stringer -type=Kind")), "names no output, so nothing is known")
 
+	read := t.TempDir()
+	generated := at("go run tool -out parser.go in.c")
+	generated.ReadDir = read
+	assert.True(t, owesOutput(generated), "absent from the copy the go command reads too")
+	require.NoError(t, os.WriteFile(filepath.Join(read, "parser.go"), []byte("x"), 0o644))
+	assert.False(t, owesOutput(generated), "the go command generated it into its copy")
+
 	write("parser.go")
 	assert.False(t, owesOutput(at("go run tool -out parser.go in.c")), "the file is there")
 	assert.False(t, owesOutput(at("go run tool -out=parser.go in.c")), "the joined spelling reads too")
+}
+
+// A generator the module zip left out cannot run, so it is not pending.
+func TestADirectiveWithNoGeneratorInTheModuleIsDropped(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "equal_fold.go"), []byte("x"), 0o644))
+	at := func(cmd string) generateDirective {
+		return generateDirective{File: filepath.Join(dir, "equal_fold.go"), Line: 1, Command: cmd, Label: "dep/ascii/equal_fold.go"}
+	}
+
+	absent := at("go run equal_fold_asm.go -out equal_fold_amd64.s -stubs equal_fold_amd64.go")
+	require.True(t, owesOutput(absent), "the output is genuinely missing")
+	assert.Equal(t, "equal_fold_asm.go", missingGenerator(absent))
+	assert.Empty(t, pendingDepDirectives([]generateDirective{absent}), "an unrunnable directive owes nothing")
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "equal_fold_asm.go"), []byte("x"), 0o644))
+	assert.Empty(t, missingGenerator(absent), "the generator ships after all")
+	assert.Len(t, pendingDepDirectives([]generateDirective{absent}), 1, "a runnable directive stays pending")
+
+	assert.Empty(t, missingGenerator(at("stringer -type=Kind")), "only a go run command names its sources")
+	assert.Empty(t, missingGenerator(at("go run equal_fold_asm.go -stubs never_written.go")), "a name after a flag is an output, not a source")
 }
 
 // A run is grouped per module, because the clone is per repository.

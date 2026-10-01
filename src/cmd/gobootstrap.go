@@ -3,6 +3,7 @@ package cmd
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -58,7 +59,8 @@ func goVersionCore(v string) string {
 	return v
 }
 
-// verifyGoToolchain loads "runtime" via goPath, catching a GOROOT that runs but cannot compile.
+// verifyGoToolchain loads "runtime" via goPath, catching a go command that runs and carries no
+// standard library it can resolve that package from.
 // GOTOOLCHAIN=local, an emptied GOFLAGS and a go.mod-free directory keep a downloaded toolchain
 // and the caller's own -race out of the answer.
 func verifyGoToolchain(goPath string) error {
@@ -112,7 +114,7 @@ func installedGoVersion() (string, error) {
 	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
 	out, err := cmd.Output()
 	if err != nil {
-		return "", err
+		return "", withChildStderr(err)
 	}
 	// Output format: "go version goX.Y.Z <goos>/<goarch>"
 	fields := strings.Fields(string(out))
@@ -120,6 +122,20 @@ func installedGoVersion() (string, error) {
 		return "", fmt.Errorf("unexpected go version output: %s", out)
 	}
 	return strings.TrimPrefix(fields[2], "go"), nil
+}
+
+// withChildStderr joins what the child said to its exit status. Output keeps
+// that text on the error and prints none of it.
+func withChildStderr(err error) error {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return err
+	}
+	said := bytes.TrimSpace(exitErr.Stderr)
+	if len(said) == 0 {
+		return err
+	}
+	return fmt.Errorf("%w\n%s", err, said)
 }
 
 // requiredGoVersion reads the go.mod file and returns the Go version needed.

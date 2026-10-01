@@ -52,9 +52,6 @@ func skipUpToDateCheck(cmd *cobra.Command) bool {
 	return false
 }
 
-// unguardedCmds print no build result, so a capture hides nothing. Depth: docs/AGENT-OUTPUT-GUARD.md.
-var unguardedCmds = set.Of("version")
-
 // toolchainlessCmds run no go command, so they set none up.
 var toolchainlessCmds = set.Of("version", "verify-identical")
 
@@ -82,32 +79,18 @@ func skipToolchain(cmd *cobra.Command) bool {
 	return false
 }
 
-// skipAgentGuard reports whether cmd or an ancestor prints no build result.
-func skipAgentGuard(cmd *cobra.Command) bool {
-	for c := cmd; c != nil; c = c.Parent() {
-		if unguardedCmds.Contains(c.Name()) {
-			return true
-		}
-	}
-	return false
-}
-
 var rootCmd = &cobra.Command{
 	Use:          "go-toolchain",
 	Short:        "Build Go projects with coverage enforcement",
 	SilenceUsage: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Install the logger ahead of the output guard, so every
-		// command's output honors the requested level.
+		// Install the logger so every command's output honors the
+		// requested level.
 		if err := initLogging(cmd); err != nil {
 			return err
 		}
 		// Snapshot env before phases add vars, so fingerprint matches what the next run checks.
 		captureRunEnv()
-		// Abort if the agent hides our output, unless this is cacheprog (see skipAgentGuard).
-		if !skipAgentGuard(cmd) {
-			guardAgainstAgentOutputCapture()
-		}
 		// A target set nothing can build is rejected before a compiler is fetched for it.
 		if err := checkTargetFlags(cmd); err != nil {
 			return err
@@ -115,7 +98,6 @@ var rootCmd = &cobra.Command{
 		// After cobra parses, so --help and a mistyped flag set up no toolchain.
 		if !skipToolchain(cmd) {
 			if err := EnsureGoVersion(); err != nil {
-				// Drop the previous run's binaries so a failed run cannot pass for a good run (see staleoutputs.go).
 				discardBuildOutputsFromCWD()
 				return fmt.Errorf("go bootstrap: %w", err)
 			}
@@ -175,7 +157,7 @@ func init() {
 // Execute runs the root command.
 func Execute() error {
 	defer emitBuildProfile()
-	defer removeGoLink()
+	defer removeFixedPointSelf()
 	return rootCmd.Execute()
 }
 
@@ -210,9 +192,9 @@ func run(cmd *cobra.Command, args []string) (err error) {
 	if err := generateForDeps(approvedGenerateHash()); err != nil {
 		return err
 	}
-
-	// Leads the phases: it reads bytes, not a type-checked package.
-	runCommentScanPhase(".")
+	if err := reexecUnderOwnBuild(); err != nil {
+		return err
+	}
 
 	modules := findGoModules()
 	if len(modules) == 0 {
@@ -226,6 +208,10 @@ func run(cmd *cobra.Command, args []string) (err error) {
 
 	r := runner.New()
 	startDir, _ := os.Getwd()
+
+	// Only now, and at an absolute root: the loop below chdirs as it sweeps.
+	activeCommentScan = startCommentScan(startDir)
+	defer waitForCommentScan()
 
 	// Create global trace for fine-grained events.
 	activeTrace = gotrace.NewTrace()
@@ -322,6 +308,13 @@ func findGoModules() []string {
 			if isForkSubmodulePath(path) {
 				return filepath.SkipDir
 			}
+			// A directory with its own .git is another repository, such as a
+			// submodule. That repository builds and tests its own modules.
+			if name != "." {
+				if _, err := os.Lstat(filepath.Join(path, ".git")); err == nil {
+					return filepath.SkipDir
+				}
+			}
 			return nil
 		}
 		if d.Name() == "go.mod" {
@@ -348,6 +341,12 @@ func runWithRunner(r runner.CommandRunner, sd *summary.SummaryData) error {
 func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.SummaryData) error {
 	quiet := jsonOutput
 
+	// Ahead of the unchanged-tree exit below: a tree that has not changed since
+	// the last green run can still predate this rule.
+	if err := checkOrgPins(moduleRoot()); err != nil {
+		return err
+	}
+
 	// Check for dep updates before tests so we don't run the full
 	// test suite again when a dependency is outdated.
 	if !quiet && !isRetry {
@@ -362,6 +361,7 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 	// asking that question again only re-runs a suite whose answer is on file.
 	// It is also the path that reaches the build with no coverage to report.
 	if treeUnchanged && !isRetry {
+		waitForCommentScan() // This path reaches no vet, so the sweep lands here.
 		logger.Output("⇒ Tests and vet skipped: the tree has not changed since the last green run")
 		br, builtArtifacts, err := runBuildPhase(r, quiet)
 		if err != nil {

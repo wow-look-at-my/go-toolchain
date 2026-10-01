@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -125,7 +126,8 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	if onFirstOutput != nil {
 		cmd = cmd.WithOnFirstOutput(onFirstOutput)
 		if activeMissTracker != nil {
-			cmd = cmd.WithStderrWriter(activeMissTracker)
+			// A tee: this writer replaces the console rather than joining it.
+			cmd = cmd.WithStderrWriter(io.MultiWriter(activeMissTracker, os.Stderr))
 		}
 	} else {
 		cmd = cmd.WithQuiet()
@@ -136,11 +138,15 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 			// Non-quiet: Wait() streams -v output to console; compiler errors go to stderr.
 			err = proc.Wait()
 		} else {
-			// Quiet (matrix): drain pipes manually, capture stderr for error messages
-			io.Copy(io.Discard, proc.Stdout())
+			// Quiet (matrix): drain both pipes, and keep both for the error.
+			stdout, _ := io.ReadAll(proc.Stdout())
 			stderr, _ := io.ReadAll(proc.Stderr())
-			if err = proc.Wait(); err != nil && len(stderr) > 0 {
-				err = fmt.Errorf("%w\n%s", err, stderr)
+			if err = proc.Wait(); err != nil {
+				said := bytes.TrimSpace(bytes.Join([][]byte{stderr, stdout}, []byte("\n")))
+				if len(said) == 0 {
+					said = []byte("it printed nothing on either stream")
+				}
+				err = fmt.Errorf("%w\n%s", err, said)
 			}
 		}
 	}

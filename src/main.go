@@ -2,8 +2,10 @@ package main
 
 import (
 	"os"
+	"strings"
 
 	"github.com/wow-look-at-my/go-toolchain/src/cmd"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/logx"
 )
 
@@ -12,8 +14,17 @@ func init() {
 	if isCacheProgInvocation() {
 		return
 	}
-	// The go command and its tools take the environment as it is.
+	// The go command and its tools take the environment as it is, because the
+	// command that started them configured it. A caller that starts this
+	// binary as go itself has no such parent, and a runner hands it a GOPROXY
+	// that names no proxy, which the go command refuses rather than reading as
+	// a default. An environment naming one is still taken as it is: only the
+	// absence is filled.
 	if _, linked := cmd.LinkedGoArgs(os.Args); linked {
+		if !namesAProxy(os.Getenv("GOPROXY")) {
+			logger.WithSubsystem("proxy").Info("GOPROXY names no proxy in this environment, so this linked run configures its own")
+			configureGoEnv()
+		}
 		return
 	}
 
@@ -41,8 +52,14 @@ func isCacheProgInvocation() bool {
 }
 
 func main() {
-	// This binary is the go command: a child that starts go by name, or the
-	// pipeline starting itself under the go subcommand, lands here.
+	// Ahead of every mode, the linked go command included, so a local run cannot inherit a CI pin.
+	if err := cmd.CheckCIOnlyEnv(); err != nil {
+		logger.Error("go-toolchain: %v", err)
+		os.Exit(1)
+	}
+
+	// This binary is the go command when it runs under the name go, and a
+	// linked tool when the go command starts it as "tool <name>".
 	if code, linked := cmd.RunLinkedGo(os.Args); linked {
 		os.Exit(code)
 	}
@@ -86,4 +103,18 @@ func shouldCheckForUpdate() bool {
 		}
 	}
 	return true
+}
+
+// namesAProxy reports whether value selects at least one module proxy. The go
+// command separates entries with a comma or a pipe and refuses a list that
+// holds none, saying it "is not the empty string, but contains no entries", so
+// a lone separator or some spaces is a value that names nothing rather than a
+// value to be taken as it is.
+func namesAProxy(value string) bool {
+	for _, entry := range strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == '|' }) {
+		if strings.TrimSpace(entry) != "" {
+			return true
+		}
+	}
+	return false
 }

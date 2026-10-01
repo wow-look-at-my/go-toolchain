@@ -13,12 +13,17 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// apeAppendEnv names the file the fork's linker appends past an APE's load
-// span, which is how a go binary carries its standard library.
+// apeAppendEnv names the file the fork's linker appends past an APE's load span.
 const apeAppendEnv = "GOCOSMOAPPEND"
 
-// selfBuildPasses is how many times the pipeline builds itself.
+// embedstdProgressEnv asks the fork's embedstd for a line per source file it compiles. An older embedstd ignores it.
+const embedstdProgressEnv = "GOEMBEDSTD_PROGRESS"
+
+// selfBuildPasses is the most passes a self-build makes.
 const selfBuildPasses = 3
+
+// fixedPointSelf is the binary this run proved reproduces itself, or empty.
+var fixedPointSelf string
 
 // buildSelf builds this pipeline's own binary: the fork checkout is the
 // GOROOT, the standard library it compiles is embedded in the result, and
@@ -30,20 +35,11 @@ func buildSelf(r runner.CommandRunner, job buildJob, onFirstOutput func()) error
 	}
 	defer os.RemoveAll(work)
 
-	goCmd := job.goCmd
-	var outputs []string
-	for pass := 1; pass <= selfBuildPasses; pass++ {
-		out, err := buildSelfPass(r, job, goCmd, work, pass, onFirstOutput)
-		if err != nil {
-			return fmt.Errorf("pass %d of the self-hosted build: %w", pass, err)
+	last := fixedPointSelf
+	if last == "" {
+		if last, err = buildSelfPasses(r, job, work, onFirstOutput); err != nil {
+			return err
 		}
-		outputs = append(outputs, out)
-		goCmd = []string{out, "go"}
-		onFirstOutput = nil
-	}
-	last := outputs[len(outputs)-1]
-	if err := sameBytes(outputs[len(outputs)-2], last); err != nil {
-		return fmt.Errorf("the self-hosted build reached no fixed point: %w", err)
 	}
 	if err := copyFile(last, build.TempOutputPath(job.outputPath)); err != nil {
 		return err
@@ -54,6 +50,57 @@ func buildSelf(r runner.CommandRunner, job buildJob, onFirstOutput func()) error
 	return build.CommitOutput(job.outputPath)
 }
 
+// buildSelfPasses runs passes under work, each with the binary the last
+// pass built, and answers the pass output that matches its own builder.
+func buildSelfPasses(r runner.CommandRunner, job buildJob, work string, onFirstOutput func()) (string, error) {
+	goCmd := job.goCmd
+	for pass := 1; pass <= selfBuildPasses; pass++ {
+		out, err := buildSelfPass(r, job, goCmd, work, pass, onFirstOutput)
+		if err != nil {
+			return "", fmt.Errorf("pass %d of the self-hosted build: %w", pass, err)
+		}
+		same, err := sameFile(goCmd[0], out)
+		if err != nil {
+			return "", err
+		}
+		if same {
+			return out, nil
+		}
+		if goCmd, err = passGoCommand(out); err != nil {
+			return "", fmt.Errorf("pass %d of the self-hosted build: %w", pass, err)
+		}
+		onFirstOutput = nil
+	}
+	return "", fmt.Errorf("the self-hosted build reached no fixed point in %d passes", selfBuildPasses)
+}
+
+// passGoCommand answers the go command of a pass output: a link named go
+// beside it, since the binary is the go command only under that name.
+func passGoCommand(out string) ([]string, error) {
+	dir := filepath.Join(filepath.Dir(out), "bin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	link := filepath.Join(dir, "go"+hostExeSuffix())
+	if err := placeLink(out, link); err != nil {
+		return nil, err
+	}
+	return []string{link}, nil
+}
+
+// sameFile reports whether the files hold the same bytes.
+func sameFile(first, second string) (bool, error) {
+	sumFirst, err := fileHash(first)
+	if err != nil {
+		return false, err
+	}
+	sumSecond, err := fileHash(second)
+	if err != nil {
+		return false, err
+	}
+	return sumFirst == sumSecond, nil
+}
+
 // buildSelfPass writes the standard library blob with goCmd, then builds
 // the tree with goCmd and that blob appended, into a directory of its own.
 func buildSelfPass(r runner.CommandRunner, job buildJob, goCmd []string, work string, pass int, onFirstOutput func()) (string, error) {
@@ -62,20 +109,39 @@ func buildSelfPass(r runner.CommandRunner, job buildJob, goCmd []string, work st
 		return "", err
 	}
 	blob := filepath.Join(dir, "std.blob")
-	if err := writeStdBlob(r, goCmd, job.goroot, blob); err != nil {
+	logger.Info("  pass %d: compiling the standard library for cosmo/amd64 and cosmo/arm64", pass)
+	stdStep := logSubStep(fmt.Sprintf("pass %d: standard library", pass), "main")
+	if err := writeStdBlob(r, blobWriter(goCmd, job.goroot), job.goroot, blob); err != nil {
+		stdStep.failed()
 		return "", err
 	}
+	stdStep.done()
 	passJob := job
 	passJob.goCmd = goCmd
 	passJob.apeAppend = blob
 	passJob.outputPath = filepath.Join(dir, filepath.Base(job.outputPath))
 	passJob.selfHosted = false
 	passJob.ldflags = joinLDFlags(passJob.ldflags, "-X "+forkCommitVar+"="+resolvedForkCommit)
+	logger.Info("  pass %d: building both payloads and merging the APE", pass)
+	buildStep := logSubStep(fmt.Sprintf("pass %d: build and merge", pass), "main")
 	if err := runBuild(r, passJob, onFirstOutput); err != nil {
+		buildStep.failed()
 		return "", err
 	}
+	buildStep.done()
 	logger.Info("  pass %d: %s, standard library %s", pass, fileSizeText(passJob.outputPath), fileSizeText(blob))
 	return passJob.outputPath, nil
+}
+
+// blobWriter answers the go command that writes the blob. A go command
+// carrying its own standard library lists only what it carries. A package it
+// lacks stays lacking in every blob it writes.
+func blobWriter(goCmd []string, goroot string) []string {
+	forkGo := filepath.Join(goroot, "bin", "go")
+	if info, err := os.Stat(forkGo); err == nil && !info.IsDir() {
+		return []string{forkGo}
+	}
+	return goCmd
 }
 
 // writeStdBlob runs the go command's embedstd tool, which compiles the
@@ -86,37 +152,28 @@ func writeStdBlob(r runner.CommandRunner, goCmd []string, goroot, blob string) e
 	for _, word := range goCmd {
 		args = append(args, "-go", word)
 	}
+	// embedstd prints a line per source file it compiles, so a cold pass shows its progress.
+	var stderr bytes.Buffer
 	cmd := runner.Cmd(goCmd[0], args...).
 		WithEnv("GOTOOLCHAIN", "local").
 		WithEnv("GOROOT", goroot).
+		WithEnv(embedstdProgressEnv, "1").
+		WithStderrWriter(io.MultiWriter(&stderr, os.Stderr)).
 		WithQuiet()
 	proc, err := cmd.Run(r)
 	if err != nil {
 		return fmt.Errorf("embedding the standard library: %w", err)
 	}
-	io.Copy(io.Discard, proc.Stdout())
-	stderr, _ := io.ReadAll(proc.Stderr())
+	stdout, _ := io.ReadAll(proc.Stdout())
 	if err := proc.Wait(); err != nil {
-		return fmt.Errorf("embedding the standard library: %w\n%s", err, bytes.TrimSpace(stderr))
+		said := bytes.TrimSpace(bytes.Join([][]byte{stderr.Bytes(), stdout}, []byte("\n")))
+		if len(said) == 0 {
+			said = []byte("it printed nothing on either stream")
+		}
+		return fmt.Errorf("embedding the standard library: %w\n%s", err, said)
 	}
 	if _, err := os.Stat(blob); err != nil {
 		return fmt.Errorf("embedstd reported success and wrote no blob at %s", blob)
-	}
-	return nil
-}
-
-// sameBytes fails when files differ, naming both digests.
-func sameBytes(first, second string) error {
-	sumFirst, err := fileHash(first)
-	if err != nil {
-		return err
-	}
-	sumSecond, err := fileHash(second)
-	if err != nil {
-		return err
-	}
-	if sumFirst != sumSecond {
-		return fmt.Errorf("%s is %s and %s is %s", first, sumFirst, second, sumSecond)
 	}
 	return nil
 }
