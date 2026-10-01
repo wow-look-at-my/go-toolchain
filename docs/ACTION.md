@@ -72,7 +72,7 @@ A consumer therefore drops its own bubblewrap step. The contract, and the suite 
 
 ## 1c. Installing the binary
 
-buildhost's own `buildhost-download` action fetches the binary into `$RUNNER_TEMP`, and the next step moves it into `$RUNNER_TEMP/go-toolchain-bin` and puts that directory on `PATH`. Neither step names the path through `runner.temp`, because a container job gets the host path there. The directory stays runner-writable. So a fat APE can self-assimilate on its first exec, which reopens the file read-write. No `sudo` and no copy into `/usr/local/bin` are involved.
+buildhost's own `buildhost-download` action fetches the binary into `$RUNNER_TEMP`. The next step moves it into `$RUNNER_TEMP/go-toolchain-bin` and puts that directory on `PATH`. Neither step names the path through `runner.temp`, because a container job gets the host path there. The directory stays runner-writable. So a fat APE can self-assimilate on its first exec, which reopens the file read-write. No `sudo` and no copy into `/usr/local/bin` are involved.
 
 **The download carries no branch pin.** buildhost's bare "latest" resolves against the project's default branch.
 
