@@ -13,15 +13,14 @@ import (
 
 // TestRunWithRunnerActiveTrace exercises the per-test trace recording path in
 // RunTestsWithCoverage. It sets activeTrace, provides a mock with test-level
-// events covering all branches of the recording loop (zero-elapsed skip,
+// events covering all branches of the recording loop (an elapsed-free skip,
 // parent-has-subtest skip, and a normal recorded leaf test), and passes a
 // non-nil SummaryData to cover the summary accumulation code path.
 func TestRunWithRunnerActiveTrace(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-	setupMockProject()
+	t.Chdir(tmpDir)
+	setupMockProject(t)
 
 	oldTrace := activeTrace
 	activeTrace = gotrace.NewTrace()
@@ -31,9 +30,9 @@ func TestRunWithRunnerActiveTrace(t *testing.T) {
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.IsCmd("go", "test") {
 			writeMockCoverProfile(cfg.Args, 100)
-			// TestNoElapsed: no Elapsed → 0, hits tc.Elapsed<=0 early-continue path.
+			// TestNoElapsed: no Elapsed, hits the early-continue path for an unmeasured test.
 			// TestParent/Sub: subtest pair, TestParent ends up in hasSubtest and is skipped.
-			// TestLeaf: plain test with Elapsed>0, gets recorded in the trace.
+			// TestLeaf: plain test with a measured Elapsed, gets recorded in the trace.
 			output := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg","Test":"TestNoElapsed"}
 {"Time":"2024-01-01T00:00:00Z","Action":"pass","Package":"example.com/pkg","Test":"TestNoElapsed"}
 {"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg","Test":"TestParent"}
@@ -46,6 +45,9 @@ func TestRunWithRunnerActiveTrace(t *testing.T) {
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
 `
 			return runner.MockProcess([]byte(output), nil), nil
+		}
+		if proc, ok := handleGoBuild(cfg); ok {
+			return proc, nil
 		}
 		if proc, ok := handleGoList(cfg); ok {
 			return proc, nil
@@ -68,13 +70,12 @@ func TestRunWithRunnerActiveTrace(t *testing.T) {
 
 // TestRunWithRunnerGenerateSkip exercises the needsGenerate() → true branch and
 // the generateHash="skip" path through runGenerate, including the post-generate
-// second mod-tidy step.
+// repeat mod-tidy step.
 func TestRunWithRunnerGenerateSkip(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-	setupMockProject()
+	t.Chdir(tmpDir)
+	setupMockProject(t)
 
 	// Add a //go:generate directive so needsGenerate() returns true.
 	os.WriteFile(filepath.Join(tmpDir, "pkg", "main.go"), []byte("package main\n\n//go:generate echo hello\n"), 0644)
@@ -96,9 +97,9 @@ func TestRunWithRunnerGenerateSkip(t *testing.T) {
 }
 
 // newNoTestFilesMock simulates `go test ./...` on a module with no test
-// files: the package appears in the JSON stream only as a skip
-// ("?   pkg [no test files]"), the run exits 0, and the coverage profile
-// stays empty (just "mode: set") because no test binary ever ran.
+// files: the package appears in the JSON stream only as a skip ("? pkg [no
+// test files]"), the run exits clean, and the coverage profile stays empty
+// (just "mode: set") because no test binary ever ran.
 func newNoTestFilesMock() *runner.Mock {
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
@@ -107,6 +108,9 @@ func newNoTestFilesMock() *runner.Mock {
 			out := `{"Time":"2024-01-01T00:00:00Z","Action":"output","Package":"example.com/pkg","Output":"?   \texample.com/pkg\t[no test files]\n"}` + "\n" +
 				`{"Time":"2024-01-01T00:00:01Z","Action":"skip","Package":"example.com/pkg"}` + "\n"
 			return runner.MockProcess([]byte(out), nil), nil
+		}
+		if proc, ok := handleGoBuild(cfg); ok {
+			return proc, nil
 		}
 		if proc, ok := handleGoList(cfg); ok {
 			return proc, nil
@@ -121,11 +125,10 @@ func newNoTestFilesMock() *runner.Mock {
 // uasset-decoder's web/) must pass the coverage check vacuously instead of
 // panicking with "coverage data is missing or broken".
 func TestRunWithRunnerZeroStatementModulePasses(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-	setupMockProject() // pkg/main.go is "package main\n" — zero coverable statements
+	t.Chdir(tmpDir)
+	setupMockProject(t) // pkg/main.go is "package main\n" — no coverable statements
 
 	mock := newNoTestFilesMock()
 	jsonOutput = true
@@ -142,11 +145,10 @@ func TestRunWithRunnerZeroStatementModulePasses(t *testing.T) {
 // TestRunWithRunnerNoTestsWithCodeFails: a module WITH coverable statements
 // but no tests at all must fail with an actionable error, not a panic.
 func TestRunWithRunnerNoTestsWithCodeFails(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-	setupMockProject()
+	t.Chdir(tmpDir)
+	setupMockProject(t)
 	os.WriteFile(filepath.Join("pkg", "main.go"), []byte("package main\n\nfunc main() { println(\"x\") }\n"), 0644)
 
 	mock := newNoTestFilesMock()

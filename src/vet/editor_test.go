@@ -10,6 +10,7 @@ import (
 )
 
 func TestApplyEditorRequireWritesOnDiffer(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "f.txt")
 	require.NoError(t, os.WriteFile(p, []byte("old"), 0o644))
@@ -25,6 +26,7 @@ func TestApplyEditorRequireWritesOnDiffer(t *testing.T) {
 }
 
 func TestApplyEditorNoopWhenEqual(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "f.txt")
 	require.NoError(t, os.WriteFile(p, []byte("same"), 0o644))
@@ -36,6 +38,7 @@ func TestApplyEditorNoopWhenEqual(t *testing.T) {
 }
 
 func TestApplyEditorApplyWrites(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "f.txt")
 	require.NoError(t, os.WriteFile(p, []byte("old"), 0o644))
@@ -50,6 +53,7 @@ func TestApplyEditorApplyWrites(t *testing.T) {
 }
 
 func TestCheckEditorRequireRecordsAndNeverWrites(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "f.txt")
 	require.NoError(t, os.WriteFile(p, []byte("old"), 0o644))
@@ -63,13 +67,17 @@ func TestCheckEditorRequireRecordsAndNeverWrites(t *testing.T) {
 	got, _ := os.ReadFile(p)
 	assert.Equal(t, "old", string(got))
 
-	// Violation recorded with path + reason.
+	// Violation recorded with path + reason, plus a unified diff readable without running code.
 	require.Error(t, ed.Err())
-	assert.Contains(t, ed.Err().Error(), p)
-	assert.Contains(t, ed.Err().Error(), "needs fixing")
+	msg := ed.Err().Error()
+	assert.Contains(t, msg, p)
+	assert.Contains(t, msg, "needs fixing")
+	assert.Contains(t, msg, "-old")
+	assert.Contains(t, msg, "+new")
 }
 
 func TestCheckEditorCleanNoViolation(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "f.txt")
 	require.NoError(t, os.WriteFile(p, []byte("same"), 0o644))
@@ -82,13 +90,13 @@ func TestCheckEditorCleanNoViolation(t *testing.T) {
 }
 
 func TestCheckEditorApplyIsNoop(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "f.txt")
 	require.NoError(t, os.WriteFile(p, []byte("old"), 0o644))
 
 	ed := NewEditor(false)
-	// Apply changes are dropped on CI (their issue is reported via a diagnostic),
-	// so nothing is written and no violation is recorded.
+	// Apply changes are dropped on CI (reported via diagnostic instead); nothing is written or recorded.
 	wrote, err := ed.Apply(p, []byte("new"))
 	require.NoError(t, err)
 	assert.False(t, wrote)
