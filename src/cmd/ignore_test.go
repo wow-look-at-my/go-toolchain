@@ -11,6 +11,7 @@ import (
 )
 
 func TestIgnoreCoverageBlockedOnCI(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "true")
 	err := runIgnoreCoverage(nil, nil)
 	require.NotNil(t, err)
@@ -18,6 +19,7 @@ func TestIgnoreCoverageBlockedOnCI(t *testing.T) {
 }
 
 func TestIgnoreCoverageBlockedOnClaudeCodeRemote(t *testing.T) {
+	t.Serial()
 	t.Setenv("CLAUDE_CODE_REMOTE", "true")
 	err := runIgnoreCoverage(nil, nil)
 	require.NotNil(t, err)
@@ -25,12 +27,11 @@ func TestIgnoreCoverageBlockedOnClaudeCodeRemote(t *testing.T) {
 }
 
 func TestIgnoreCoverage(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "")
 	t.Setenv("CLAUDE_CODE_REMOTE", "")
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	err := runIgnoreCoverage(nil, nil)
 	assert.Nil(t, err)
@@ -42,12 +43,11 @@ func TestIgnoreCoverage(t *testing.T) {
 }
 
 func TestIgnoreCoverageAlreadyExists(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "")
 	t.Setenv("CLAUDE_CODE_REMOTE", "")
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	gotest.SetWatermark(".", 85.0)
 	err := runIgnoreCoverage(nil, nil)
 	assert.Nil(t, err)
@@ -58,10 +58,9 @@ func TestIgnoreCoverageAlreadyExists(t *testing.T) {
 }
 
 func TestUnignoreCoverage(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	gotest.SetWatermark(".", 90.0)
 	err := runUnignoreCoverage(nil, nil)
 	assert.Nil(t, err)
@@ -70,15 +69,15 @@ func TestUnignoreCoverage(t *testing.T) {
 }
 
 func TestUnignoreCoverageNoWatermark(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	err := runUnignoreCoverage(nil, nil)
 	assert.Nil(t, err)
 }
 
 func TestUnignoreConfirmationAbort(t *testing.T) {
+	t.Serial()
 	oldStdin := os.Stdin
 	rIn, wIn, _ := os.Pipe()
 	wIn.WriteString("n\n")
@@ -91,6 +90,7 @@ func TestUnignoreConfirmationAbort(t *testing.T) {
 }
 
 func TestUnignoreConfirmationAccept(t *testing.T) {
+	t.Serial()
 	oldStdin := os.Stdin
 	rIn, wIn, _ := os.Pipe()
 	wIn.WriteString("y\n")
@@ -102,10 +102,9 @@ func TestUnignoreConfirmationAccept(t *testing.T) {
 }
 
 func TestUnignoreCoverageNoWatermarkMessage(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	// Capture stdout
 	old := os.Stdout

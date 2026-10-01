@@ -28,7 +28,7 @@ var wellKnownTokenVars = []string{
 var environFunc = os.Environ
 
 // discoverGitHubToken searches the environment for a GitHub personal access
-// token. It checks well-known variable names first, then scans all env vars
+// token. It checks well-known variable names, then scans all env vars
 // for values that look like GitHub-issued tokens.
 //
 // This is used ONLY for the non-destructive, read-only action of checking
@@ -40,14 +40,14 @@ func discoverGitHubToken() string {
 		return ""
 	}
 
-	// 1. Check well-known env vars first.
+	// Check the well-known env vars.
 	for _, name := range wellKnownTokenVars {
 		if v := os.Getenv(name); v != "" {
 			return v
 		}
 	}
 
-	// 2. Scan all env vars for values that look like GitHub tokens.
+	// Failing that, scan all env vars for values that look like GitHub tokens.
 	for _, entry := range environFunc() {
 		parts := strings.SplitN(entry, "=", 2)
 		if len(parts) != 2 || parts[1] == "" {

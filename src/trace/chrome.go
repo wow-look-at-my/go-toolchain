@@ -121,9 +121,7 @@ func WriteChrome(path string, timeline []summary.TimelineEntry, trace *Trace) er
 		out = append(out, ev)
 	}
 
-	// Fine-grained events (from instrumented code).
-	// Clamp start times so events on the same thread never overlap
-	// (Chrome trace viewer drops overlapping X events).
+	// Fine-grained events: clamp start times so same-thread events never overlap (viewer drops overlapping X events).
 	threadEnd := make(map[int]int64) // tid → last event end (microseconds)
 	if trace != nil {
 		trace.mu.Lock()
@@ -162,7 +160,9 @@ func WriteChrome(path string, timeline []summary.TimelineEntry, trace *Trace) er
 		return nil
 	}
 
-	os.MkdirAll(filepath.Dir(path), 0o755)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
 	f, err := os.Create(path)
 	if err != nil {
 		return err

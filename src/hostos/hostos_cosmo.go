@@ -4,52 +4,67 @@ package hostos
 
 import (
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
 )
 
-// A GOOS=cosmo binary reports runtime.GOOS == "cosmo" on every host, so the
-// host OS must be probed at runtime. Detection is memoized: the host cannot
-// change under a running process.
+// hostGOOS is memoized: the host cannot change under a running process.
 var hostGOOS = sync.OnceValue(detectHostGOOS)
 
-// GOOS returns the operating system of the host this cosmo binary is running
-// on: "linux" or "darwin". Never "windows" — on Windows hosts a fat APE
-// executes its embedded native GOOS=windows payload, which compiles the
-// non-cosmo variant of this package instead.
-func GOOS() string { return hostGOOS() }
+// hostSignalFunc is the authoritative signal, checked before any probe. Empty means none; see detection.go.
+var hostSignalFunc = cosmoHostSignal
 
-func detectHostGOOS() string {
-	// uname(2) first: the fork's stdlib syscall exposes Uname for cosmo. On
-	// Linux hosts the raw (Linux-numbered) syscall passes straight through and
-	// Sysname is authoritative. On macOS hosts unemulated syscalls return
-	// ENOSYS from the fork's darwin dispatcher — no crash — so a failure just
-	// falls through to the filesystem probes.
+// The host the APE stub recorded; "" where the fork has no port.
+// No sandbox can deny this, unlike the probes below.
+func cosmoHostSignal() string {
+	if host := runtime.CosmoHostOS(); host != "unknown" {
+		return host
+	}
+	return ""
+}
+
+// GOOS returns the host OS: "linux", "darwin" or "windows". A fat APE runs on each of them.
+func GOOS() string { return hostGOOS().OS }
+
+// Detect returns the host OS plus how it was determined (see go-toolchain version host). Memoized; the probe runs a single time.
+func Detect() Detection { return hostGOOS() }
+
+func detectHostGOOS() Detection {
+	// An authoritative signal outranks every probe: it cannot be denied by a sandbox or ENOSYS. See detection.go.
+	if host := hostSignalFunc(); host != "" {
+		return Detection{OS: host, Method: "runtime"}
+	}
+
+	// uname: Sysname is authoritative on Linux; macOS ENOSYS's it via the fork's darwin dispatcher and falls through.
 	var uts syscall.Utsname
+	var sysname string
 	if err := syscall.Uname(&uts); err == nil {
-		switch strings.ToLower(cstring(uts.Sysname[:])) {
+		sysname = cstring(uts.Sysname[:])
+		switch strings.ToLower(sysname) {
 		case "linux":
-			return "linux"
+			return Detection{OS: "linux", Method: "uname", Uname: sysname}
 		case "darwin", "xnu":
-			return "darwin"
+			return Detection{OS: "darwin", Method: "uname", Uname: sysname}
 		}
 	}
 
-	// Filesystem probes. /System/Library/CoreServices exists on every macOS
-	// install and never on Linux; procfs is Linux-only. Default to linux —
-	// the most common host and the safer guess for path conventions.
+	// CoreServices=macOS, procfs=Linux. A denying sandbox falls silently to
+	// "linux" (Method records which); smoke jobs assert both cases.
 	if _, err := os.Stat("/System/Library/CoreServices"); err == nil {
-		return "darwin"
+		return Detection{OS: "darwin", Method: "coreservices", Uname: sysname}
 	}
 	if _, err := os.Stat("/proc/self"); err == nil {
-		return "linux"
+		return Detection{OS: "linux", Method: "procfs", Uname: sysname}
 	}
-	return "linux"
+	// Nothing answered; "linux" is a GUESS, wrong on every Mac. It announces itself via warnGuessedHost, and Method="default".
+	d := Detection{OS: "linux", Method: "default", Uname: sysname}
+	warnGuessedHost(d)
+	return d
 }
 
-// cstring returns the string up to the first NUL in b (the whole slice if
-// there is none) — Utsname fields are fixed-size NUL-terminated buffers.
+// cstring returns b up to its leading NUL (or all of b) -- Utsname fields are fixed-size NUL-terminated buffers.
 func cstring(b []byte) string {
 	for i, c := range b {
 		if c == 0 {

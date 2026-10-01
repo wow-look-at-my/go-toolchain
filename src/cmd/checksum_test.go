@@ -12,6 +12,7 @@ import (
 )
 
 func TestGenerateChecksums(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	// Create dummy binaries with known content
@@ -50,12 +51,13 @@ func TestGenerateChecksums(t *testing.T) {
 	assert.Equal(t, names[1], "tool_linux_amd64")
 	assert.Equal(t, names[2], "tool_windows_amd64.exe")
 
-	// Verify actual hash for one file
+	// Verify the actual hash for a single file
 	expectedHash := fmt.Sprintf("%x", sha256.Sum256([]byte("darwin-arm64-binary")))
 	assert.True(t, strings.HasPrefix(lines[0], expectedHash), "first line should start with hash of darwin-arm64 binary")
 }
 
 func TestGenerateChecksumsEmpty(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	outPath, err := generateChecksums(tmpDir, nil)

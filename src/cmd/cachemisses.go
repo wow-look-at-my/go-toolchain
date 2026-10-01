@@ -1,12 +1,13 @@
 package cmd
 
 import (
-	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/wow-look-at-my/go-containers/set"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // cacheMissTracker captures package import paths from go build -v / go test -v
@@ -17,7 +18,7 @@ type cacheMissTracker struct {
 	target io.Writer // underlying writer (e.g. os.Stderr)
 	buf    []byte
 	pkgs   []string
-	seen   map[string]bool
+	seen   set.Set[string]
 	phase  string // current phase label (e.g. "vet", "test", "build")
 }
 
@@ -25,7 +26,7 @@ type cacheMissTracker struct {
 func newCacheMissTracker(target io.Writer) *cacheMissTracker {
 	return &cacheMissTracker{
 		target: target,
-		seen:   make(map[string]bool),
+		seen:   set.New[string](),
 	}
 }
 
@@ -51,8 +52,7 @@ func (t *cacheMissTracker) Write(p []byte) (int, error) {
 		// go build -v prints bare import paths like "encoding/json" or
 		// "github.com/foo/bar". Filter: must contain "/", no spaces, no colons.
 		if line != "" && strings.Contains(line, "/") && !strings.Contains(line, " ") && !strings.Contains(line, ":") && !strings.HasPrefix(line, "#") {
-			if !t.seen[line] {
-				t.seen[line] = true
+			if t.seen.Add(line) {
 				t.pkgs = append(t.pkgs, line)
 			}
 		}
@@ -78,9 +78,9 @@ func (t *cacheMissTracker) Print() {
 		return
 	}
 	sort.Strings(t.pkgs)
-	fmt.Fprintf(os.Stderr, "\n⇒ Cache misses: %d packages compiled\n", len(t.pkgs))
+	logger.Info("\n⇒ Cache misses: %d packages compiled", len(t.pkgs))
 	for _, pkg := range t.pkgs {
-		fmt.Fprintf(os.Stderr, "    %s\n", pkg)
+		logger.Info("    %s", pkg)
 	}
 }
 

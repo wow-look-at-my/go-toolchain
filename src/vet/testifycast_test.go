@@ -18,15 +18,18 @@ import (
 )
 
 // applyCastFixtures runs the analyzer over the testifycast fixture module and
-// returns the rewritten source of every file that had fixes applied, plus
-// anything the analyzer wrote to stderr (element-mismatch warnings).
-func applyCastFixtures(t *testing.T) (output, stderrText string) {
+// returns the rewritten source of every file that had fixes applied, anything
+// the analyzer wrote to stderr (element-mismatch warnings), and the raw edit
+// sets themselves (for asserting on recorded imports).
+func applyCastFixtures(t *testing.T) (output, stderrText string, all []*CastEdits) {
 	t.Helper()
-	// The fixture is a self-contained module (with a local replace to the stub
-	// testify), so load it module-mode: point analysistest at the module root
-	// with pattern ".", mirroring the assertnorm test.
+	t.Serial() // analysistest chdirs into the fixture
+	// Self-contained module with a stub testify replace; load it module-mode like assertnorm.
 	dir, err := filepath.Abs(filepath.Join("testdata", "src", "testifycast"))
 	require.NoError(t, err)
+
+	// Pin non-GHA mode so the warning lands on stderr, not a stdout annotation.
+	t.Setenv("GITHUB_ACTIONS", "")
 
 	// Capture os.Stderr so we can assert on element-mismatch warnings.
 	oldStderr := os.Stderr
@@ -58,52 +61,65 @@ func applyCastFixtures(t *testing.T) (output, stderrText string) {
 			src, err := os.ReadFile(c.Filename)
 			require.NoError(t, err)
 			out.Write(c.rendered(src))
+			all = append(all, c)
 		}
 	}
-	return out.String(), stderrText
+	return out.String(), stderrText, all
 }
 
 func TestTestifyCastAnalyzer(t *testing.T) {
-	out, stderr := applyCastFixtures(t)
+	t.Serial()
+	out, stderr, all := applyCastFixtures(t)
 	require.NotEmpty(t, out, "expected some fixes to be applied")
 
 	// Cases that MUST gain a conversion.
 	want := []string{
-		// Case 1: untyped literal vs float64 call result.
+		// An untyped literal vs a float64 call result.
 		"assert.Equal(t, float64(0), getFloat64())",
-		// Case 2: operands swapped — literal sits in the actual slot.
+		// Operands swapped — literal sits in the actual slot.
 		"assert.Equal(t, getFloat64(), float64(0))",
-		// Case 3: Equalf, format string and args left intact.
+		// Equalf, format string and args left intact.
 		`require.Equalf(t, float64(0), getFloat64(), "x=%d", k)`,
-		// Case 4: *Assertions method form (no leading t).
+		// The *Assertions method form (no leading t).
 		"a.Equal(float64(0), getFloat64())",
-		// Case 5: typed int32 vs int64 — expected wrapped.
+		// Typed int32 vs int64 — expected wrapped.
 		"assert.Equal(t, int64(getInt32()), getInt64())",
 		// task uint example — actual literal wrapped.
 		"require.Equal(t, getUint(), uint(10))",
 		// NotEqual handled identically.
 		"assert.NotEqual(t, float64(0), getFloat64())",
-		// Case 8: numeric named type Celsius vs float64.
+		// A numeric named type Celsius vs float64.
 		"assert.Equal(t, float64(getCelsius()), getFloat64())",
-		// Rule 5: non-numeric same-kind named type Name vs string.
+		// A non-numeric same-kind named type Name vs string.
 		`assert.Equal(t, string(getName()), "")`,
-		// Rule 5 with the literal on the expected side: wrap the string literal
-		// into the named type (numeric representability guard must not apply).
+		// Literal on the expected side: wrap into the named type, no numeric guard.
 		`assert.Equal(t, Name(""), getName())`,
 		// Cross-package named numeric type spelled with the import qualifier.
 		"assert.Equal(t, time.Duration(0), getDuration())",
 		// Dot-imported named type: spelled unqualified, not ".Duration".
 		"assert.Equal(t, Duration(0), getDot())",
+		// Missing import for the named type's package is recorded and added on fix.
+		"assert.NotEqual(t, modes.Mode(0), getMode())",
+		// Ordering assertions: an int16 field vs an untyped constant (compareTwoValues is kind-strict).
+		"assert.Greater(t, getInt16(), int16(0))",
+		// float64 vs an untyped constant — the go-font-renderer TestSuperRoundNegative shape.
+		"assert.Less(t, getFloat64(), float64(0))",
+		// Typed width mismatch — e1 wrapped.
+		"assert.GreaterOrEqual(t, int64(getInt32()), getInt64())",
+		// require package form.
+		"require.Less(t, getInt16(), int16(100))",
+		// f-variant, format string and args left intact.
+		`require.Lessf(t, getFloat64(), float64(1), "x=%d", k)`,
+		// *Assertions method form.
+		"a.Greater(getInt16(), int16(0))",
 	}
 	for _, w := range want {
 		assert.Contains(t, out, w)
 	}
-	// The dot-import conversion must not carry a stray "." qualifier (the buggy
-	// form would be "(t, .Duration(0)").
+	// Dot-import conversion must not carry a stray "." qualifier.
 	assert.NotContains(t, out, "(t, .Duration(0)")
 
-	// Element-comparison mismatches are warned about, not rewritten — for both
-	// value-in-collection (Contains) and collection-vs-collection (ElementsMatch).
+	// Element-comparison mismatches (Contains, ElementsMatch) are warned, not rewritten.
 	assert.Contains(t, stderr, "testifycast: warning")
 	assert.Contains(t, stderr, "Contains")
 	assert.Contains(t, stderr, "ElementsMatch")
@@ -111,11 +127,13 @@ func TestTestifyCastAnalyzer(t *testing.T) {
 
 	// Cases that MUST be left exactly as written.
 	unchanged := []string{
-		"assert.Equal(t, getInt(), getInt())",    // identical types
-		`assert.Equal(t, "x", []byte("x"))`,      // non-numeric mismatch
-		"assert.Equal(t, 1.5, getInt())",         // fractional truncation
-		"x.Equal(0, getFloat64())",               // non-testify Equal
-		"assert.EqualValues(t, 0, getFloat64())", // EqualValues untouched
+		"assert.Equal(t, getInt(), getInt())",       // identical types
+		`assert.Equal(t, "x", []byte("x"))`,         // non-numeric mismatch
+		"assert.Equal(t, 1.5, getInt())",            // fractional truncation
+		"x.Equal(0, getFloat64())",                  // non-testify Equal
+		"assert.EqualValues(t, 0, getFloat64())",    // EqualValues untouched
+		"assert.Greater(t, getInt(), 0)",            // identical default types
+		"assert.Greater(t, getInt16(), 1000000000)", // constant overflows int16
 	}
 	for _, u := range unchanged {
 		assert.Contains(t, out, u)
@@ -125,9 +143,25 @@ func TestTestifyCastAnalyzer(t *testing.T) {
 	assert.NotContains(t, out, "float64(float64(")
 	assert.NotContains(t, out, "int64(int64(")
 	assert.NotContains(t, out, "uint(uint(")
+	assert.NotContains(t, out, "int16(int16(")
+
+	// notimported.go must record the import to add; every other file records none.
+	var notImported *CastEdits
+	for _, c := range all {
+		if strings.HasSuffix(c.Filename, "notimported.go") {
+			notImported = c
+			continue
+		}
+		assert.Empty(t, c.neededImports(), c.Filename)
+	}
+	require.NotNil(t, notImported, "expected an edit set for notimported.go")
+	require.Len(t, notImported.Edits, 1)
+	assert.Equal(t, []string{"testifycast/modes"}, notImported.Edits[0].AddImports)
+	assert.Equal(t, []string{"testifycast/modes"}, notImported.neededImports())
 }
 
 func TestIsForkNumeric(t *testing.T) {
+	t.Serial()
 	numeric := []types.BasicKind{
 		types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
 		types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64, types.Uintptr,
@@ -145,6 +179,7 @@ func TestIsForkNumeric(t *testing.T) {
 }
 
 func TestIsUntypedLiteral(t *testing.T) {
+	t.Serial()
 	assert.True(t, isUntypedLiteral(&ast.BasicLit{Kind: token.INT, Value: "0"}))
 	assert.True(t, isUntypedLiteral(&ast.BasicLit{Kind: token.FLOAT, Value: "1.5"}))
 	assert.False(t, isUntypedLiteral(&ast.Ident{Name: "x"}))
@@ -152,6 +187,7 @@ func TestIsUntypedLiteral(t *testing.T) {
 }
 
 func TestConstRepresentable(t *testing.T) {
+	t.Serial()
 	intT := types.Typ[types.Int]
 	int8T := types.Typ[types.Int8]
 	uint8T := types.Typ[types.Uint8]
@@ -169,7 +205,7 @@ func TestConstRepresentable(t *testing.T) {
 	assert.False(t, constRepresentable(mkInt(256), int8T))
 	assert.False(t, constRepresentable(mkInt(-1), uint8T))
 	assert.False(t, constRepresentable(mkInt(256), uint8T))
-	// Fractional value cannot become an integer (rule 10).
+	// A fractional value cannot become an integer.
 	assert.False(t, constRepresentable(mkFloat(1.5), intT))
 	// Whole-valued float can.
 	assert.True(t, constRepresentable(mkFloat(2.0), intT))
@@ -196,14 +232,14 @@ func TestConstRepresentable(t *testing.T) {
 	// Complex target is out of scope -> not representable.
 	assert.False(t, constRepresentable(mkInt(0), types.Typ[types.Complex128]))
 
-	// Float target width matters: a value finite in float64 but too large for
-	// float32 must not be cast to float32 (it would not compile).
+	// Float target width matters: a float64 value too large for float32 must not cast.
 	assert.True(t, constRepresentable(mkFloat(1e38), float32T))
 	assert.False(t, constRepresentable(mkFloat(1e100), float32T))
 	assert.True(t, constRepresentable(mkFloat(1e100), float64T))
 }
 
 func TestCastEditsApply(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	fp := filepath.Join(dir, "x.go")
 	src := "package p\n\nvar _ = 0\n"
@@ -237,9 +273,54 @@ func TestCastEditsApply(t *testing.T) {
 	assert.Contains(t, string(got), "var _ = float64(0)")
 }
 
+// TestCastEditsApplyAddsImport verifies Apply adds the import an edit recorded
+// (a conversion naming a package the file doesn't import must not leave the
+// file unloadable), merged into the existing import block gofmt-canonically.
+func TestCastEditsApplyAddsImport(t *testing.T) {
+	t.Serial()
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "x.go")
+	src := "package p\n\nimport \"os\"\n\nvar _ = os.Getenv(\"\")\n\nvar _ = 0\n"
+	require.NoError(t, os.WriteFile(fp, []byte(src), 0644))
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, fp, src, 0)
+	require.NoError(t, err)
+
+	var lit *ast.BasicLit
+	ast.Inspect(f, func(n ast.Node) bool {
+		if b, ok := n.(*ast.BasicLit); ok && b.Kind == token.INT {
+			lit = b
+			return false
+		}
+		return true
+	})
+	require.NotNil(t, lit)
+
+	ce := &CastEdits{
+		Filename: fp,
+		Fset:     fset,
+		Edits: []CastEdit{{
+			Start:      lit.Pos(),
+			End:        lit.End(),
+			TypeName:   "fs.FileMode",
+			AddImports: []string{"io/fs"},
+		}},
+	}
+	wrote, err := ce.Apply(NewEditor(true))
+	require.NoError(t, err)
+	require.True(t, wrote)
+
+	got, err := os.ReadFile(fp)
+	require.NoError(t, err)
+	assert.Contains(t, string(got), "var _ = fs.FileMode(0)")
+	assert.Contains(t, string(got), `"io/fs"`)
+}
+
 // TestCastEditsApplyCheckMode verifies a check-mode (CI) editor records the
 // pending conversion as a violation and does NOT rewrite the file.
 func TestCastEditsApplyCheckMode(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	fp := filepath.Join(dir, "x.go")
 	src := "package p\n\nvar _ = 0\n"
@@ -276,6 +357,7 @@ func TestCastEditsApplyCheckMode(t *testing.T) {
 }
 
 func TestImportsUpstreamTestify(t *testing.T) {
+	t.Serial()
 	withImport := func(path string) *ast.File {
 		return &ast.File{Imports: []*ast.ImportSpec{
 			{Path: &ast.BasicLit{Kind: token.STRING, Value: `"` + path + `"`}},

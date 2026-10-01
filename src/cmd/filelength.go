@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 const (
@@ -17,16 +18,13 @@ const (
 	fileLengthError = 750
 )
 
-// generatedFileRe matches the canonical "generated file" marker line. This is
-// the same rule used by `go help generate`, gofmt, and golang.org/x/tools: a
-// file is generated iff a line matching `^// Code generated .* DO NOT EDIT\.$`
-// appears in the file header (before the package clause).
+// generatedFileRe matches the canonical "// Code generated ... DO NOT EDIT." marker line, the same rule `go help generate` and gofmt use.
 var generatedFileRe = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
 
 // isGeneratedFile reports whether r is a generated Go source file per the
 // canonical convention. It scans only the file header: leading `//go:build` /
 // `// +build` constraints, ordinary `//` line comments, `/* ... */` block
-// comments, and blank lines may precede the marker. Scanning stops at the first
+// comments, and blank lines may precede the marker. Scanning stops at the earliest
 // line that is non-blank, not a comment, and not a build constraint (normally
 // the `package` clause), so a marker appearing after that point does not count.
 func isGeneratedFile(r io.Reader) bool {
@@ -70,7 +68,7 @@ func isGeneratedFile(r io.Reader) bool {
 			continue
 		}
 
-		// First real (non-comment, non-blank) line — the header is over.
+		// A real (non-comment, non-blank) line — the header is over.
 		return false
 	}
 	return false
@@ -86,8 +84,9 @@ func isGeneratedPath(path string) bool {
 	return isGeneratedFile(f)
 }
 
-// checkFileLength walks all .go files under root and warns at 500 lines, errors
-// at 750 lines. Generated files (per isGeneratedFile) are skipped unless the
+// checkFileLength walks all .go files under root and warns past the warn
+// threshold, erroring past the error threshold (both below). Generated files
+// (per isGeneratedFile) are skipped unless the
 // --count-generated flag is set.
 func checkFileLength(root string) error {
 	var nWarn, nErr, nSkipped int
@@ -101,8 +100,8 @@ func checkFileLength(root string) error {
 			if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata" || name == "node_modules") {
 				return filepath.SkipDir
 			}
-			// A nested module's files (e.g. src/compat/go-isatty) follow
-			// their upstream's conventions, not this repo's length limits.
+			// A nested module's files follow their upstream's conventions,
+			// not this repo's length limits.
 			if path != root && gomod.IsNestedModule(path) {
 				return filepath.SkipDir
 			}
@@ -112,9 +111,8 @@ func checkFileLength(root string) error {
 			return nil
 		}
 
-		// Skip generated files unless asked to count them. Detection reopens
-		// the file; line counting uses a second open below — simplest and
-		// keeps each pass straightforward.
+		// Skip generated files unless asked to count them; detection reopens the file, and
+		// line counting opens it again below.
 		if !countGenerated && isGeneratedPath(path) {
 			nSkipped++
 			return nil
@@ -143,11 +141,11 @@ func checkFileLength(root string) error {
 	})
 
 	if nWarn > 0 || nErr > 0 {
-		fmt.Println()
+		logger.Info("")
 	}
 
 	if nSkipped > 0 {
-		fmt.Printf("  File length check: skipped %d generated file(s)\n", nSkipped)
+		logger.Info("  File length check: skipped %d generated file(s)", nSkipped)
 	}
 
 	if nErr > 0 {

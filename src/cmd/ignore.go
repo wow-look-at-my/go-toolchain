@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 )
 
@@ -33,13 +34,13 @@ func runIgnoreCoverage(cmd *cobra.Command, args []string) error {
 
 	existing, exists, err := gotest.GetWatermark(".")
 	if err == nil && exists {
-		fmt.Printf("Watermark already set (%.1f%%).\n", existing)
+		logger.Output("Watermark already set (%.1f%%).", existing)
 		return nil
 	}
 
 	if err := gotest.SetWatermark(".", 0); err != nil {
 		return fmt.Errorf("failed to set watermark: %w", err)
 	}
-	fmt.Println("Coverage watermark enabled. Next build will set it to actual coverage.")
+	logger.Output("Coverage watermark enabled. Next build will set it to actual coverage.")
 	return nil
 }
