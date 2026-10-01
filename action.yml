@@ -99,18 +99,25 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
       run: bash "$ACTION_PATH/.github/scripts/register-ape-binfmt.sh"
 
+    # In a container job, runner.temp is the host path and $RUNNER_TEMP the container path. Both steps below read this one.
+    - name: Locate the go-toolchain directory
+      id: bin-dir
+      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
+      shell: bash
+      run: echo "dir=$RUNNER_TEMP/go-toolchain-bin" >> "$GITHUB_OUTPUT"
+
     - name: Download go-toolchain
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
       with:
         project: go-toolchain
-        path: ${{ runner.temp }}/go-toolchain-bin/go-toolchain
+        path: ${{ steps.bin-dir.outputs.dir }}/go-toolchain
 
     - name: Install go-toolchain
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
       env:
-        BIN_DIR: ${{ runner.temp }}/go-toolchain-bin
+        BIN_DIR: ${{ steps.bin-dir.outputs.dir }}
       run: |
         set -euo pipefail
         echo "${BIN_DIR}" >> "$GITHUB_PATH"
