@@ -1,10 +1,12 @@
 package main
 
 import (
-	"fmt"
 	"os"
+	"strings"
 
 	"github.com/wow-look-at-my/go-toolchain/src/cmd"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
+	"github.com/wow-look-at-my/go-toolchain/src/logx"
 )
 
 func init() {
@@ -12,19 +14,27 @@ func init() {
 	if isCacheProgInvocation() {
 		return
 	}
+	// The go command and its tools take the environment as it is, because the
+	// command that started them configured it. A caller that starts this
+	// binary as go itself has no such parent, and a runner hands it a GOPROXY
+	// that names no proxy, which the go command refuses rather than reading as
+	// a default. An environment naming one is still taken as it is: only the
+	// absence is filled.
+	if _, linked := cmd.LinkedGoArgs(os.Args); linked {
+		if !namesAProxy(os.Getenv("GOPROXY")) {
+			logger.WithSubsystem("proxy").Info("GOPROXY names no proxy in this environment, so this linked run configures its own")
+			configureGoEnv()
+		}
+		return
+	}
 
-	// Let Go automatically download the correct toolchain when go.mod
-	// requires a newer version than the one installed.
+	// Let Go auto-download the toolchain go.mod requires.
 	os.Setenv("GOTOOLCHAIN", "auto")
 
-	// Configure Go module proxy and checksum database settings,
-	// respecting user-configured proxies and sumdb (e.g. pazer.io).
+	// Configure the Go module proxy and sumdb, honoring user config.
 	configureGoEnv()
 
-	// Clear NO_PROXY so that all traffic (including *.google.com and
-	// *.googleapis.com) routes through the environment's egress proxy,
-	// which handles DNS resolution. Without this, Go tries to reach
-	// Google domains directly but DNS cannot resolve them.
+	// Clear NO_PROXY: Google domains must route through the egress proxy for DNS.
 	os.Setenv("NO_PROXY", "")
 	os.Setenv("no_proxy", "")
 }
@@ -41,47 +51,47 @@ func isCacheProgInvocation() bool {
 	return false
 }
 
-func needsGo() bool {
-	for _, arg := range os.Args[1:] {
-		if arg == "--" {
-			return true
-		}
-		switch arg {
-		case "version", "cacheprog":
-			return false
-		}
-	}
-	return true
-}
-
 func main() {
-	// Kick off a non-blocking background check for a newer go-toolchain on
-	// buildhost. It runs while the real work happens and is surfaced (or killed)
-	// by ReportUpdateCheck on every exit path — it never blocks or delays.
+	// Ahead of every mode, the linked go command included, so a local run cannot inherit a CI pin.
+	if err := cmd.CheckCIOnlyEnv(); err != nil {
+		logger.Error("go-toolchain: %v", err)
+		os.Exit(1)
+	}
+
+	// This binary is the go command when it runs under the name go, and a
+	// linked tool when the go command starts it as "tool <name>".
+	if code, linked := cmd.RunLinkedGo(os.Args); linked {
+		os.Exit(code)
+	}
+
+	// Install the elapsed-duration pipeline. Skip it for GOCACHEPROG: its
+	// stdout is a JSON protocol pipe that must stay undecorated.
+	if !isCacheProgInvocation() {
+		logx.Install()
+	}
+
+	// Check for a newer go-toolchain in the background; ReportUpdateCheck
+	// surfaces or kills it on every exit path, so it never blocks.
 	if shouldCheckForUpdate() {
 		cmd.StartUpdateCheck()
 	}
 
-	if needsGo() {
-		if err := cmd.EnsureGoVersion(); err != nil {
-			cmd.ReportUpdateCheck()
-			fmt.Fprintf(os.Stderr, "go bootstrap: %v\n", err)
-			os.Exit(1)
-		}
-	}
+	// The toolchain resolves inside the root command, after cobra knows which command runs -- see skipToolchain.
 	err := cmd.Execute()
 	cmd.ReportUpdateCheck()
+	logx.Flush()
 	if err != nil {
 		os.Exit(1)
 	}
 }
 
-// shouldCheckForUpdate reports whether to start the background update check. It
-// is skipped for the GOCACHEPROG subprocess (spawned by the Go build itself, not
-// a user invocation) and for the `version` command, which already reports its
-// own staleness.
+// shouldCheckForUpdate skips the GOCACHEPROG subprocess and `version`, which
+// already reports its own staleness.
 func shouldCheckForUpdate() bool {
 	if isCacheProgInvocation() {
+		return false
+	}
+	if _, linked := cmd.LinkedGoArgs(os.Args); linked {
 		return false
 	}
 	for _, arg := range os.Args[1:] {
@@ -93,4 +103,18 @@ func shouldCheckForUpdate() bool {
 		}
 	}
 	return true
+}
+
+// namesAProxy reports whether value selects at least one module proxy. The go
+// command separates entries with a comma or a pipe and refuses a list that
+// holds none, saying it "is not the empty string, but contains no entries", so
+// a lone separator or some spaces is a value that names nothing rather than a
+// value to be taken as it is.
+func namesAProxy(value string) bool {
+	for _, entry := range strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == '|' }) {
+		if strings.TrimSpace(entry) != "" {
+			return true
+		}
+	}
+	return false
 }

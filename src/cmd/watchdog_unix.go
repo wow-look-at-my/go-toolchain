@@ -10,22 +10,19 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// startWatchdog replaces fd 1 (stdout) and fd 2 (stderr) with pipes,
+// startWatchdog replaces the stdout and stderr descriptors with pipes,
 // forwarding all output to the original file descriptors while monitoring
 // for stalls. Returns nil if setup fails (non-fatal; build continues without monitoring).
 func startWatchdog(threshold time.Duration) *outputWatchdog {
-	if watchdogDisabled() {
-		return nil
-	}
 	// Save original file descriptors
 	origStdoutFd, err := unix.Dup(1)
 	if err != nil {
-		return nil
+		return watchdogOff("dup stdout: %v", err)
 	}
 	origStderrFd, err := unix.Dup(2)
 	if err != nil {
 		unix.Close(origStdoutFd)
-		return nil
+		return watchdogOff("dup stderr: %v", err)
 	}
 
 	// Create pipes for stdout and stderr
@@ -33,7 +30,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 	if err != nil {
 		unix.Close(origStdoutFd)
 		unix.Close(origStderrFd)
-		return nil
+		return watchdogOff("pipe for stdout: %v", err)
 	}
 	stderrR, stderrW, err := os.Pipe()
 	if err != nil {
@@ -41,10 +38,10 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 		stdoutW.Close()
 		unix.Close(origStdoutFd)
 		unix.Close(origStderrFd)
-		return nil
+		return watchdogOff("pipe for stderr: %v", err)
 	}
 
-	// Replace fd 1 and 2 with pipe write-ends
+	// Replace the stdout and stderr descriptors with pipe write-ends
 	if err := unix.Dup2(int(stdoutW.Fd()), 1); err != nil {
 		stdoutR.Close()
 		stdoutW.Close()
@@ -52,7 +49,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 		stderrW.Close()
 		unix.Close(origStdoutFd)
 		unix.Close(origStderrFd)
-		return nil
+		return watchdogOff("dup2 onto fd 1: %v", err)
 	}
 	if err := unix.Dup2(int(stderrW.Fd()), 2); err != nil {
 		// Restore stdout before bailing
@@ -63,20 +60,12 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 		stderrW.Close()
 		unix.Close(origStdoutFd)
 		unix.Close(origStderrFd)
-		return nil
+		return watchdogOff("dup2 onto fd 2: %v", err)
 	}
 
-	// The existing os.Stdout / os.Stderr *os.File values already have
-	// Fd() == 1 / 2, so the Dup2 above is enough — writes through them
-	// now reach the pipe. Do NOT reassign via os.NewFile(1, …): that
-	// attaches a close-on-GC finalizer, and repeated watchdog cycles
-	// (e.g. TestWatchdogStop*'s 200-iteration loop) leave behind enough
-	// wrappers that their finalizers eventually close the real
-	// stdout/stderr out from under later runtime code — notably the
-	// -coverpkg atexit profile writer, which then silently fails the
-	// whole package.
+	// Do NOT reassign via os.NewFile on the stdio descriptors: repeated cycles leak finalizers that later close real stdout/stderr.
 
-	// Close the extra write-end file handles; fd 1 and 2 are copies now
+	// Close the extra write-end file handles; the stdio descriptors are copies now
 	stdoutW.Close()
 	stderrW.Close()
 
@@ -111,17 +100,12 @@ func (w *outputWatchdog) stop() {
 	os.Stdout.Sync()
 	os.Stderr.Sync()
 
-	// Restore original file descriptors. Dup2 drops the last writer refcount on
-	// each pipe, so forward() will drain the kernel buffer and return on EOF.
+	// Dup2 drops the last writer refcount, so forward() drains the pipe and returns on EOF.
 	unix.Dup2(int(w.origStdout.Fd()), 1)
 	unix.Dup2(int(w.origStderr.Fd()), 2)
-	// No os.NewFile reassignment needed: os.Stdout/os.Stderr already
-	// reference fd 1/2, which now point back to the original stdio.
-	// Avoid it for the same finalizer-accumulation reason noted in
-	// startWatchdog.
+	// No os.NewFile reassignment needed; avoid it for the same finalizer reason as startWatchdog.
 
-	// Must wait for forward() before closing read-ends; otherwise buffered
-	// output in the pipe (e.g. the final coverage block) is discarded.
+	// Wait for forward() before closing read-ends, or buffered pipe output (e.g. the coverage block) is discarded.
 	w.fwdWG.Wait()
 	w.stdoutR.Close()
 	w.stderrR.Close()

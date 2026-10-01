@@ -7,6 +7,7 @@ import (
 )
 
 func TestBuildSuggestion_IdenticalBlocks(t *testing.T) {
+	t.Serial()
 	tokens := []Token{
 		{Symbol: 'I'}, {Symbol: '_', Concrete: "x"}, {Symbol: 'R'},
 	}
@@ -21,6 +22,7 @@ func TestBuildSuggestion_IdenticalBlocks(t *testing.T) {
 }
 
 func TestBuildSuggestion_WithDifferences(t *testing.T) {
+	t.Serial()
 	tokensA := []Token{
 		{Symbol: 'I'}, {Symbol: '_', Concrete: "user"}, {Symbol: 'C'}, {Symbol: 'R'},
 	}
@@ -41,6 +43,7 @@ func TestBuildSuggestion_WithDifferences(t *testing.T) {
 }
 
 func TestBuildSuggestion_MultipleDifferences(t *testing.T) {
+	t.Serial()
 	tokensA := []Token{
 		{Symbol: 'A'}, {Symbol: '_', Concrete: "x"},
 		{Symbol: 'I'}, {Symbol: '_', Concrete: "10"},
