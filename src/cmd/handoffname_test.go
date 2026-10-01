@@ -20,6 +20,7 @@ type actionStep struct {
 	Run             string            `yaml:"run"`
 	ContinueOnError bool              `yaml:"continue-on-error"`
 	With            map[string]string `yaml:"with"`
+	Env             map[string]string `yaml:"env"`
 }
 
 // loadActionSteps parses the repo root action.yml and returns its composite
