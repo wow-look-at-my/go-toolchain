@@ -110,13 +110,11 @@ runs:
     - name: Install go-toolchain
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
-      env:
-        DOWNLOADED: ${{ steps.download.outputs.path }}
       run: |
         set -euo pipefail
         BIN_DIR="$RUNNER_TEMP/go-toolchain-bin"
         mkdir -p "${BIN_DIR}"
-        mv "${DOWNLOADED}" "${BIN_DIR}/go-toolchain"
+        mv "${{ steps.download.outputs.path }}" "${BIN_DIR}/go-toolchain"
         echo "${BIN_DIR}" >> "$GITHUB_PATH"
         # Capture the probe output: it names a crash or an unrunnable binary.
         if ! probe=$("${BIN_DIR}/go-toolchain" version 2>&1); then
