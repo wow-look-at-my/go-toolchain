@@ -9,16 +9,17 @@ import (
 	"sync"
 
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 var setupCGOOnce sync.Once
 
 // setupCGOEnvironment ensures PKG_CONFIG_PATH includes directories where
 // C libraries may be installed. It checks (in order):
-//  1. The go-toolchain opencv cache (~/.cache/go-toolchain/opencv-*)
-//  2. Homebrew on macOS (/opt/homebrew/lib/pkgconfig)
+//   - The go-toolchain opencv cache (~/.cache/go-toolchain/opencv-*)
+//   - Homebrew on macOS (/opt/homebrew/lib/pkgconfig)
 //
-// This runs once per invocation when --cgo is enabled.
+// This runs a single time per invocation when --cgo is enabled.
 func setupCGOEnvironment() {
 	if !cgoEnabled {
 		return
@@ -81,7 +82,7 @@ func addPkgConfigPath(dir string) {
 	} else {
 		os.Setenv("PKG_CONFIG_PATH", dir)
 	}
-	fmt.Fprintf(os.Stderr, "cgo: added %s to PKG_CONFIG_PATH\n", dir)
+	logger.Info("cgo: added %s to PKG_CONFIG_PATH", dir)
 }
 
 func brewPrefix() (string, error) {

@@ -8,15 +8,13 @@ import (
 	"time"
 )
 
-// Action is one row of cmd/go's -debug-actiongraph JSON dump. Only the fields
-// the profiler consumes are declared — encoding/json ignores unknown fields,
-// so the parse is forward-compatible with new cmd/go fields, and absent
-// fields simply stay zero (backward-compatible with older dumps).
+// Action is a row of cmd/go's -debug-actiongraph JSON dump. Only the fields
+// the profiler consumes are declared; unknown fields are ignored and absent
+// fields stay empty, so parsing stays compatible across cmd/go versions.
 //
-// ActionID is the 20-char truncated cache key,
-// base64.RawURLEncoding(wireActionID[:15]) — byte-identical to the truncated
-// form the cacheprog emits in its per-action stat events, which makes it the
-// join key between "what did the build do" and "what did the cache do".
+// ActionID is the truncated base64.RawURLEncoding form of the wire action ID
+// (see truncateActionID), byte-identical to what the cacheprog stat events emit --
+// the join key between "what did the build do" and "what did the cache do".
 type Action struct {
 	ID        int       `json:"ID"`
 	Mode      string    `json:"Mode"`
@@ -32,14 +30,12 @@ type Action struct {
 	Target    string    `json:"Target"`
 }
 
-// Executed reports whether the action actually ran (cmd/go stamped a start
-// and completion time on it). Cache-satisfied and pruned actions carry zero
-// times and contribute no wall time.
+// Executed reports whether cmd/go stamped a start and completion time; cache-satisfied actions carry empty times.
 func (a *Action) Executed() bool {
 	return !a.TimeStart.IsZero() && !a.TimeDone.IsZero() && !a.TimeDone.Before(a.TimeStart)
 }
 
-// Wall is the action's wall-clock duration (TimeDone - TimeStart), zero for
+// Wall is the action's wall-clock duration (TimeDone - TimeStart), empty for
 // actions that never executed.
 func (a *Action) Wall() time.Duration {
 	if !a.Executed() {
@@ -48,12 +44,10 @@ func (a *Action) Wall() time.Duration {
 	return a.TimeDone.Sub(a.TimeStart)
 }
 
-// LoadGraphs parses every actiongraph dump the collector handed out and
-// merges rows that share an ActionID (the same compile appears in both the
-// `go test` and `go build` graphs; the executed instance wins). Parsing is
-// strictly best-effort: a missing file (the go invocation failed before
-// dumping) is skipped silently, a malformed one is skipped with a single
-// warning on warn — the profile must never fail a build.
+// LoadGraphs parses every actiongraph dump and merges rows sharing an
+// ActionID (the executed instance wins). Best-effort: a missing file is
+// skipped silently, a malformed dump warns a single time -- the profile must never
+// fail a build.
 func LoadGraphs(files []string, warn io.Writer) []Action {
 	var all []Action
 	for _, path := range files {
@@ -82,7 +76,7 @@ func loadGraphFile(path string) ([]Action, error) {
 }
 
 // mergeActions dedupes rows by ActionID, preferring the instance that
-// actually executed (and, between two executed instances, the longer one —
+// actually executed (and, among executed instances, the longest —
 // the run that did the work). Rows without an ActionID cannot alias and are
 // kept as-is.
 func mergeActions(all []Action) []Action {
