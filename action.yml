@@ -99,27 +99,24 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
       run: bash "$ACTION_PATH/.github/scripts/register-ape-binfmt.sh"
 
-    # In a container job, runner.temp is the host path and $RUNNER_TEMP the container path. Both steps below read this one.
-    - name: Locate the go-toolchain directory
-      id: bin-dir
-      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
-      shell: bash
-      run: echo "dir=$RUNNER_TEMP/go-toolchain-bin" >> "$GITHUB_OUTPUT"
-
+    # No path: runner.temp is the host path in a container job. The action resolves RUNNER_TEMP itself.
     - name: Download go-toolchain
+      id: download
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
       with:
         project: go-toolchain
-        path: ${{ steps.bin-dir.outputs.dir }}/go-toolchain
 
     - name: Install go-toolchain
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
       env:
-        BIN_DIR: ${{ steps.bin-dir.outputs.dir }}
+        DOWNLOADED: ${{ steps.download.outputs.path }}
       run: |
         set -euo pipefail
+        BIN_DIR="$RUNNER_TEMP/go-toolchain-bin"
+        mkdir -p "${BIN_DIR}"
+        mv "${DOWNLOADED}" "${BIN_DIR}/go-toolchain"
         echo "${BIN_DIR}" >> "$GITHUB_PATH"
         # Capture the probe output: it names a crash or an unrunnable binary.
         if ! probe=$("${BIN_DIR}/go-toolchain" version 2>&1); then
