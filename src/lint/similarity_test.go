@@ -7,34 +7,39 @@ import (
 )
 
 func TestSimilarity_Identical(t *testing.T) {
+	t.Serial()
 	assert.InDelta(t, 1.0, Similarity("IACR", "IACR"), 0.001)
 }
 
 func TestSimilarity_Empty(t *testing.T) {
+	t.Serial()
 	assert.InDelta(t, 1.0, Similarity("", ""), 0.001)
 	assert.InDelta(t, 0.0, Similarity("ABC", ""), 0.001)
 	assert.InDelta(t, 0.0, Similarity("", "ABC"), 0.001)
 }
 
 func TestSimilarity_CompletelyDifferent(t *testing.T) {
+	t.Serial()
 	// No common subsequence at all
 	assert.InDelta(t, 0.0, Similarity("ABC", "XYZ"), 0.001)
 }
 
 func TestSimilarity_PartialMatch(t *testing.T) {
-	// "ABCDE" vs "ABXDE" — LCS is "ABDE" (length 4)
-	// similarity = 2*4 / (5+5) = 0.8
+	t.Serial()
+	// "ABCDE" vs "ABXDE": the LCS is "ABDE"
 	sim := Similarity("ABCDE", "ABXDE")
 	assert.InDelta(t, 0.8, sim, 0.001)
 }
 
 func TestSimilarity_Symmetric(t *testing.T) {
+	t.Serial()
 	a, b := "I_C_R", "I_X_R"
 	assert.InDelta(t, Similarity(a, b), Similarity(b, a), 0.001)
 }
 
 func TestSimilarity_HighSimilarity(t *testing.T) {
-	// Two sequences differing by one character out of 10
+	t.Serial()
+	// Sequences differing by a single character
 	a := "IA_C_V_R_X"
 	b := "IA_C_V_R_Y"
 	sim := Similarity(a, b)
@@ -42,6 +47,7 @@ func TestSimilarity_HighSimilarity(t *testing.T) {
 }
 
 func TestLCSLength(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		a, b     string
 		expected int
@@ -58,6 +64,7 @@ func TestLCSLength(t *testing.T) {
 }
 
 func TestLCSDiff(t *testing.T) {
+	t.Serial()
 	a := []Token{
 		{Symbol: 'I'}, {Symbol: '_', Concrete: "x"}, {Symbol: 'R'},
 	}
@@ -65,13 +72,13 @@ func TestLCSDiff(t *testing.T) {
 		{Symbol: 'I'}, {Symbol: '_', Concrete: "y"}, {Symbol: 'R'},
 	}
 	diffA, diffB := LCSDiff(a, b)
-	// All symbols are identical (I, _, R) so LCS covers everything
-	// and there should be no structural diffs
+	// Symbols match (I, _, R), so LCS covers everything: no structural diffs.
 	assert.Empty(t, diffA)
 	assert.Empty(t, diffB)
 }
 
 func TestLCSDiff_StructuralDifference(t *testing.T) {
+	t.Serial()
 	a := []Token{
 		{Symbol: 'I'}, {Symbol: 'C'}, {Symbol: 'R'},
 	}
@@ -79,12 +86,13 @@ func TestLCSDiff_StructuralDifference(t *testing.T) {
 		{Symbol: 'I'}, {Symbol: 'X'}, {Symbol: 'R'},
 	}
 	diffA, diffB := LCSDiff(a, b)
-	// Position 1 differs: C vs X
+	// The differing position: C vs X
 	assert.Equal(t, []int{1}, diffA)
 	assert.Equal(t, []int{1}, diffB)
 }
 
 func TestFindDuplicates_NoDuplicates(t *testing.T) {
+	t.Serial()
 	blocks := map[string][]Block{
 		"a.go": {
 			{Tokens: makeTokens("IACR_IACR_IACR_IACR_IACR"), Sequence: "IACR_IACR_IACR_IACR_IACR", FuncName: "foo"},
@@ -98,6 +106,7 @@ func TestFindDuplicates_NoDuplicates(t *testing.T) {
 }
 
 func TestFindDuplicates_IdenticalBlocks(t *testing.T) {
+	t.Serial()
 	seq := "IA_CV_R_IA_CV_R_IA_CV_R_"
 	blocks := map[string][]Block{
 		"a.go": {
@@ -113,6 +122,7 @@ func TestFindDuplicates_IdenticalBlocks(t *testing.T) {
 }
 
 func TestFindDuplicates_SizeFilter(t *testing.T) {
+	t.Serial()
 	// Blocks of very different sizes should not be compared
 	short := "IA"
 	long := "IACR_IACR_IACR_IACR_IACR_IACR_IACR_IACR_IACR_IACR"

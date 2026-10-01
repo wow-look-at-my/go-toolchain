@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
@@ -23,7 +24,7 @@ type ICoverageItem interface {
 	Uncovered() int
 	Pct() float32
 	ImportPath() string // Returns import path for linking (file path for files/funcs, package path for packages)
-	Line() int          // Returns line number (0 for packages/files)
+	Line() int          // Returns line number (absent for packages/files)
 }
 
 // baseCoverageItem provides common coverage stats (embed in concrete types)
@@ -100,15 +101,14 @@ type funcInfo struct {
 	endLine   int
 }
 
-// ParseProfile reads a Go coverage profile and returns total coverage and file coverage.
-// Each FileCoverage contains its functions with Parent pointers set.
+// ParseProfile reads a coverage profile and returns total plus per-file coverage, Parent pointers set.
 func ParseProfile(filename string) (float32, []FileCoverage, error) {
-	return ParseProfileFiltered(filename, nil)
+	return ParseProfileFiltered(filename, set.Set[string]{})
 }
 
 // ParseProfileFiltered is like ParseProfile but excludes coverage blocks from
-// packages not in the reachable set. If reachable is nil, all blocks are included.
-func ParseProfileFiltered(filename string, reachable map[string]bool) (float32, []FileCoverage, error) {
+// packages not in the reachable set. An empty set includes every block.
+func ParseProfileFiltered(filename string, reachable set.Set[string]) (float32, []FileCoverage, error) {
 	blocks, err := parseProfileBlocks(filename)
 	if err != nil {
 		return 0, nil, err
@@ -183,18 +183,16 @@ func ParseProfileFiltered(filename string, reachable map[string]bool) (float32, 
 //
 // If no main packages are found (library-only project), falls back to
 // go list -deps ./... which includes all packages.
-func ReachablePackages(r runner.CommandRunner) (map[string]bool, error) {
+func ReachablePackages(root string, r runner.CommandRunner) (set.Set[string], error) {
 	// Get module prefix from go.mod
-	modulePrefix := gomod.ReadModulePath()
+	modulePrefix := gomod.ReadModulePath(root)
 	if modulePrefix == "" {
-		return nil, nil
+		return set.Set[string]{}, nil
 	}
 
-	// Find main packages to use as roots for the dependency graph.
-	// Using entry points instead of ./... prevents build-tag-excluded
-	// packages from being counted toward coverage thresholds.
+	// Entry-point roots, not ./..., so build-tag-excluded packages never count toward coverage.
 	roots := "./..."
-	mainPkgs, _ := gomod.FindMainPackages()
+	mainPkgs, _ := gomod.FindMainPackages(root)
 	if len(mainPkgs) > 0 {
 		roots = strings.Join(mainPkgs, "\n")
 	}
@@ -208,32 +206,29 @@ func ReachablePackages(r runner.CommandRunner) (map[string]bool, error) {
 			args = append(args, pkg)
 		}
 	}
-	proc, err := runner.Cmd("go", args...).WithQuiet().Run(r)
+	proc, err := runner.Cmd("go", args...).WithDir(root).WithQuiet().Run(r)
 	if err != nil {
-		return nil, err
+		return set.Set[string]{}, err
 	}
 	out, _ := io.ReadAll(proc.Stdout())
 	if err := proc.Wait(); err != nil {
-		return nil, err
+		return set.Set[string]{}, err
 	}
 
-	reachable := make(map[string]bool)
+	reachable := set.New[string]()
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" && strings.HasPrefix(line, modulePrefix) {
-			reachable[line] = true
+			reachable.Add(line)
 		}
-	}
-	if len(reachable) == 0 {
-		return nil, nil
 	}
 	return reachable, nil
 }
 
 // filterBlocksByReachable removes coverage blocks whose package is not in the
-// reachable set. If reachable is nil or empty, returns blocks unchanged.
-func filterBlocksByReachable(blocks []coverageBlock, reachable map[string]bool) []coverageBlock {
-	if len(reachable) == 0 {
+// reachable set. An empty set returns the blocks unchanged.
+func filterBlocksByReachable(blocks []coverageBlock, reachable set.Set[string]) []coverageBlock {
+	if reachable.IsEmpty() {
 		return blocks
 	}
 	var filtered []coverageBlock
@@ -242,7 +237,7 @@ func filterBlocksByReachable(blocks []coverageBlock, reachable map[string]bool) 
 		if idx := strings.LastIndex(b.file, "/"); idx != -1 {
 			pkg = b.file[:idx]
 		}
-		if reachable[pkg] {
+		if reachable.Contains(pkg) {
 			filtered = append(filtered, b)
 		}
 	}
@@ -251,9 +246,9 @@ func filterBlocksByReachable(blocks []coverageBlock, reachable map[string]bool) 
 
 // parseProfileBlocks parses a coverage profile into blocks.
 // Duplicate entries (same file + line range) are merged by taking the max
-// count. Go 1.25 with -coverpkg=./... and -p 1 emits one entry per
-// test-package per block, so without merging, statements get counted N times
-// (once per test package) which dramatically deflates the coverage percentage.
+// count. A recent Go with -coverpkg=./... and a serial -p emits an entry per
+// test-package per block, so without merging, statements get counted per test
+// package, which dramatically deflates the coverage percentage.
 func parseProfileBlocks(filename string) ([]coverageBlock, error) {
 	file, err := os.Open(filename)
 	if err != nil {
@@ -267,7 +262,7 @@ func parseProfileBlocks(filename string) ([]coverageBlock, error) {
 		lineRange string // original "startLine.startCol,endLine.endCol"
 	}
 	merged := make(map[blockKey]*coverageBlock)
-	var order []blockKey // preserve first-seen order
+	var order []blockKey
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -344,8 +339,7 @@ func parseLineNum(s string) int {
 
 // parseFunctionsFromSource parses a Go source file and returns function locations
 func parseFunctionsFromSource(importPath string) []funcInfo {
-	// Try to find the source file - importPath is like "github.com/foo/bar/file.go"
-	// We need to find it relative to the module
+	// importPath looks like "github.com/foo/bar/file.go"; resolve it relative to the module.
 	srcPath := findSourceFile(importPath)
 	if srcPath == "" {
 		return nil
@@ -392,11 +386,9 @@ func receiverType(expr ast.Expr) string {
 
 // findSourceFile tries to locate the source file from an import path
 func findSourceFile(importPath string) string {
-	// The import path includes the file name, e.g. "github.com/foo/bar/pkg/file.go"
-	// We need to find it relative to the current module
+	// importPath includes the file name (e.g. "github.com/foo/bar/pkg/file.go"); resolve it relative to the module.
 
-	// First, try as a relative path from current directory
-	// Strip the module prefix to get relative path
+	// Try each suffix as a relative path, stripping a leading segment at a time.
 	parts := strings.Split(importPath, "/")
 	for i := range parts {
 		candidate := filepath.Join(parts[i:]...)

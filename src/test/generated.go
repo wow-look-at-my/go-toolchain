@@ -8,8 +8,7 @@ import (
 	"strings"
 )
 
-// generatedRe is the exact pattern used by Go tooling to detect generated files.
-// See: https://pkg.go.dev/cmd/go#hdr-Generate_Go_files_by_processing_source
+// generatedRe is Go tooling's exact pattern for detecting generated files (see cmd/go doc).
 var generatedRe = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
 
 // isGeneratedFile checks whether a Go source file contains the standard

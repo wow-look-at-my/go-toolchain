@@ -1,0 +1,139 @@
+# The smoke suite. A single file, run unchanged by every leg of the smoke job
+# (.github/workflows/ci.yml), because a single APE is what every host
+# downloads and the question is the same on all of them: does the published
+# artifact boot, report the host it is actually on, and drive a whole pipeline here.
+#
+# Every leg runs it SANDBOXED, like every other suite. Turning isolation off is
+# not available here and must not be reintroduced: the run-starter owns that
+# decision, and the suites exist to prove the shipped artifact behaves under the
+# isolation a consumer gets.
+#
+# The APE is copied under an .exe name on every host. NT needs the suffix, a
+# posix host does not care, and a single name is what keeps this file host-agnostic.
+
+shared:
+	copy:
+		gt-ape.exe: ../../dist/go-toolchain
+
+setup:
+	- chmod +x {shared.gt-ape.exe}
+
+tests:
+	- desc: the shipped artifact carries the APE magic
+	  cmd: 'head -c 6 {shared.gt-ape.exe}'
+	  timeout: 30s
+	  outputs:
+		stdout:
+			- "MZqFpD"
+
+	# An APE is a valid PE, a valid ELF and a valid Mach-O at the same
+	# time, so the payload each host selects has to start here rather than in theory.
+	- desc: the APE's payload runs on this host
+	  cmd: '{shared.gt-ape.exe} version'
+	  timeout: 60s
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stdout:
+			- "Version:"
+
+	- desc: the APE prints usage under --help
+	  cmd: '{shared.gt-ape.exe} --help'
+	  timeout: 60s
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stdout:
+			- "Usage:"
+
+	# What the APE detects decides every host-specific choice it makes: the
+	# buildhost slot and the fork's bin/go suffix among them. GUESSED
+	# means the measurement failed and the fallback answered, which reads
+	# identically until something breaks. The pattern accepts only an answer
+	# that agrees with the shell's own name for this host.
+	- desc: the APE detects this host by measurement, and names the host the shell names
+	  cmd: 'printf "%s|%s\n" "$({shared.gt-ape.exe} version host | head -1)" "$(uname -s)"'
+	  timeout: 60s
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stdout:
+			0: "^host: (linux.*\\|Linux|darwin.*\\|Darwin|windows.*\\|(MINGW|MSYS|CYGWIN))"
+		"!stdout":
+			- "GUESSED"
+
+	# The whole pipeline, driven by the APE, in a synthetic consumer module:
+	# tidy resolves testify, vet type-checks, the test runs, the build writes a
+	# binary.
+	- desc: the full pipeline runs in a tiny module on this host
+	  cmd: 'mkdir -p "$HOME"; cd "$(dirname {inputs.go.mod})"; chmod +x ./gt-under-test.exe; {shared.gt-ape.exe}'
+	  timeout: 20m
+	  inputs:
+		env:
+			# The pipeline caches the fork under $HOME, and the sandbox makes only this
+			# test's own directory writable. Named here rather than inherited: bwrap
+			# takes the host's home out of the mount namespace so the APE falls back to
+			# somewhere writable, while seatbelt leaves the path visible and read-only,
+			# so the same command works on linux and is denied on darwin.
+			HOME: "{outputs.home}"
+			# The fork refuses to run any go command with CI set and no shared
+			# cache configured, because a real CI build's cache decides whether
+			# every other CI run recompiles. This build is a throwaway module in
+			# a sandbox with no credentials and no network, so it has no cache to
+			# contribute and the refusal only says the runner is a runner.
+			CI: ""
+		copy:
+			gt-under-test.exe: ../../dist/go-toolchain
+		files:
+			go.mod: |
+				module example.com/apesmoke
+
+				go 1.24
+
+				require github.com/stretchr/testify v1.11.1
+			main.go: |
+				// Package main is a tiny module used to smoke-test the
+				// published APE on this runner's OS.
+				package main
+
+				import "fmt"
+
+				// Greeting returns the smoke-test greeting.
+				func Greeting(name string) string {
+					return "hello, " + name
+				}
+
+				func main() {
+					fmt.Println(Greeting("cosmo"))
+				}
+			main_test.go: |
+				package main
+
+				import (
+					"testing"
+
+					"github.com/stretchr/testify/require"
+				)
+
+				func TestGreeting(t *testing.T) {
+					require.Equal(t, "hello, cosmo", Greeting("cosmo"))
+				}
+	  outputs:
+		stdout:
+			- "Build successful"
+
+	# A directory that is neither a module nor a suite tree is the shipped
+	# artifact's own refusal, and it has to arrive before any toolchain is
+	# fetched for it. Pairing with uname keeps this test on every host.
+	- desc: the APE names both halves where there is nothing to build
+	  cmd: 'mkdir -p {outputs.rundir}; cd {outputs.rundir}; out=$({shared.gt-ape.exe} 2>&1); printf "%s|%s\n" "$(uname -s)" "$(printf "%s" "$out" | tr "\n" " ")"'
+	  timeout: 5m
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stdout:
+			0: "^(Linux|Darwin|MINGW|MSYS|CYGWIN).*\\|.*no go.mod and no dats/ suites found"

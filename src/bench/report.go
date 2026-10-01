@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // BenchmarkResult holds parsed benchmark data
@@ -33,8 +35,8 @@ type testEvent struct {
 	Output  string `json:"Output"`
 }
 
-// benchPattern matches benchmark output lines:
-// BenchmarkFoo-8     10000    123456 ns/op    1234 B/op    56 allocs/op
+// benchPattern matches benchmark output lines: BenchmarkFoo-<cpus> <iters>
+// <ns> ns/op <bytes> B/op <allocs> allocs/op
 var benchPattern = regexp.MustCompile(
 	`^(Benchmark\S+)\s+(\d+)\s+([\d.]+)\s+ns/op(?:\s+(\d+)\s+B/op)?(?:\s+(\d+)\s+allocs/op)?`,
 )
@@ -118,7 +120,7 @@ func formatBenchBytes(b int64) string {
 // Print outputs the benchmark report in a pretty format
 func (r *BenchmarkReport) Print() {
 	if len(r.Packages) == 0 {
-		fmt.Println("     (no benchmarks found)")
+		logger.Info("     (no benchmarks found)")
 		return
 	}
 
@@ -129,10 +131,10 @@ func (r *BenchmarkReport) Print() {
 	}
 	sort.Strings(pkgNames)
 
-	fmt.Println("        time/op      alloc/op   allocs/op  name")
+	logger.Info("        time/op      alloc/op   allocs/op  name")
 	for _, pkg := range pkgNames {
 		results := r.Packages[pkg]
-		// Sort by ns/op (fastest first)
+		// Sort by ns/op, fastest at the top
 		sort.Slice(results, func(i, j int) bool {
 			return results[i].NsPerOp < results[j].NsPerOp
 		})
@@ -142,7 +144,7 @@ func (r *BenchmarkReport) Print() {
 		if idx := strings.LastIndex(pkg, "/"); idx >= 0 {
 			shortPkg = pkg[idx+1:]
 		}
-		fmt.Printf("\033[1m%s\033[0m\n", shortPkg)
+		logger.Info("\033[1m%s\033[0m", shortPkg)
 
 		for _, b := range results {
 			// Strip package prefix and Benchmark prefix from name
@@ -158,7 +160,7 @@ func (r *BenchmarkReport) Print() {
 			timeStr := formatBenchTime(b.NsPerOp)
 			allocStr := formatBenchBytes(b.BytesPerOp)
 
-			fmt.Printf("  %12s  %12s  %9d  %s\n",
+			logger.Info("  %12s  %12s  %9d  %s",
 				timeStr, allocStr, b.AllocsPerOp, name)
 		}
 	}
@@ -188,7 +190,7 @@ func (r *BenchmarkReport) ToBenchstat() string {
 		})
 
 		for _, b := range results {
-			// Format: BenchmarkName-N    iterations    ns/op    B/op    allocs/op
+			// Format: BenchmarkName-N iterations ns/op B/op allocs/op
 			sb.WriteString(fmt.Sprintf("%s\t%d\t%.2f ns/op", b.Name, b.Iterations, b.NsPerOp))
 			if b.BytesPerOp > 0 || b.AllocsPerOp > 0 {
 				sb.WriteString(fmt.Sprintf("\t%d B/op\t%d allocs/op", b.BytesPerOp, b.AllocsPerOp))
