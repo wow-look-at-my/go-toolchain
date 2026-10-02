@@ -9,25 +9,6 @@
 // minDurationToShow. A faster line prints unchanged, so the suffix marks the
 // handful of lines worth timing instead of stamping an instant duration onto
 // every line.
-//
-// With Install() active, every line emitted by this process — from our own
-// logger calls, from subprocess output inherited via the pipe, from anywhere
-// — arrives on the real terminal, timed if it was slow to appear. Call
-// sites don't change.
-//
-// # When not to install
-//
-// GOCACHEPROG mode must produce raw JSON on stdout for the Go toolchain to
-// parse, so Install() must NOT be called in that path. main.go already
-// handles that by skipping Install() when cacheprog is detected.
-//
-// # Ordering
-//
-// Install() must run before any code writes to stdout/stderr. It's idempotent
-// — subsequent calls are no-ops.
-//
-// Flush() should be called on every exit path so partial lines and buffered
-// pipe content are emitted before exit.
 package logx
 
 import (
