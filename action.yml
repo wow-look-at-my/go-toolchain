@@ -172,9 +172,9 @@ runs:
         set -euo pipefail
         # The pipeline binary is the go command these generators build with, whatever else the runner has on PATH. A runner supplies GOPROXY and GOSUMDB set to nothing, which the go command reads as a list naming no proxy and refuses, so a value is named here for whichever binary runs: an older published one fills nothing in for itself. A value the caller named is kept.
         export GOPROXY="${GOPROXY:-direct}" GOSUMDB="${GOSUMDB:-off}"
-        mkdir -p "${{ runner.temp }}/gt-go"
-        ln -sf "$(command -v go-toolchain)" "${{ runner.temp }}/gt-go/go"
-        go=("${{ runner.temp }}/gt-go/go")
+        mkdir -p "$RUNNER_TEMP/gt-go"
+        ln -sf "$(command -v go-toolchain)" "$RUNNER_TEMP/gt-go/go"
+        go=("$RUNNER_TEMP/gt-go/go")
         for pkg in \
           golang.org/x/tools/cmd/stringer@v0.49.0 \
           golang.org/x/tools/cmd/goyacc@v0.49.0 \
