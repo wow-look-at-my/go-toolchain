@@ -31,7 +31,7 @@ A narrower set is **not** automatically a smaller binary, and the default set sa
 
 Accepted: `linux/amd64`, `linux/arm64`, `darwin/arm64`, `windows/amd64`. `darwin/amd64` (Intel-mac runtime never proven on real hardware) and `windows/arm64` (amd64-only PE payload) are refused — a published platform set says where the binary runs. So an unproven host cannot be in it.
 
-**Publishing.** The APE publishes as a *single* artifact carrying its whole platform set. One upload, one download link, one checksum, with an `APE:<platforms>` badge. go-toolchain writes `buildhost-artifacts.json` alongside the binary to say so — see [BUILDHOST-MANIFEST.md](BUILDHOST-MANIFEST.md).
+**Publishing.** The APE publishes as a *single* artifact carrying its whole platform set. One upload, one download link, one checksum, with an `APE:<platforms>` badge. The `buildhost-artifacts.json` file go-toolchain writes alongside the binary says so — see [BUILDHOST-MANIFEST.md](BUILDHOST-MANIFEST.md).
 
 **Adding wasm targets.** `--targets` takes `cosmo` and/or the wasm targets (`wasm/js`, `wasm/wasip1`) — nothing else. Leaving `cosmo` out of the list builds wasm alone:
 

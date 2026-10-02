@@ -125,7 +125,7 @@ Being distinct per job, per matrix leg, AND per build is the point: concurrent g
     path: dist   # no name: self-discovers this run's hand-off
 ```
 
-Nameless discovery is clean only when the run's hand-off set is unambiguous at download time (the exact ambiguity semantics belong to `cache-download` — see its docs). A run that saves several distinct hand-offs — several go-toolchain jobs, a matrix go-toolchain job, or extra `cache-upload` hand-offs alongside the build outputs.
+Nameless discovery is clean only when the run's hand-off set is unambiguous at download time (the exact ambiguity semantics belong to `cache-download` — see its docs). A run can save several distinct hand-offs. Examples are several go-toolchain jobs, a matrix go-toolchain job, or extra `cache-upload` hand-offs alongside the build outputs.
 
 **This is the only name saved.** The pre-build per-job name `go-build-<job>[.m<idx>]` and the bare `go-build` alias are gone. Each was a second key that a multi-producer run raced on. So the second finisher's save collided and had to be absorbed with `continue-on-error`. The action now saves ONE hand-off, under that name. A download naming anything else restores nothing. That is why this repo's own `identical`, `smoke` and `publish` jobs spell `go-build-build.broot` in full. A consumer that still downloads either legacy name gets a miss and must migrate to the name above. `src/cmd/handoffname_test.go` pins both the template and the absence of any second hand-off.
 
@@ -166,7 +166,7 @@ The case that does not register is a publish whose target server is loopback or 
 
 ## 5. One head per run across several jobs
 
-A workflow needs nothing for this. The fork's go command locks each org module's branch head per run attempt in buildhost, and every job of the attempt builds it ([ORG-PINS.md](ORG-PINS.md#one-head-per-ci-run-the-buildhost-run-lock)). The job only needs `id-token: write`, which the action already requires.
+A workflow needs nothing for this. The fork's go command locks each org module's branch head per run attempt in buildhost. Every job of the attempt builds it ([ORG-PINS.md](ORG-PINS.md#one-head-per-ci-run-the-buildhost-run-lock)). The job only needs `id-token: write`, which the action already requires.
 
 ---
 

@@ -1,8 +1,8 @@
 # dats suites
 
-Command-line tests for the freshly built go-toolchain binary, written in [dats](https://github.com/wow-look-at-my/dats) YAML and executed by the pipeline's dats phase after every build (root pipeline and `matrix`).
+Command-line tests for the freshly built go-toolchain binary, written in [dats](https://github.com/wow-look-at-my/dats) YAML. The pipeline's dats phase runs them after every build (root pipeline and `matrix`).
 
-What a repository built by go-toolchain can rely on -- the suite layout, the tab-only dialect, `$GO_TOOLCHAIN_DATS_BUILD_DIR` and its staging directory, the sandbox contract, serial execution and the goldens -- is dats' own documentation: `dats docs embedding`, or `docs/embedding.md` in that repository.
+What a repository built by go-toolchain can rely on is dats' own documentation: `dats docs embedding`, or `docs/embedding.md` in that repository. That covers the suite layout, the tab-only dialect, `$GO_TOOLCHAIN_DATS_BUILD_DIR` and its staging directory, the sandbox contract, serial execution and the goldens.
 
 ## Notes specific to this repo's suite
 
