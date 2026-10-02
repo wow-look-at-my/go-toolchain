@@ -96,11 +96,12 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 			return true
 		})
 
-		// Process diagnostics and generate AST fixes
+		// Process diagnostics in source order and generate AST fixes
+		hoisted := make(hoistedNames)
 		for _, d := range diagnostics {
 			message := fmt.Sprintf("use %s.%s instead of if + t.Error/t.Fatal", d.assertPkg, d.assertFunc)
 
-			fix := generateASTFix(pass, d.ifStmt, d.assertPkg, d.assertFunc)
+			fix := generateASTFix(pass, d.ifStmt, d.assertPkg, d.assertFunc, hoisted)
 			if fix != nil {
 				fileToFixes[file] = append(fileToFixes[file], *fix)
 			}
