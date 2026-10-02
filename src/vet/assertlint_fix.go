@@ -3,6 +3,7 @@ package vet
 import (
 	"go/ast"
 	"go/token"
+	"go/types"
 
 	"github.com/wow-look-at-my/go-containers/set"
 	"golang.org/x/tools/go/analysis"
@@ -24,8 +25,9 @@ func getTestVarName(body *ast.BlockStmt) string {
 	return ""
 }
 
-// generateASTFix creates an ASTFix for the if statement.
-func generateASTFix(pass *analysis.Pass, ifStmt *ast.IfStmt, assertPkg, assertFunc string) *ASTFix {
+// generateASTFix creates an ASTFix for the if statement. hoisted carries the
+// names earlier fixes in the same file have already flattened into each scope.
+func generateASTFix(pass *analysis.Pass, ifStmt *ast.IfStmt, assertPkg, assertFunc string, hoisted hoistedNames) *ASTFix {
 	// Skip if/else chains (else-if is already filtered during detection)
 	if ifStmt.Else != nil {
 		return nil
@@ -65,7 +67,7 @@ func generateASTFix(pass *analysis.Pass, ifStmt *ast.IfStmt, assertPkg, assertFu
 		}
 
 		// General case: extract init statement
-		newNodes := []ast.Node{hoistableInit(pass, ifStmt), assertStmt}
+		newNodes := hoistInit(pass, ifStmt, assertStmt, hoisted)
 		prepareFixNodes(newNodes, ifStmt.Pos())
 		return &ASTFix{
 			OldNode:  ifStmt,
@@ -82,41 +84,111 @@ func generateASTFix(pass *analysis.Pass, ifStmt *ast.IfStmt, assertPkg, assertFu
 	}
 }
 
-// hoistableInit returns the if's init clause in a form legal outside the if.
+// hoistedNames records, per scope, the names and types that fixes in the same
+// run have flattened into that scope. The type checker's scopes describe the
+// source as written, where each if's init is private to its if; once an init
+// is flattened into the enclosing block its names are visible to every later
+// statement there, so the next flattened init resolves against this as well.
+type hoistedNames map[*types.Scope]map[string]types.Type
+
+// declared returns the type the name has in scope after the fixes so far: the
+// variable the checker sees from pos, or one flattened in by an earlier fix.
+// found is false for a name that nothing in scope declares.
+func (h hoistedNames) declared(scope *types.Scope, name string, pos token.Pos) (typ types.Type, isVar, found bool) {
+	if typ, ok := h[scope][name]; ok {
+		return typ, true, true
+	}
+	_, obj := scope.LookupParent(name, pos)
+	if obj == nil {
+		return nil, false, false
+	}
+	v, ok := obj.(*types.Var)
+	if !ok {
+		return nil, false, true
+	}
+	return v.Type(), true, true
+}
+
+func (h hoistedNames) record(scope *types.Scope, name string, typ types.Type) {
+	if h[scope] == nil {
+		h[scope] = make(map[string]types.Type)
+	}
+	h[scope][name] = typ
+}
+
+// hoistInit returns the if's init clause and the assertion in a form that is
+// legal where the if stood.
 //
-// An init clause declares into the if's scope, so `if _, err := f();` is legal even where err already
-// exists -- it shadows it. Lifting it verbatim into the enclosing block loses that shadow: if every
-// name is already defined there, Go rejects the bare `:=` with "no new variables on left side of :=".
+// An init clause declares into the if's own scope, so `if _, err := f();` is
+// legal beside an existing err (it shadows it), beside a later `err :=` in the
+// same block, and beside an err of another type. Flattened into the enclosing
+// block, each of those is a compile error: "no new variables on left side of
+// :=", a redeclaration, or a mismatched assignment. The statements are emitted
+// flat when that is provably legal, else kept together in a block, which
+// scopes the init exactly as the if did:
 //
-// So when every defined name already exists in the enclosing scope, the hoisted statement assigns
-// instead of defining. When any name is new, `:=` stays correct and the statement is untouched.
-// The outer variable is then written rather than shadowed -- inherent to flattening the if, since
-// the assertion below it must see the value.
-func hoistableInit(pass *analysis.Pass, ifStmt *ast.IfStmt) ast.Stmt {
+//   - every name is new in the enclosing scope: `:=` stays as written;
+//   - every name exists as a variable of the identical type: `:=` becomes `=`,
+//     so the outer variable is written rather than shadowed, which flattening
+//     requires anyway since the assertion below must see the value;
+//   - a mix of new and existing names, each existing one a variable of the
+//     identical type: `:=` stays, declaring the new names and assigning or
+//     shadowing the rest;
+//   - anything else, or no type information: a block.
+func hoistInit(pass *analysis.Pass, ifStmt *ast.IfStmt, assertStmt ast.Stmt, hoisted hoistedNames) []ast.Node {
+	block := []ast.Node{&ast.BlockStmt{List: []ast.Stmt{ifStmt.Init, assertStmt}}}
 	assign, ok := ifStmt.Init.(*ast.AssignStmt)
 	if !ok || assign.Tok != token.DEFINE {
-		return ifStmt.Init
+		return []ast.Node{ifStmt.Init, assertStmt} // an assignment or a call declares nothing
 	}
 	// Scopes[ifStmt] is the scope the init declares into; its parent is where the statement lands.
 	ifScope := pass.TypesInfo.Scopes[ifStmt]
 	if ifScope == nil || ifScope.Parent() == nil {
-		return ifStmt.Init // no type info.
+		return block
 	}
+	landing := ifScope.Parent()
+
+	type named struct {
+		name string
+		typ  types.Type
+	}
+	var names []named
+	anyNew := false
 	for _, lhs := range assign.Lhs {
 		ident, ok := lhs.(*ast.Ident)
 		if !ok {
-			return ifStmt.Init // not a plain name list; do not touch it
+			return block // not a plain name list
 		}
 		if ident.Name == "_" {
 			continue
 		}
-		if _, obj := ifScope.Parent().LookupParent(ident.Name, ifStmt.Pos()); obj == nil {
-			return ifStmt.Init // a new name is introduced, so := is legal
+		def := pass.TypesInfo.Defs[ident]
+		if def == nil {
+			return block
+		}
+		names = append(names, named{ident.Name, def.Type()})
+		// A later `name :=` in the landing block would redeclare a name flattened before it.
+		if later := landing.Lookup(ident.Name); later != nil && later.Pos() > ifStmt.Pos() {
+			return block
+		}
+		existing, isVar, found := hoisted.declared(landing, ident.Name, ifStmt.Pos())
+		if !found {
+			anyNew = true
+			continue
+		}
+		if !isVar || !types.Identical(existing, def.Type()) {
+			return block
 		}
 	}
-	hoisted := *assign
-	hoisted.Tok = token.ASSIGN
-	return &hoisted
+	for _, n := range names {
+		hoisted.record(landing, n.name, n.typ)
+	}
+	if anyNew {
+		return []ast.Node{assign, assertStmt}
+	}
+	flat := *assign
+	flat.Tok = token.ASSIGN
+	return []ast.Node{&flat, assertStmt}
 }
 
 // makeSelector creates a pkg.method selector expression.
