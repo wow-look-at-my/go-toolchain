@@ -84,8 +84,7 @@ var rootCmd = &cobra.Command{
 	Short:        "Build Go projects with coverage enforcement",
 	SilenceUsage: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Install the logger so every command's output honors the
-		// requested level.
+		// Install the logger so every command's output honors the requested level.
 		if err := initLogging(cmd); err != nil {
 			return err
 		}
@@ -164,8 +163,8 @@ func Execute() error {
 func run(cmd *cobra.Command, args []string) (err error) {
 	InitTimeline()
 
-	// Runs last (registered at the head) so a later phase's failure still discards
-	// the binary the build just re-created.
+	// Runs last (registered at the head) so a later phase's failure still
+	// discards the binary the build re-created.
 	defer func() {
 		if err != nil {
 			discardBuildOutputs()

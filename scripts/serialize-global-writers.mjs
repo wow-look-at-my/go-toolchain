@@ -1,15 +1,5 @@
 #!/usr/bin/env node
 // Serializes every test that assigns a variable of its own package.
-//
-// A package-level variable is the run's, not the test's, so a test that swaps
-// it swaps it for every test beside it. Save-mutate-restore reads as local and
-// is not: the restore runs a whole test later than the write.
-//
-// This reads the package's variable names off its non-test files, then drives
-// scripts/serialize-tests.mjs per name. A name a test declares itself is
-// not a global, so only an assignment with no := for that name counts.
-//
-// Usage: node scripts/serialize-global-writers.mjs <package dir>...
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';

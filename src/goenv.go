@@ -30,8 +30,7 @@ const PublicSumDB = "sum.golang.org"
 // public checksum database ITSELF. GOSUMDB is "<name>", "<name>+<key>", or
 // "<name>+<key> <url>"; only the URL form redirects lookups elsewhere, so
 // sum.golang.org named WITH a proxy URL (the org's "<proxy>/sumdb/<name>"
-// mirror) stays allowed. Refused: the bare name, or a URL pointing back at
-// the public host anyway.
+// mirror) stays allowed.
 func usesPublicSumDB(gosumdb string) bool {
 	fields := strings.Fields(gosumdb)
 	if len(fields) == 0 {

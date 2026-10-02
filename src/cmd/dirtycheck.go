@@ -54,7 +54,6 @@ func dropForkGitlink(files string) string {
 // any whose content still matches. git status trusts that stat cache, so a
 // rewrite producing the same bytes otherwise reads as an edit. A real change
 // survives the refresh, which is why this only removes false alarms.
-// It returns what git said about the paths that did change.
 func refreshGitIndex(dir string) string {
 	cmd := exec.Command("git", "update-index", "--refresh")
 	cmd.Dir = dir

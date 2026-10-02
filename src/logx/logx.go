@@ -6,25 +6,25 @@
 // Install() swaps os.Stdout and os.Stderr for pipe write-ends and starts
 // goroutines that read each complete line and forward it to the real stream
 // with an elapsed-time suffix — but only for a line slow enough to reach
-// minDurationToShow. A faster line prints unchanged, so the suffix
-// marks the handful of lines actually worth timing instead of stamping
-// an instant duration onto every line.
+// minDurationToShow. A faster line prints unchanged, so the suffix marks the
+// handful of lines worth timing instead of stamping an instant duration onto
+// every line.
 //
 // With Install() active, every line emitted by this process — from our own
 // logger calls, from subprocess output inherited via the pipe, from anywhere
-// — arrives on the real terminal, timed if it was slow to appear. Call sites
-// don't change.
+// — arrives on the real terminal, timed if it was slow to appear. Call
+// sites don't change.
 //
 // # When not to install
 //
-// GOCACHEPROG mode must produce raw JSON on stdout for the Go toolchain
-// to parse, so Install() must NOT be called in that path. main.go already
+// GOCACHEPROG mode must produce raw JSON on stdout for the Go toolchain to
+// parse, so Install() must NOT be called in that path. main.go already
 // handles that by skipping Install() when cacheprog is detected.
 //
 // # Ordering
 //
-// Install() must run before any code writes to stdout/stderr. It's
-// idempotent — subsequent calls are no-ops.
+// Install() must run before any code writes to stdout/stderr. It's idempotent
+// — subsequent calls are no-ops.
 //
 // Flush() should be called on every exit path so partial lines and buffered
 // pipe content are emitted before exit.
@@ -56,12 +56,12 @@ var (
 	drainedWG   sync.WaitGroup
 )
 
-// Install redirects os.Stdout and os.Stderr through pipes. A goroutine
-// per stream reads complete lines and writes them back to the original
-// stream with an elapsed-duration suffix.
+// Install redirects os.Stdout and os.Stderr through pipes. A goroutine per
+// stream reads complete lines and writes them back to the stream with an
+// elapsed-duration suffix.
 //
-// Do NOT call this in GOCACHEPROG mode — the Go toolchain expects raw
-// JSON on stdout there.
+// Do NOT call this in GOCACHEPROG mode — the Go toolchain expects raw JSON
+// on stdout there.
 func Install() {
 	installOnce.Do(func() {
 		origStdout = os.Stdout
@@ -92,8 +92,7 @@ func Install() {
 }
 
 // Flush closes the pipe write-ends and waits for drainer goroutines to
-// finish. os.Stdout and os.Stderr are restored, so a late write reaches the
-// terminal, never a closed pipe. Safe to call repeatedly, and before Install().
+// finish. os.Stdout.
 func Flush() {
 	if !installed {
 		return
@@ -116,11 +115,11 @@ var alreadyTimedRE = regexp.MustCompile(` \d+\.\d{2}s$`)
 // minDurationToShow is the elapsed time before drain appends a duration suffix; a var so tests can lower it.
 var minDurationToShow = time.Second
 
-// drain reads lines from r and writes them to w, appending an elapsed-duration
-// suffix when the gap since the previous line reaches minDurationToShow.
-// A line already ending in a duration suffix passes through unchanged, so
-// step.finish's own timing is never double-stamped. A trailing partial line
-// at EOF is still emitted, with a newline appended.
+// drain reads lines from r and writes them to w, appending an
+// elapsed-duration suffix when the gap since the line reaches
+// minDurationToShow. A line already ending in a duration suffix passes
+// through unchanged, so step.finish's own timing is never double-stamped. A
+// trailing partial line at EOF is still emitted, with a newline appended.
 func drain(r *os.File, w io.Writer) {
 	defer drainedWG.Done()
 	defer r.Close()

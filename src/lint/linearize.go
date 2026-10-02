@@ -9,7 +9,7 @@ import (
 )
 
 // Token is an element in a linearized AST sequence: structural nodes use a
-// single-char symbol; leaf nodes record "_" but keep their concrete value.
+// single-char symbol.
 type Token struct {
 	Symbol   byte   // structural symbol (e.g. 'I' for IfStmt)
 	Concrete string // original name/literal for leaf nodes, empty for structural
@@ -107,10 +107,10 @@ func SequenceString(tokens []Token) string {
 	return b.String()
 }
 
-// ExtractBlocks walks a file AST and extracts all function/method bodies
-// as linearized blocks, plus inner blocks from compound statements within
-// each function. Only blocks with at least minNodes tokens are returned,
-// since very small blocks are uninteresting for duplication.
+// ExtractBlocks walks a file AST and extracts all function/method bodies as
+// linearized blocks, plus inner blocks from compound statements within each
+// function. Only blocks with at least minNodes tokens are returned, since
+// small blocks are uninteresting for duplication.
 func ExtractBlocks(file *ast.File, fset *token.FileSet, minNodes int) []Block {
 	var blocks []Block
 	for _, decl := range file.Decls {

@@ -58,15 +58,13 @@ Registering is idempotent. An entry that is already present and enabled is left 
 
 ## 1b4. The sandbox backend
 
-The action installs bubblewrap on every Linux run with `wow-look-at-my/actions@cached-apt#latest`, before the build. The dats phase sandboxes every suite command. Without bubblewrap it falls back to docker, which runs the suites in a container with no host Go for the bootstrap.
-`wow-look-at-my/dats/.github/actions/install-sandbox-backend@master` runs before the build. dats owns the sandbox, so it owns putting a backend on the runner, and this action holds no copy of that install. The dats phase sandboxes every suite command. Without a backend it falls back to docker, which runs the suites in a container with no host Go for the bootstrap.
+The action installs bubblewrap on every Linux run with `wow-look-at-my/actions@cached-apt#latest`, before the build. The dats phase sandboxes every suite command. Without bubblewrap it falls back to docker, which runs the suites in a container with no host Go for the bootstrap. `wow-look-at-my/dats/.github/actions/install-sandbox-backend@master` runs before the build. dats owns the sandbox. As a result, it owns putting a backend on the runner. This action holds no copy of that install. The dats phase sandboxes every suite command. Without a backend it falls back to docker, which runs the suites in a container with no host Go for the bootstrap.
 
-The go command also confines a dependency's generate directive. It stops the build when it cannot. So a module needs a backend for what its dependencies generate, whether or not it has suites of its own.
+The go command also confines a dependency's generate directive. It stops the build when it cannot. So a module needs a backend for what its dependencies generate, whether it has suites of its own.
 
 The install therefore runs on every Linux run. A module's own tree says nothing about what its dependencies generate. The cached-apt step restores bubblewrap from the cache on a hit, so a warm run skips `apt-get`. On macOS and Windows the step installs nothing, because those hosts have other backends or none.
 
-A consumer therefore drops its own bubblewrap step.
-The step therefore runs on every build. A module's own tree says nothing about what its dependencies generate, and the resolution that answers it runs later. A host where the backend already builds a sandbox pays one probe. Otherwise dats installs it, clears the two user-namespace knobs a kernel may gate it behind, and probes again. A host where the probe still fails fails the job there, with its own error. It never degrades unnoticed. macOS carries seatbelt and Windows gets a WSL backend, so no host is skipped.
+A consumer therefore drops its own bubblewrap step. The step therefore runs on every build. A module's own tree says nothing about what its dependencies generate, and the resolution that answers it runs later. A host where the backend already builds a sandbox pays one probe. Otherwise dats installs it, clears the user-namespace knobs a kernel may gate it behind, and probes again. A host where the probe still fails fails the job there, with its own error. It never degrades unnoticed. macOS carries seatbelt and Windows gets a WSL backend, so no host is skipped.
 
 A consumer therefore drops its own bubblewrap step. The contract, and the suite covering it, live in dats.
 
@@ -76,7 +74,7 @@ buildhost's own `buildhost-download` action fetches the binary into `$RUNNER_TEM
 
 **The download carries no branch pin.** buildhost's bare "latest" resolves against the project's default branch.
 
-The probe then runs `go-toolchain version` and captures its output rather than discarding it. So the real reason the binary is unusable is shown: a crash or an unrunnable binary. A source build happens only where the caller opted in, and it writes into the same directory. A silent fallback hides a buildhost outage and ships a locally-compiled toolchain that can differ from the released one.
+The probe then runs `go-toolchain version` and captures its output rather than discarding it. So the real reason the binary is unusable is shown: a crash or an unrunnable binary. A source build happens only where the caller opted in. It writes into the same directory. A silent fallback hides a buildhost outage and ships a locally-compiled toolchain that can differ from the released one.
 
 A caller-provided `binary:` is staged through `/tmp` and pre-run once for the same APE reason. Staging also keeps the caller's own file byte-identical. For a native binary this changes nothing.
 

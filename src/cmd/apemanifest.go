@@ -22,10 +22,6 @@ type buildhostManifest struct {
 }
 
 // buildhostManifestEntry describes a multi-platform artifact.
-// Kind is deliberately absent: it selects buildhost's repackaging vocabulary (binary/library/
-// assets/...) and defaults to binary, while APE-ness is a property buildhost detects from the
-// bytes. There is no display-label field either -- the badge renders from the stored set, so a
-// label could only ever disagree with it.
 type buildhostManifestEntry struct {
 	// File is the artifact's path relative to the published directory.
 	File string `json:"file"`

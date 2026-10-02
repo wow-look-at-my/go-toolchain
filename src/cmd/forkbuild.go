@@ -8,8 +8,7 @@ import (
 )
 
 // forkBuildEnv is everything a build job takes from the toolchain this binary
-// links. Both the default build phase and the matrix path resolve it through
-// here rather than each assembling their own half of it.
+// links.
 type forkBuildEnv struct {
 	// goCmd starts the go command: the go link to this executable.
 	goCmd []string

@@ -95,9 +95,7 @@ runs:
     - name: Register the APE binfmt handler
       if: runner.os == 'Linux'
       shell: bash
-      env:
-        ACTION_PATH: ${{ github.action_path }}
-      run: bash "$ACTION_PATH/.github/scripts/register-ape-binfmt.sh"
+      run: bash "${{ github.action_path }}/.github/scripts/register-ape-binfmt.sh"
 
     # cgo for GOOS=cosmo compiles C with cosmocc. This repository's own build also needs it: embedstd compiles runtime/cgo into the standard library the binary carries. see docs/ACTION.md
     - name: Install cosmocc
@@ -174,9 +172,9 @@ runs:
         set -euo pipefail
         # The pipeline binary is the go command these generators build with, whatever else the runner has on PATH. A runner supplies GOPROXY and GOSUMDB set to nothing, which the go command reads as a list naming no proxy and refuses, so a value is named here for whichever binary runs: an older published one fills nothing in for itself. A value the caller named is kept.
         export GOPROXY="${GOPROXY:-direct}" GOSUMDB="${GOSUMDB:-off}"
-        mkdir -p "$RUNNER_TEMP/gt-go"
-        ln -sf "$(command -v go-toolchain)" "$RUNNER_TEMP/gt-go/go"
-        go=("$RUNNER_TEMP/gt-go/go")
+        mkdir -p "${{ runner.temp }}/gt-go"
+        ln -sf "$(command -v go-toolchain)" "${{ runner.temp }}/gt-go/go"
+        go=("${{ runner.temp }}/gt-go/go")
         for pkg in \
           golang.org/x/tools/cmd/stringer@v0.49.0 \
           golang.org/x/tools/cmd/goyacc@v0.49.0 \

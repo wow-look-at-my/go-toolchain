@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 
-# buildhost-publish fails on a directory that holds nothing it can upload, so
-# the action asks this earliest. The rule is buildhost-publish's own: the
-# portable manifest, or a `<binary>_{os}_{arch}` name after .exe comes off.
+# buildhost-publish fails on a directory that holds nothing it can upload, so the action asks this earliest.
 set -euo pipefail
 
 dir="${1:?usage: publishable-artifacts.sh <build dir>}"
@@ -31,10 +29,7 @@ if [ "$publish" = true ]; then
 else
 	echo "publishable: no executable binary in $dir, nothing to publish"
 fi
-# The step output is how the answer reaches the job. A write that fails takes
-# the step with it, because a publish decision nobody records is a decision
-# nobody acts on. Outside a job there is no file, and the answer is the stdout
-# line above.
+# The step output is how the answer reaches the job.
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
 	echo "publish=$publish" >> "$GITHUB_OUTPUT"
 fi

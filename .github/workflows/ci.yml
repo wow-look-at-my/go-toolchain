@@ -87,10 +87,10 @@ jobs:
         if: steps.release.outputs.linked != 'true'
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/bootstrap"
-          tar -xzf "$RUNNER_TEMP/gosmopolitan.tar.gz" -C "$RUNNER_TEMP/bootstrap"
-          echo "GOROOT_BOOTSTRAP=$RUNNER_TEMP/bootstrap/go" >> "$GITHUB_ENV"
-          "$RUNNER_TEMP/bootstrap/go/bin/go" version
+          mkdir -p "${{ runner.temp }}/bootstrap"
+          tar -xzf "${{ runner.temp }}/gosmopolitan.tar.gz" -C "${{ runner.temp }}/bootstrap"
+          echo "GOROOT_BOOTSTRAP=${{ runner.temp }}/bootstrap/go" >> "$GITHUB_ENV"
+          "${{ runner.temp }}/bootstrap/go/bin/go" version
 
       # The pipeline links the fork's go command, so the fork's own build is what earliest compiles it; it runs after the secrets because a CI run of the fork's go command refuses to build with no shared cache configured. see docs/CI.md
       - name: Build the bootstrap go command from the fork checkout
@@ -203,7 +203,7 @@ jobs:
         run: |
           set -euo pipefail
           export GOROOT="$PWD/_gosmopolitan" GOTOOLCHAIN=local CGO_ENABLED=0
-          "$GOROOT/bin/go" build -trimpath -o "$RUNNER_TEMP/gt-bootstrap" ./src
+          "$GOROOT/bin/go" build -trimpath -o "${{ runner.temp }}/gt-bootstrap" ./src
 
       # Lets the kernel start an APE, so the pipeline and the test binaries it builds exec bare. see docs/ACTION.md
       - name: Register the APE binfmt handler
@@ -221,7 +221,7 @@ jobs:
           GOCACHEDEBUG: "1"
           GOCACHELOG: ${{ runner.temp }}/gocache.log
         # A shell starts the APE, since execve alone reads no shell header; generate approvals live in go.mod. see docs/PIPELINE.md
-        run: sh "$RUNNER_TEMP/gt-bootstrap"
+        run: sh "${{ runner.temp }}/gt-bootstrap"
 
       # The assertions live in the fixture, where an engineer can re-run them without pushing. see docs/CI.md
       - name: Check build profile
@@ -233,11 +233,11 @@ jobs:
       - name: Stage the build profile
         # Staged outside the checkout: a directory in the tree makes the next build's dirty-tree gate fail.
         run: |
-          mkdir -p "$RUNNER_TEMP/profile-site"
-          cp build/profile.json "$RUNNER_TEMP/profile-site/profile.json"
+          mkdir -p "${{ runner.temp }}/profile-site"
+          cp build/profile.json "${{ runner.temp }}/profile-site/profile.json"
           # The Chrome trace a profiler opens. It lands beside the actiongraph dumps, never in build/.
           trace="${TMPDIR:-/tmp}/go-toolchain-profile/trace.json"
-          if [ -f "$trace" ]; then cp "$trace" "$RUNNER_TEMP/profile-site/trace.json"; fi
+          if [ -f "$trace" ]; then cp "$trace" "${{ runner.temp }}/profile-site/trace.json"; fi
 
       - name: Publish the build profile
         uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish-site@master
@@ -272,7 +272,7 @@ jobs:
 
       - name: Print the shared cache log
         if: always()
-        run: cat "$RUNNER_TEMP/gocache.log"
+        run: cat "${{ runner.temp }}/gocache.log"
 
       - name: Upload host binary
         uses: wow-look-at-my/actions@cache-upload#latest
@@ -284,9 +284,9 @@ jobs:
       - name: Gather the generator APEs
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/generators"
-          cp "$GENBIN"/* "$RUNNER_TEMP/generators/"
-          ls -la "$RUNNER_TEMP/generators"
+          mkdir -p "${{ runner.temp }}/generators"
+          cp "$GENBIN"/* "${{ runner.temp }}/generators/"
+          ls -la "${{ runner.temp }}/generators"
 
       - name: Upload the generators
         uses: wow-look-at-my/actions@cache-upload#latest
@@ -322,10 +322,10 @@ jobs:
       - name: Install the fork's release as the bootstrap compiler
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/bootstrap"
-          tar -xzf "$RUNNER_TEMP/gosmopolitan.tar.gz" -C "$RUNNER_TEMP/bootstrap"
-          echo "GOROOT_BOOTSTRAP=$RUNNER_TEMP/bootstrap/go" >> "$GITHUB_ENV"
-          "$RUNNER_TEMP/bootstrap/go/bin/go" version
+          mkdir -p "${{ runner.temp }}/bootstrap"
+          tar -xzf "${{ runner.temp }}/gosmopolitan.tar.gz" -C "${{ runner.temp }}/bootstrap"
+          echo "GOROOT_BOOTSTRAP=${{ runner.temp }}/bootstrap/go" >> "$GITHUB_ENV"
+          "${{ runner.temp }}/bootstrap/go/bin/go" version
 
       - name: Build the bootstrap go command from the fork checkout
         working-directory: _gosmopolitan/src
@@ -408,7 +408,7 @@ jobs:
         run: |
           set -euo pipefail
           export GOROOT="$PWD/_gosmopolitan" GOTOOLCHAIN=local CGO_ENABLED=0
-          "$GOROOT/bin/go" build -trimpath -o "$RUNNER_TEMP/gt-bootstrap" ./src
+          "$GOROOT/bin/go" build -trimpath -o "${{ runner.temp }}/gt-bootstrap" ./src
 
       - name: Register the APE binfmt handler
         run: bash .github/scripts/register-ape-binfmt.sh
@@ -420,7 +420,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         # The same command the action runs, so identical compares like with like. see docs/CI.md
-        run: sh "$RUNNER_TEMP/gt-bootstrap" matrix --cosmo-platforms linux/amd64,darwin/arm64,windows/amd64
+        run: sh "${{ runner.temp }}/gt-bootstrap" matrix --cosmo-platforms linux/amd64,darwin/arm64,windows/amd64
 
       - name: Hand off the from-scratch APE
         uses: wow-look-at-my/actions@cache-upload#latest
@@ -469,14 +469,14 @@ jobs:
       - name: The generators answer here
         run: |
           set -euo pipefail
-          chmod +x "$RUNNER_TEMP/generators/"* || true
+          chmod +x "${{ runner.temp }}/generators/"* || true
           # Read it all, then print a line: a pipe into head kills the APE with SIGPIPE, which pipefail reads as a failure.
-          said="$("$RUNNER_TEMP/generators/stringer" --help 2>&1 || true)"
+          said="$("${{ runner.temp }}/generators/stringer" --help 2>&1 || true)"
           printf '%s\n' "$said" | head -1
           # No pipe into head: it closes early, stringer dies of SIGPIPE, and pipefail reads that as the generator being broken.
-          usage="$("$RUNNER_TEMP/generators/stringer" --help 2>&1 || true)"
+          usage="$("${{ runner.temp }}/generators/stringer" --help 2>&1 || true)"
           printf '%s\n' "${usage%%$'\n'*}"
-          echo "$RUNNER_TEMP/generators" >> "$GITHUB_PATH"
+          echo "${{ runner.temp }}/generators" >> "$GITHUB_PATH"
 
       # The go-toolchain action itself cache-uploads build/ under the per-job name `go-build-<job... see docs/CI.md
       - uses: ./
@@ -547,8 +547,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cp dist/go-toolchain "$RUNNER_TEMP/$GT_APE"
-          chmod +x "$RUNNER_TEMP/$GT_APE"
+          cp dist/go-toolchain "${{ runner.temp }}/$GT_APE"
+          chmod +x "${{ runner.temp }}/$GT_APE"
 
       # host-build built these, and each is an APE, so darwin and NT run them rather than compiling their own. Only a linux host's linked go can type-check against its embedded standard library, and an APE is exactly what spares the others from needing to.
       - name: Take the generators host-build built
@@ -561,10 +561,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd "$RUNNER_TEMP/generators"
+          cd "${{ runner.temp }}/generators"
           chmod +x ./* || true
           # NT looks a command up by its .exe name, and an APE carries the PE header that name promises.
-          if [ "$RUNNER_OS" = "Windows" ]; then
+          if [ "${{ runner.os }}" = "Windows" ]; then
             for f in *; do
               case "$f" in *.exe | *.elf) continue ;; esac
               cp -- "$f" "$f.exe"
@@ -573,7 +573,7 @@ jobs:
           # Read it all, then print a line: a pipe into head kills the APE with SIGPIPE, which pipefail reads as a failure.
           said="$(./stringer --help 2>&1 || true)"
           printf '%s\n' "$said" | head -1
-          echo "$RUNNER_TEMP/generators" >> "$GITHUB_PATH"
+          echo "${{ runner.temp }}/generators" >> "$GITHUB_PATH"
 
       # The APE is that go command, so it goes there under that name.
       - name: Put the go command where GOROOT looks for it
@@ -581,9 +581,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p _gosmopolitan/bin
-          cp "$RUNNER_TEMP/$GT_APE" _gosmopolitan/bin/go
+          cp "${{ runner.temp }}/$GT_APE" _gosmopolitan/bin/go
           chmod +x _gosmopolitan/bin/go
-          if [ "$RUNNER_OS" = "Windows" ]; then
+          if [ "${{ runner.os }}" = "Windows" ]; then
             cp _gosmopolitan/bin/go _gosmopolitan/bin/go.exe
           fi
 

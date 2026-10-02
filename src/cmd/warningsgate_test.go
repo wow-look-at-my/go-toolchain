@@ -36,9 +36,8 @@ func TestWarningsGateAtThreshold(t *testing.T) {
 	assert.NoError(t, checkWarningsGate())
 }
 
-// TestWarningsGateOverThreshold verifies that a warning past the budget
-// fails the build with a message naming both
-// the count and the threshold.
+// TestWarningsGateOverThreshold verifies that a warning past the budget fails
+// the build with a message naming both the count and the threshold.
 func TestWarningsGateOverThreshold(t *testing.T) {
 	t.Serial()
 	logger.ResetWarnCount()
@@ -105,8 +104,8 @@ func TestWarningsGateRecapNamesRepeatCounts(t *testing.T) {
 }
 
 // TestWarningsGateIgnoresFilteredWarnings verifies that warnings suppressed
-// by the log level do not count against the budget — only what the user
-// actually saw is gated.
+// by the log level do not count against the budget — only what the user saw
+// is gated.
 func TestWarningsGateIgnoresFilteredWarnings(t *testing.T) {
 	t.Serial()
 	logger.ResetWarnCount()

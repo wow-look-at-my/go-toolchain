@@ -397,5 +397,4 @@ func TestRunWithRunnerTestsFailWithOutput(t *testing.T) {
 
 	err := runWithRunner(mock, nil)
 	assert.NotNil(t, err)
-	// The key point: results are still displayed before the error is returned
 }
