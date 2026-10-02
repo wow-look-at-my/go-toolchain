@@ -129,7 +129,7 @@ func init() {
 	// rootCmd.PersistentFlags().BoolVar(&dupcode, "dupcode", true, "Run near-duplicate code detection (warnings only)")
 	rootCmd.PersistentFlags().Float64Var(&lintThreshold, "threshold", lint.DefaultThreshold, "Similarity threshold for duplicate detection (0.0-1.0)")
 	rootCmd.PersistentFlags().IntVar(&lintMinNodes, "min-nodes", lint.DefaultMinNodes, "Minimum AST node count for duplicate detection")
-	rootCmd.PersistentFlags().BoolVar(&cgoEnabled, "cgo", false, "Enable CGO (default: disabled for static binaries)")
+	rootCmd.PersistentFlags().BoolVar(&cgoEnabled, "cgo", false, "Enable cgo: the APE's C compiles with the cosmocc compiler of each architecture, which must be on PATH")
 	rootCmd.PersistentFlags().BoolVar(&cacheMisses, "cache-misses", false, "Show packages that missed the build cache")
 	rootCmd.PersistentFlags().BoolVar(&countGenerated, "count-generated", false, "Count generated files (Code generated ... DO NOT EDIT.) in the file length check instead of skipping them")
 	rootCmd.PersistentFlags().BoolVar(&noProfile, "no-profile", false, "Skip the per-action build profile (actiongraph collection, console section, and profile.json)")
@@ -442,7 +442,6 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, []datsArti
 	}
 
 	// The same fat APE the matrix path publishes, so nothing here can differ from what ships.
-	warnCGOUnavailable(true, false)
 	forkEnv, err := resolveForkBuildEnv(true)
 	if err != nil {
 		return nil, nil, err

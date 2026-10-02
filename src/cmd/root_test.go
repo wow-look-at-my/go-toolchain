@@ -145,11 +145,11 @@ func TestRunWithRunnerCGOEnabledFlag(t *testing.T) {
 	err := runWithRunner(mock, nil)
 	assert.Nil(t, err)
 
-	// --cgo cannot reach the build: the APE has no cgo, so CGO_ENABLED stays off.
+	// --cgo reaches the APE build: the fork compiles the C with cosmocc.
 	for _, cfg := range mock.Calls() {
 		if isGoBuild(cfg) {
 			cgo, _ := cfg.Env.Get("CGO_ENABLED")
-			assert.Equal(t, "0", cgo, "--cgo must not turn cgo on for the APE")
+			assert.Equal(t, "1", cgo, "--cgo must turn cgo on for the APE")
 		}
 	}
 }

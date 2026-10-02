@@ -13,7 +13,7 @@ Extracted verbatim from CLAUDE.md (1.85x over its 40,000-character budget).
 
 `packages.Config.Tests` then loads each package up to ways. Plain, the same code recompiled with its internal `_test.go` files, the external `_test` package, and the generated test main. The plain variant holds none of the test files, so **`deadcode` is answered by the richest variant of each package path** (`richestVariants`, `src/vet/loadvariants.go`). Reading the plain one instead made every unexported helper that only a test calls a violation, and reported a genuinely dead one once per variant.
 
-The loader runs under the fork's default target, cosmo, the target every artifact and test binary builds for. Cosmopolitan has no cgo. So a file importing `"C"` drops out of its package, and every symbol it declares reads as `undefined` at each use. A repo whose cgo package holds its whole public surface cannot be vetted. The `--cgo` flag does not change this. It only extends `PKG_CONFIG_PATH`.
+The loader runs under the fork's default target, cosmo, the target every artifact and test binary builds for. Without `--cgo`, `CGO_ENABLED=0` is set in the pipeline's environment. A file importing `"C"` then drops out of its package, and every symbol it declares reads as `undefined` at each use. Under `--cgo` the loader runs the cgo tool with the cosmocc compiler on PATH. The package is vetted as it builds.
 
 `ParseFile` runs on one goroutine per file, so the record of what was parsed is behind a mutex (`parseRecorder`). Unlocked, a module this size died with `fatal error: concurrent map writes`, and the output watchdog's pipes swallowed the trace — CI saw a bare `exit status 2` with nothing above it.
 

@@ -80,7 +80,7 @@ The action fetches secrets, configures the Go proxy and private repo access, and
 | `binary`            | string   | `''`       | Path to a pre-built go-toolchain binary (skips release download) |
 | `targets`           | string   | `''`       | Comma-separated wasm targets to add (`wasm/js`, `wasm/wasip1`), plus the special value `cosmo`. Empty (the default) builds the APE alone |
 | `cosmo-platforms`   | string   | `linux/amd64,darwin/arm64,windows/amd64` | Platforms the one fat APE covers. `all` covers everything the fork can emit |
-| `cgo`               | string   | `false`    | Enable CGO (off by default, for static binaries) |
+| `cgo`               | string   | `false`    | Enable cgo: the fat APE's C compiles with cosmocc, which the action installs |
 | `autorelease_args`  | string   | `''`       | Extra publish options as `key=value` pairs. Unknown keys fail the build |
 | `allow-source-build` | string  | `false`    | Build go-toolchain from source when the buildhost binary is unavailable, instead of failing fast |
 | `timeout`           | string   | `10`       | Timeout in minutes for the go-toolchain build step       |
@@ -162,7 +162,7 @@ go-toolchain release --tag v1.0.0
 | `--generate`     | `''`        | Run `go:generate` directives matching this hash, for one run. A repo records its approvals in `go.mod` instead, as `go-toolchain:generate=<hash>` markers |
 | `--threshold`    | `0.75`      | Similarity threshold for duplicate detection (0.0-1.0) |
 | `--min-nodes`    | varies      | Minimum AST node count for duplicate detection       |
-| `--cgo`          | `false`     | Enable CGO (disabled by default for static binaries) |
+| `--cgo`          | `false`     | Enable cgo: the APE's C compiles with the cosmocc compiler of each architecture, which must be on PATH |
 | `--count-generated` | `false`  | Count generated files in the file length check instead of skipping them |
 | `--no-profile`   | `false`     | Skip the per-action build profile                    |
 

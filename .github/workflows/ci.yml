@@ -209,6 +209,10 @@ jobs:
       - name: Register the APE binfmt handler
         run: bash .github/scripts/register-ape-binfmt.sh
 
+      # embedstd compiles runtime/cgo for both architectures into the standard library the binary carries. see docs/CI.md
+      - name: Install cosmocc
+        run: bash .github/scripts/install-cosmocc.sh
+
       - name: Build and test
         env:
           # Dependency-graph submission needs a token with contents: write (granted at the workflow... see docs/CI.md
@@ -409,6 +413,9 @@ jobs:
       - name: Register the APE binfmt handler
         run: bash .github/scripts/register-ape-binfmt.sh
 
+      - name: Install cosmocc
+        run: bash .github/scripts/install-cosmocc.sh
+
       - name: Build and test
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -580,6 +587,11 @@ jobs:
             cp _gosmopolitan/bin/go _gosmopolitan/bin/go.exe
           fi
 
+      # The same compiler as the linux leg for runtime/cgo, or the embedded standard library and the APE differ by host.
+      - name: Install cosmocc
+        shell: bash
+        run: bash .github/scripts/install-cosmocc.sh
+
       - name: Build this repo's APE here
         shell: bash
         env:
@@ -587,7 +599,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          "$RUNNER_TEMP/$GT_APE" matrix --no-benchmark
+          "${{ runner.temp }}/$GT_APE" matrix --no-benchmark
 
       - name: Hand off this host's APE
         uses: wow-look-at-my/actions@cache-upload#latest
@@ -700,6 +712,11 @@ jobs:
 
       # The smoke's nested pipeline is a CI run, and the fork refuses one with no build cache to write to. see docs/CI.md
       - uses: wow-look-at-my/actions@secret-server#latest
+
+      # The cgo smoke test compiles C with it, through the shipped APE.
+      - name: Install cosmocc
+        shell: bash
+        run: bash .github/scripts/install-cosmocc.sh
 
       # Sandboxed like every other suite; the APE carries its compiler and standard library, so nothing is downloaded. see docs/CI.md
       - name: Smoke suite

@@ -62,7 +62,7 @@ An older fork ignores an unknown `GOCOSMO*` variable silently, which will emit a
 
 The compiler is this binary. `EnsureGoVersion` (`toolchain.go`) links a `go` name to the executable, puts that directory ahead of `PATH`, and sets `GOROOT` and `GOTOOLCHAIN=local`. Outside this module `GOROOT` is the executable, which carries the fork's standard library. Inside it `GOROOT` is the `gosmopolitan` submodule (`forksource.go`). The submodule is at the head of the fork branch that matches this checkout's branch name. If no such branch exists, it uses the default branch. `go-toolchain version` names the fork commit the binary links. The APEs `identical` compares (`go-toolchain verify-identical`, `src/cmd/apeidentity.go`) come from one compiler because each host runs the same binary.
 
-The cosmo build runs the go command with `CGO_ENABLED=0` always (`--cgo` warns), and `GOARCH`/`GOCOSMOFAT` cleared (fat is the fork default).
+The cosmo build runs the go command with `CGO_ENABLED` assigned from `--cgo` (`1` under the flag, else `0`), and `GOARCH`/`GOCOSMOFAT` cleared (fat is the fork default). The same value is set in the pipeline's own environment, so the vet and test phases see the cgo files a build will compile.
 
 ## Fork-build cache isolation
 

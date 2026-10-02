@@ -49,7 +49,7 @@ func runReleaseInto(r runner.CommandRunner, sd *summary.SummaryData) (err error)
 	// Every target builds with the fork toolchain; fail fast before tests.
 	hasCosmo := slices.ContainsFunc(platforms, buildPlatform.IsCosmo)
 	hasWasm := slices.ContainsFunc(platforms, buildPlatform.IsWasm)
-	warnCGOUnavailable(hasCosmo, hasWasm)
+	warnCGOUnavailable(hasWasm)
 	forkEnv, err := resolveForkBuildEnv(hasCosmo)
 	if err != nil {
 		return err

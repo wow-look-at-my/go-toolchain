@@ -80,6 +80,10 @@ The probe then runs `go-toolchain version` and captures its output rather than d
 
 A caller-provided `binary:` is staged through `/tmp` and pre-run once for the same APE reason. Staging also keeps the caller's own file byte-identical. For a native binary this changes nothing.
 
+## 1c2. cosmocc
+
+`cgo: true` installs cosmocc (`.github/scripts/install-cosmocc.sh`, one release pinned by digest) in `/opt/cosmocc` and puts its bin on PATH. The fork compiles a cgo package's C with `x86_64-unknown-cosmo-cc` and `aarch64-unknown-cosmo-cc`, one per payload of the fat APE. It links each payload with the raw `<arch>-linux-cosmo-gcc` beside them. The script runs as root where it is root and through sudo elsewhere, so a container job without sudo still installs. This repository's own build installs it too: embedstd compiles runtime/cgo into the standard library the binary carries.
+
 ## 1d. The generators a dependency needs
 
 A dependency's `//go:generate` directives run when the dependency is fetched. A missing generator therefore fails the build. The step installs stringer, goyacc and gotext before the pipeline runs.
