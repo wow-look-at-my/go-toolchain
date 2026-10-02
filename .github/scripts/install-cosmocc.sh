@@ -14,7 +14,11 @@ as_root() {
 	fi
 }
 
-if [ -x "$dir/bin/x86_64-unknown-cosmo-cc" ] && [ -x "$dir/bin/aarch64-unknown-cosmo-cc" ]; then
+# A caller that put its own cosmocc on PATH keeps it.
+if command -v x86_64-unknown-cosmo-cc > /dev/null 2>&1 && command -v aarch64-unknown-cosmo-cc > /dev/null 2>&1; then
+	echo "cosmocc is already on PATH at $(command -v x86_64-unknown-cosmo-cc)"
+	exit 0
+elif [ -x "$dir/bin/x86_64-unknown-cosmo-cc" ] && [ -x "$dir/bin/aarch64-unknown-cosmo-cc" ]; then
 	echo "cosmocc is already installed in $dir"
 else
 	zip="${RUNNER_TEMP:-/tmp}/cosmocc-$version.zip"
