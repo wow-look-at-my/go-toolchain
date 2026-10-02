@@ -81,9 +81,6 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: Run the org's common checks
-      uses: wow-look-at-my/actions@common-checks#latest
-
     - uses: wow-look-at-my/actions@secret-server#latest
 
     - name: Configure git for private repos
