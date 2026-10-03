@@ -40,7 +40,7 @@ Still untracked: a file a test reads at run time that lives outside `testdata` a
 Fat APE builds use the gosmopolitan fork, whose `unix` build tag matches cosmo while `golang.org/x/sys/unix` and `modernc.org/libc` have no cosmo port. Things split:
 
 - **The output watchdog** is mirrored via stdlib `syscall` (`watchdog_cosmo.go`. `watchdog_unix.go` is `unix && !cosmo`). Both honor `GO_TOOLCHAIN_NO_WATCHDOG=1` via `watchdogDisabled()` in `watchdog.go` — the supported off-switch that keeps the build on its real stdio.
-- **The GOCACHEPROG self-exec** goes through `cacheProgCommand` (`cacheprog.go`). On cosmo+darwin hosts it writes a `#!/bin/sh` wrapper that re-execs the APE, because on ARM64 macOS the APE never self-assimilates (shell header + compiled loader), keeps its MZ magic. Every other platform keeps the bare `<exe> cacheprog` byte-identically.
+- **The GOCACHEPROG self-exec** goes through `cacheProgCommand` (`cacheprog.go`). On cosmo+darwin hosts it writes a `#!/bin/sh` wrapper that re-execs the APE. On ARM64 macOS the APE never self-assimilates (shell header + compiled loader) and keeps its MZ magic. Every other platform keeps the bare `<exe> cacheprog` byte-identically.
 - **The persistent outdated-deps cache** is behind the `depsCache` interface, implemented in `depscache_file.go` over a JSON file under the user cache dir. It carries a check result per dependency and version, which needs no query engine. And it is compiled into every binary. `close` merges onto the file before rewriting it atomically, so a go-toolchain running alongside keeps its entries. Keep the backend free of third-party packages. The APE carries a payload per platform, and a package init that fails on any of them kills that platform's binary before `main` runs (a sqlite backend did exactly that on Windows, through `modernc.org/libc`).
 
 ## The matrix cosmo target
@@ -62,7 +62,7 @@ An older fork ignores an unknown `GOCOSMO*` variable silently, which will emit a
 
 The compiler is this binary. `EnsureGoVersion` (`toolchain.go`) links a `go` name to the executable, puts that directory ahead of `PATH`, and sets `GOROOT` and `GOTOOLCHAIN=local`. Outside this module `GOROOT` is the executable, which carries the fork's standard library. Inside it `GOROOT` is the `gosmopolitan` submodule (`forksource.go`). The submodule is at the head of the fork branch that matches this checkout's branch name. If no such branch exists, it uses the default branch. `go-toolchain version` names the fork commit the binary links. The APEs `identical` compares (`go-toolchain verify-identical`, `src/cmd/apeidentity.go`) come from one compiler because each host runs the same binary.
 
-The cosmo build runs the go command with `CGO_ENABLED=0` always (`--cgo` warns), and `GOARCH`/`GOCOSMOFAT` cleared (fat is the fork default).
+The cosmo build runs the go command with `CGO_ENABLED` assigned from `--cgo` (`1` under the flag, else `0`), and `GOARCH`/`GOCOSMOFAT` cleared (fat is the fork default). The same value is set in the pipeline's own environment, so the vet and test phases see the cgo files a build will compile.
 
 ## Fork-build cache isolation
 

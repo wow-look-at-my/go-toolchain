@@ -148,6 +148,8 @@ func useSelfAsPipelineToolchain(exe, linkDir, goroot string) {
 	os.Setenv("PATH", pathWithFirst(linkDir, os.Getenv("PATH"), hostos.GOOS()))
 	os.Setenv("GOROOT", goroot)
 	os.Setenv("GOTOOLCHAIN", "local")
+	// The vet and test phases target cosmo through this environment, so --cgo decides it here as it does for a build.
+	os.Setenv("CGO_ENABLED", cgoEnabledValue(cosmoOS))
 }
 
 // pathWithFirst puts dir ahead of rest, with the list separator of hostGOOS

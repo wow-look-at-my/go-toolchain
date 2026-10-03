@@ -12,9 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testActions builds a small merged graph: an executed compile, an
-// unexecuted (cached, no wall time) compile, an unexecuted root, and an
-// executed link.
+// testActions builds a small merged graph: an executed compile, an unexecuted
+// (cached, no wall time) compile, an unexecuted root, and an executed link.
 func testActions() []Action {
 	t0 := time.Date(2026, 7, 4, 10, 0, 0, 0, time.UTC)
 	return []Action{

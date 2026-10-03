@@ -267,7 +267,7 @@ func TestTimedLineWriterClosesOnPartialContent(t *testing.T) {
 	assert.NotContains(t, buf.String(), "\n")
 
 	time.Sleep(10 * time.Millisecond)
-	// Partial content (no newline) should close the previous line
+	// Partial content (no newline) should close the line
 	w.Write([]byte("partial"))
 	output := buf.String()
 	assert.Contains(t, output, "line one ")

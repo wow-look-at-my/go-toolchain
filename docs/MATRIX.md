@@ -31,7 +31,7 @@ A narrower set is **not** automatically a smaller binary, and the default set sa
 
 Accepted: `linux/amd64`, `linux/arm64`, `darwin/arm64`, `windows/amd64`. `darwin/amd64` (Intel-mac runtime never proven on real hardware) and `windows/arm64` (amd64-only PE payload) are refused — a published platform set says where the binary runs. So an unproven host cannot be in it.
 
-**Publishing.** The APE publishes as a *single* artifact carrying its whole platform set. One upload, one download link, one checksum, with an `APE:<platforms>` badge. go-toolchain writes `buildhost-artifacts.json` alongside the binary to say so — see [BUILDHOST-MANIFEST.md](BUILDHOST-MANIFEST.md).
+**Publishing.** The APE publishes as a *single* artifact carrying its whole platform set. One upload, one download link, one checksum, with an `APE:<platforms>` badge. The `buildhost-artifacts.json` file go-toolchain writes alongside the binary says so — see [BUILDHOST-MANIFEST.md](BUILDHOST-MANIFEST.md).
 
 **Adding wasm targets.** `--targets` takes `cosmo` and/or the wasm targets (`wasm/js`, `wasm/wasip1`) — nothing else. Leaving `cosmo` out of the list builds wasm alone:
 
@@ -44,7 +44,7 @@ go-toolchain matrix --targets wasm/js,wasm/wasip1
 
 **Toolchain resolution.** The gosmopolitan toolchain is this binary. It links the fork's go command, compiler and linker, and carries the fork's standard library for cosmo amd64 and arm64. Nothing is downloaded and there is no local override. `go-toolchain version` names the fork commit. Inside this repository the `gosmopolitan` submodule is the standard library instead, and the build repeats until a binary reproduces itself (see [CI.md](CI.md)).
 
-**Build semantics.** The cosmo build always runs with `CGO_ENABLED=0` (cosmopolitan has no cgo. `--cgo` warns and is ignored for this target) and without `GOARCH` (fat, covering amd64+arm64, is the fork's default output).
+**Build semantics.** The cosmo build runs with `CGO_ENABLED=0` unless `--cgo` is given, and without `GOARCH` (fat, covering amd64+arm64, is the fork's default output). Under `--cgo` the fork compiles the C of each payload with that architecture's cosmocc compiler (`x86_64-unknown-cosmo-cc`, `aarch64-unknown-cosmo-cc`), which must be on PATH. The action installs cosmocc for a `cgo: true` consumer. The standard library this binary carries holds runtime/cgo for both architectures. This embedstd compiles with the same compilers, so every self-build host has cosmocc too.
 
 **Reproducible across build hosts.** Every build passes `-trimpath` and `-ldflags=-buildid=`, so the same source compiles to the same bytes wherever it is built. Inputs vary between runners and each flag closes one. `-trimpath` drops the paths: where the source was checked out, and where the toolchain was installed. `-ldflags=-buildid=` empties the linked binary's Go build ID, which is the only channel the toolchain's own identity reaches the output.
 

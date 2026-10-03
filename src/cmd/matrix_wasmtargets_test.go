@@ -144,7 +144,7 @@ func TestRunReleaseWithRunnerWasmPublishOptOut(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(sums), "mytool_js_wasm.wasm")
 
-	// The exclusion warning fires, plus the note that a wasm-only publish has nothing to publish.
+	// The exclusion warning fires, plus the a wasm-only publish has nothing to publish.
 	assert.Contains(t, output, "excluded from buildhost publishing")
 	assert.Contains(t, output, "every target is wasm")
 	assert.NotContains(t, output, "requires buildhost wasm artifact support")

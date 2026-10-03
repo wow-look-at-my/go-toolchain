@@ -1,14 +1,6 @@
 //go:build !cosmo
 
-// Package hostos reports the operating system of the HOST the binary is
-// actually running on, as opposed to runtime.GOOS, which reports what the
-// binary was compiled for. They differ only for GOOS=cosmo fat APEs built
-// with the gosmopolitan fork: a cosmo binary runs on Linux, macOS and Windows
-// hosts while runtime.GOOS stays "cosmo" throughout. Callers that pick
-// host-specific resources — toolchain archives, homebrew paths, CodeQL
-// platform dirs, host binary names — must
-// use hostos.GOOS() instead of runtime.GOOS. runtime.GOARCH needs no such
-// wrapper: a fat APE runs the payload matching the host architecture.
+// Package hostos reports the operating system of the HOST the binary is running on, as opposed to runtime.GOOS.
 package hostos
 
 import "runtime"

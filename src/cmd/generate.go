@@ -405,7 +405,7 @@ func prefixOutput(output string) string {
 	lines := strings.Split(output, "\n")
 
 	for i, line := range lines {
-		// Don't add a trailing newline the original lacked
+		// Don't add a trailing newline the lacked
 		if i == len(lines)-1 && line == "" {
 			break
 		}

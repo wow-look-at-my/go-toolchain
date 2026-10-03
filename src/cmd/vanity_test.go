@@ -395,15 +395,14 @@ func runVanityTestGit(t *testing.T, args ...string) {
 	require.NoError(t, err, "git %v: %s", args, out)
 }
 
-// TestCheckDirtyInCIWithVanityRestored pins the invariant that broke
-// a github-state-mirror CI run: while vanity replaces are active (a
-// vanity host was unreachable, so go.mod carries injected replace directives
-// and go mod tidy rewrote go.sum onto the mirror paths), the post-vet CI
-// dirty check must pass on a canonically tidy tree — the mutation is the
-// toolchain's own and is removed before the run ends — while real
-// uncommitted changes still fail, the active mirror state survives the check
-// for the phases behind it, and the final cleanup leaves the committed tree
-// byte-identical.
+// TestCheckDirtyInCIWithVanityRestored pins the invariant that broke a
+// github-state-mirror CI run: while vanity replaces are active (a vanity host
+// was unreachable, so go.mod carries injected replace directives and go mod
+// tidy rewrote go.sum onto the mirror paths), the post-vet CI dirty check
+// must pass on a canonically tidy tree — the mutation is the toolchain's
+// own and is removed before the run ends — while real uncommitted changes
+// still fail, the active mirror state survives the check for the phases
+// behind it, and the final cleanup leaves the committed tree byte-identical.
 func TestCheckDirtyInCIWithVanityRestored(t *testing.T) {
 	t.Serial()
 	// Hermetic git: host/user config must not leak into the test repo.

@@ -8,13 +8,9 @@ import (
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 )
 
-// enforceCoverage compares the measured total coverage against the effective
-// minimum and returns nil (pass) or an error (fail). It panics only when the
-// coverage data itself is broken: tests ran over code with coverable
-// statements, yet the profile recorded nothing.
+// enforceCoverage compares the measured total coverage against the effective minimum and returns nil (pass) or an error (fail). It panics only when the coverage data itself is broken: tests ran over code with coverable statements, yet the profile recorded nothing.
 //
-// The "no uncovered statements while below the minimum" corner (an empty
-// coverage profile) splits several ways:
+// The "no uncovered statements while below the minimum" corner (an empty coverage profile) splits several ways:
 //   - The module has no coverable statements at all — e.g. an embed-only or
 //     declarations-only module. There is nothing to measure, so an empty
 //     profile is vacuously complete: pass with a note instead of panicking.

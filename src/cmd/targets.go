@@ -198,8 +198,7 @@ func resolvePlatformTargets(platforms []buildPlatform, hostTargets []build.Targe
 
 // writeWasmExecJS writes the fork's lib/wasm/wasm_exec.js (the JS harness
 // that loads and runs a GOOS=js wasm binary in a browser or Node) into the
-// output directory. The harness MUST byte-match the toolchain that built the
-// wasm artifact, so this binary carries the copy of the fork it links.
+// output directory.
 func writeWasmExecJS(outDir string) (string, error) {
 	dst := filepath.Join(outDir, "wasm_exec.js")
 	// Replace any stale copy (possibly a symlink) with a fresh real file.

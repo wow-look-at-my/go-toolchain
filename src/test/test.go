@@ -136,7 +136,7 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 	runs := make([]configRun, len(discovery.Configs))
 	var wg sync.WaitGroup
 	for i, tagCfg := range discovery.Configs {
-		// Coverage is collected only on the default config; extra configs still run and can fail, just uncovered.
+		// Coverage is collected only on the default config; extra configs still run and can fail, uncovered.
 		cf := coverFile
 		cb := onOutput
 		var only []string
@@ -193,9 +193,9 @@ func mergeTestResults(acc, next *TestResult) *TestResult {
 	return acc
 }
 
-// verifyTagCoverage asks the go tool which files each configuration actually
-// builds, and fails when a build-tagged file was compiled by none of them. This
-// is the guarantee that a tag cannot hide a test: the check is on the real file
+// verifyTagCoverage asks the go tool which files each configuration builds,
+// and fails when a build-tagged file was compiled by none of them. This is
+// the guarantee that a tag cannot hide a test: the check is on the real file
 // set the toolchain saw, not on the enumeration that produced the tag sets.
 func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 	if len(d.Gated) == 0 {

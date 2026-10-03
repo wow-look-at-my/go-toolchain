@@ -67,7 +67,7 @@ func RunBenchmarks(r runner.CommandRunner, opts Options) (*BenchmarkReport, erro
 	output := buf.Bytes()
 
 	if waitErr != nil {
-		// Say what go test said, or a build failure reports just an exit status.
+		// Say what go test said, or a build failure reports an exit status.
 		err := fmt.Errorf("benchmarks failed: %w", waitErr)
 		if diag := Diagnostics(output); diag != "" {
 			err = fmt.Errorf("%w\n%s", err, diag)

@@ -25,9 +25,7 @@ func warningsBudget() int64 {
 // checkWarningsGate fails the build when the run emitted more than
 // maxWarnings distinct warnings. It runs at the END of the pipeline commands,
 // after every phase has printed, so the user sees all warnings before the
-// failure. Non-pipeline subcommands are not gated. The failure re-prints
-// every warning with its repeat count, since a bare count sends the reader
-// hunting back through the log for which output was to blame.
+// failure. Non-pipeline subcommands are not gated.
 func checkWarningsGate() error {
 	n := logger.WarnCount()
 	if n <= warningsBudget() {
