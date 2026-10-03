@@ -51,7 +51,7 @@ func TestWatermarkRemoveWhenNoneExists(t *testing.T) {
 
 func TestWatermarkGetOnFile(t *testing.T) {
 	t.Serial()
-	// Verify it works on a file too, not just directories
+	// Verify it works on a file too, not directories
 	f, err := os.CreateTemp(t.TempDir(), "watermark-test")
 	require.Nil(t, err)
 	f.Close()

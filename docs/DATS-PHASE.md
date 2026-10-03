@@ -14,7 +14,7 @@ The dats library's own contract carries the interesting half. `Run` returns an e
 
 ## Repos with no go.mod
 
-`run()` used to stop at `no go.mod found` before doing anything, which made the dats phase unreachable for a repo that is not Go. That was the wrong boundary. The CLI a suite exercises does not have to be written in Go, and dats is linked in here rather than distributed on its own. The practical effect was that a shell or TypeScript repo wanting its suites run had to fetch a standalone dats binary and hand-wire a CI.
+`run()` used to stop at `no go.mod found` before doing anything, which made the dats phase unreachable for a repo that is not Go. That was the wrong boundary. The CLI a suite exercises does not have to be written in Go, and dats is linked in here rather than distributed on its own. In practice, a shell or TypeScript repo that wanted its suites run had to fetch a standalone dats binary. It also had to hand-wire a CI.
 
 So when `findGoModules()` comes back empty, `run()` checks `hasDatsSuites(".")` and, if there are suites, hands off to `runDatsOnly`:
 

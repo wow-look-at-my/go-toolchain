@@ -122,9 +122,8 @@ func isVanityHostReachable(host string) bool {
 // namespace that maps to the repository; any path beyond the prefix is a
 // sub-module path within the repo.
 //
-// It queries the Go module proxy (go mod download -json) for the
-// Origin URL and Subdir, then falls back to the go-import meta tag on the
-// vanity host.
+// It queries the Go module proxy (go mod download -json) for the Origin URL
+// and Subdir, then falls back to the go-import meta tag on the vanity host.
 func resolveVanityVCSURL(modulePath, version string) (string, string, error) {
 	// The proxy strategy: go mod download -json gives Origin.URL
 	cmd := exec.Command("go", "mod", "download", "-json", modulePath+"@"+version)
@@ -258,8 +257,8 @@ func injectVanityReplaces() (*vanityState, error) {
 				continue
 			}
 
-			// Only rewrite onto a direct code host; elsewhere a replace would just
-			// move the indirection, so let the proxy handle it instead.
+			// Only rewrite onto a direct code host; elsewhere a replace would move the
+			// indirection, so let the proxy handle it instead.
 			if targetHost := strings.SplitN(ghPath, "/", 2)[0]; !directMirrorHosts.Contains(targetHost) {
 				if !jsonOutput {
 					logger.Info("    skipping %s: resolved host %s is not a direct mirror", m.Path, targetHost)
@@ -345,10 +344,10 @@ func injectVanityReplaces() (*vanityState, error) {
 	return &vanityState{Replaces: injected, OrigGoSum: origGoSum}, nil
 }
 
-// removeVanityReplaces removes previously injected vanity replace directives
-// from go.mod and restores go.sum to its pre-injection snapshot. The restore
-// undoes the path swap go mod tidy performed while the replace was active
-// (e.g. rewriting gonum.org/v1/gonum entries as github.com/gonum/gonum).
+// removeVanityReplaces removes injected vanity replace directives from go.mod
+// and restores go.sum to its pre-injection snapshot. The restore undoes the
+// path swap go mod tidy performed while the replace was active (e.g.
+// rewriting gonum.org/v1/gonum entries as github.com/gonum/gonum).
 func removeVanityReplaces(state *vanityState) error {
 	if state == nil || len(state.Replaces) == 0 {
 		return nil
@@ -389,22 +388,18 @@ func removeVanityReplaces(state *vanityState) error {
 	return nil
 }
 
-// checkDirtyInCIWithVanityRestored runs the CI dirty-tree check against the tree as
-// removeVanityReplaces will leave it: injected replaces dropped from go.mod, go.sum
-// restored to its pre-injection snapshot. The active state is written back before
-// returning, so mirror replaces still resolve modules for later phases. With no
-// active vanity state, this is exactly checkDirtyInCI.
+// checkDirtyInCIWithVanityRestored runs the CI dirty-tree check against the
+// tree as removeVanityReplaces will leave it: injected replaces dropped from
+// go.mod, go.sum restored to its pre-injection snapshot. The active state is
+// written back before returning, so mirror replaces still resolve modules for
+// later phases. With no active vanity state, this is exactly checkDirtyInCI.
 //
 // This exists because the injected replaces are transient, removed only when
-// RunTestsWithCoverage returns, while the fail-fast dirty check runs mid-function.
-// A run where a vanity host was unreachable at probe time would otherwise fail on a
-// canonically tidy tree. Checking the restored tree instead matches the later
-// checkDirtyInCI call sites, which run after the deferred restore.
-//
-// Real dirt still fails: only this run's own injected replaces are dropped, so any
-// other go.mod change survives and is reported. A narrowing: while a vanity host
-// is down, go.sum drift is indistinguishable from tidy's path swap and gets
-// restored away; it fails on the very next run, as soon as the host is reachable.
+// RunTestsWithCoverage returns, while the fail-fast dirty check runs
+// mid-function. A run where a vanity host was unreachable at probe time would
+// otherwise fail on a canonically tidy tree. Checking the restored tree
+// instead matches the later checkDirtyInCI call sites, which run after the
+// deferred restore.
 func checkDirtyInCIWithVanityRestored(state *vanityState) error {
 	if state == nil || len(state.Replaces) == 0 || os.Getenv("CI") == "" {
 		return checkDirtyInCI()

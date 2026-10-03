@@ -89,8 +89,8 @@ func RunOnPattern(pattern string, fix bool, progress ProgressFunc) (bool, error)
 	return vetSemantic(pattern, NewEditor(fix), progress)
 }
 
-// loadErrorMessages collects load errors from the WHOLE import graph, not just
-// the roots: a failed dependency records its cause on its own Errors, and the
+// loadErrorMessages collects load errors from the WHOLE import graph, not the
+// roots: a failed dependency records its cause on its own Errors, and the
 // root only carries the downstream `undefined:` cascade. Go version mismatch
 // warnings are dropped (a minimum, not a syntax gate). Messages are
 // deduplicated: a directory's test variants carry the same Errors.
@@ -238,9 +238,9 @@ func moduleHasGoFiles(tagCfg buildtags.Config) bool {
 }
 
 // vetOneConfig loads and analyzes the module under a single build-tag
-// configuration, appending diagnostics and recording every file it actually
-// parsed into analyzedFiles (module-relative, slash separated) so Verify can
-// prove no tagged file went unseen.
+// configuration, appending diagnostics and recording every file it parsed
+// into analyzedFiles (module-relative, slash separated) so Verify can prove
+// no tagged file went unseen.
 func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report func(string),
 	diagnostics *[]Diagnostic, analyzedFiles set.Set[string], nParsedTotal *int,
 ) (bool, error) {
@@ -489,9 +489,9 @@ func fixesFilename(fixes *ASTFixes) string {
 	return fixes.Fset.Position(fixes.File.Pos()).Filename
 }
 
-// checkFileCommittedByName is checkFileCommitted keyed by an explicit filename,
-// used by fix producers that don't carry an *ASTFixes (e.g. cast text edits).
-// It tries go-git, then falls back to the git CLI on infrastructure errors.
+// checkFileCommittedByName is checkFileCommitted keyed by an explicit
+// filename, used by fix producers that don't carry an *ASTFixes (e.g. cast
+// text edits).
 func checkFileCommittedByName(filename string) error {
 	err := checkFileCommittedGoGit(filename)
 	if err == nil {

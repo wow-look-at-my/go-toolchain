@@ -301,7 +301,7 @@ func foo() {
 
 	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{{OldNode: ifStmt, NewNodes: nil}}}
 
-	// Just ensure it doesn't panic
+	// Ensure it doesn't panic
 	fixes.printFix(fixes.Fixes[0])
 }
 
@@ -438,8 +438,8 @@ func TestModuleHasGoFiles(t *testing.T) {
 
 // A module whose every file is constrained out has nothing for the loader to
 // return, so an empty result there is correct rather than a dead loader. The
-// walk therefore has to read the constraints, not just the file extension.
-// A wasm-only main in a repository built for the host is the real shape of it.
+// walk therefore has to read the constraints, not the file extension. A
+// wasm-only main in a repository built for the host is the real shape of it.
 func TestModuleHasGoFilesHonorsBuildConstraints(t *testing.T) {
 	t.Serial()
 

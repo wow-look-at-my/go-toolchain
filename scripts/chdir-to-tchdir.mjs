@@ -1,22 +1,5 @@
 #!/usr/bin/env node
 // Rewrites the save-chdir-restore idiom in a test onto t.Chdir.
-//
-// The fork's testing package runs tests in parallel unless a test takes the
-// serial barrier. t.Chdir takes it; a raw os.Chdir does not, so a test that
-// moves the process races every test beside it that reads the working
-// directory. t.Chdir also restores on its own, which is what lets the manual
-// save and the deferred restore go.
-//
-// The lines need not be adjacent and need not be in order, so this works per
-// function: a getwd, a chdir and a restore of that saved name collapse into a
-// single call. A function holding a duplicate of any of them is left for a
-// human.
-//
-// Prefer a root argument where the code under test merely reads a directory
-// (see docs/GOMOD.md). Use this where the entry point takes its input from the
-// working directory, and only in a suite short enough to run serially.
-//
-// Usage: node scripts/chdir-to-tchdir.mjs <file>...
 
 import { readFileSync, writeFileSync } from 'node:fs';
 
@@ -70,8 +53,6 @@ let touched = 0;
 for (const file of files) {
 	const before = readFileSync(file, 'utf8');
 	// A top-level func opens at the left margin, and the next such line closes it.
-	// A fixture's own func does too, inside a raw string, so the literal is
-	// skipped rather than cut in half.
 	const lines = before.split('\n');
 	const starts = [];
 	let inRaw = false;

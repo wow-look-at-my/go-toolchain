@@ -220,14 +220,14 @@ func TestSyncVendorIfPresent_NoVendor(t *testing.T) {
 	assert.NoError(t, syncVendorIfPresent())
 }
 
-// TestFixTestifyImports_VendorConsistency builds a vendored module on the fork,
-// runs the rewriter, and verifies the result is a consistent vendor tree on
-// upstream testify: vendor/modules.txt no longer references the fork, and
-// `go build -mod=vendor ./...` and `go vet -mod=vendor ./...` succeed. This is
-// the regression guard for the "inconsistent vendoring" failure the old
-// fork-direction rewrite produced. Both testify modules resolve to local stubs
-// via replace directives so the test is hermetic and fast (no network, which
-// the per-package test timeout cannot afford).
+// TestFixTestifyImports_VendorConsistency builds a vendored module on the
+// fork, runs the rewriter, and verifies the result is a consistent vendor
+// tree on upstream testify: vendor/modules.txt no longer references the fork,
+// and `go build -mod=vendor ./...` and `go vet -mod=vendor ./...` succeed.
+// This is the regression guard for the "inconsistent vendoring" failure the
+// fork-direction rewrite produced. Both testify modules resolve to local
+// stubs via replace directives so the test is hermetic and fast (no network,
+// which the per-package test timeout cannot afford).
 func TestFixTestifyImports_VendorConsistency(t *testing.T) {
 	t.Serial()
 	forkStub, err := filepath.Abs(filepath.Join("testdata", "src", "forkstub"))

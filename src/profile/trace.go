@@ -12,13 +12,12 @@ import (
 // maxTraceLanes caps "go actions #NN" lanes; spill-over clamps to the earliest-free lane.
 const maxTraceLanes = 32
 
-// AddTraceEvents records a timed event per executed action into tr,
-// assigning concurrent actions to numbered lanes with a greedy interval
-// scheduler — the Chrome writer clamps overlapping events within a single
-// thread, so without lanes a parallel compile phase would collapse into a
-// serialized smear. The event args carry the package, mode and action ID, so
-// clicking a bar in chrome://tracing answers "what was this and why did it
-// run".
+// AddTraceEvents records a timed event per executed action into tr, assigning
+// concurrent actions to numbered lanes with a greedy interval scheduler —
+// the Chrome writer clamps overlapping events within a single thread, so
+// without lanes a parallel compile phase would collapse into a serialized
+// smear. The event args carry the package, mode and action ID, so clicking a
+// bar in chrome://tracing answers "what was this and why did it run".
 func AddTraceEvents(tr *gotrace.Trace, actions []Action) {
 	if tr == nil {
 		return

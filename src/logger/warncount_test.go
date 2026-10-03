@@ -8,8 +8,8 @@ import (
 )
 
 // TestWarnCountCountsEmittedWarnings verifies that every Warn and WarnFile
-// message that is actually emitted increments the process-wide counter, in
-// both plain and GHA annotation modes.
+// message that is emitted increments the process-wide counter, in both plain
+// and GHA annotation modes.
 func TestWarnCountCountsEmittedWarnings(t *testing.T) {
 	t.Serial()
 	ResetWarnCount()
@@ -27,7 +27,7 @@ func TestWarnCountCountsEmittedWarnings(t *testing.T) {
 }
 
 // TestWarnCountIgnoresFilteredWarnings verifies that a Warn suppressed by the
-// level filter is not counted — the counter tracks what the user actually saw.
+// level filter is not counted — the counter tracks what the user saw.
 func TestWarnCountIgnoresFilteredWarnings(t *testing.T) {
 	t.Serial()
 	ResetWarnCount()
@@ -166,7 +166,7 @@ func TestWarnCountFoldsRepeatsPastRetention(t *testing.T) {
 
 // TestEmittedWarningsExcludesFiltered verifies that a warning suppressed by
 // the log level is neither counted nor retained — the recap shows only what
-// the user actually saw.
+// the user saw.
 func TestEmittedWarningsExcludesFiltered(t *testing.T) {
 	t.Serial()
 	ResetWarnCount()

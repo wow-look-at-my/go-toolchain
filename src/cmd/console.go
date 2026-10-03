@@ -121,10 +121,7 @@ type step struct {
 	hbOnce sync.Once
 }
 
-// heartbeatEvery is how often a step with no output of its own says it is
-// still running. A test phase can compile for minutes before the first test
-// prints, and a log that says nothing for that long is indistinguishable
-// from a hang.
+// heartbeatEvery is how often a step with no output of its own says it is still running.
 const heartbeatEvery = 20 * time.Second
 
 // heartbeat starts reporting elapsed time until the step finishes. detail
@@ -235,8 +232,7 @@ func (s *step) failed() {
 	s.finish(colorRed + "failed!" + colorReset)
 }
 
-// timedLineWriter appends elapsed time to each line. A line's newline is
-// deferred until the next content, reflecting the gap until it appeared.
+// timedLineWriter appends elapsed time to each line.
 type timedLineWriter struct {
 	target      io.Writer
 	buf         bytes.Buffer
@@ -265,7 +261,7 @@ func (w *timedLineWriter) Write(p []byte) (int, error) {
 			w.buf.Write(line)
 			break
 		}
-		// Complete line found. Close any previously open line before writing.
+		// Complete line found. Close any open line before writing.
 		if w.awaitingEnd {
 			w.closeLine()
 		}
@@ -278,9 +274,8 @@ func (w *timedLineWriter) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-// closeLine finishes the current open line: " <elapsed>\n" when the gap
-// since its content was written reaches timedLineMinDuration, otherwise
-// just "\n".
+// closeLine finishes the current open line: " <elapsed>\n" when the gap since
+// its content was written reaches timedLineMinDuration, otherwise "\n".
 func (w *timedLineWriter) closeLine() {
 	if elapsed := time.Since(w.lineEnd); elapsed >= timedLineMinDuration {
 		fmt.Fprintf(w.target, " %s\n", fmtDuration(elapsed))

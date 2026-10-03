@@ -10,16 +10,12 @@ import (
 )
 
 func init() {
-	// When invoked as GOCACHEPROG, skip all env setup — just serve the protocol.
+	// When invoked as GOCACHEPROG, skip all env setup — serve the protocol.
 	if isCacheProgInvocation() {
 		return
 	}
 	// The go command and its tools take the environment as it is, because the
-	// command that started them configured it. A caller that starts this
-	// binary as go itself has no such parent, and a runner hands it a GOPROXY
-	// that names no proxy, which the go command refuses rather than reading as
-	// a default. An environment naming one is still taken as it is: only the
-	// absence is filled.
+	// command that started them configured it.
 	if _, linked := cmd.LinkedGoArgs(os.Args); linked {
 		if !namesAProxy(os.Getenv("GOPROXY")) {
 			logger.WithSubsystem("proxy").Info("GOPROXY names no proxy in this environment, so this linked run configures its own")
@@ -106,11 +102,7 @@ func shouldCheckForUpdate() bool {
 	return true
 }
 
-// namesAProxy reports whether value selects at least one module proxy. The go
-// command separates entries with a comma or a pipe and refuses a list that
-// holds none, saying it "is not the empty string, but contains no entries", so
-// a lone separator or some spaces is a value that names nothing rather than a
-// value to be taken as it is.
+// namesAProxy reports whether value selects at least one module proxy.
 func namesAProxy(value string) bool {
 	for _, entry := range strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == '|' }) {
 		if strings.TrimSpace(entry) != "" {
