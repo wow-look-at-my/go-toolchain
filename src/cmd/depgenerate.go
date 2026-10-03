@@ -101,9 +101,10 @@ func readDirs(cache string, mods []depModule) map[string]string {
 	return read
 }
 
-// depPackageDirs reads every package directory of every dependency MODULE, and
-// not just the ones an import reaches. Generating is what changes which ones an
-// import reaches, and a set that grows as it is satisfied cannot be approved.
+// depPackageDirs reads every package directory of every dependency MODULE,
+// and not the ones an import reaches. Generating is what changes which ones
+// an import reaches, and a set that grows as it is satisfied cannot be
+// approved.
 func depPackageDirs(cache string, mods []depModule) []string {
 	seen := set.New[string]()
 	var dirs []string

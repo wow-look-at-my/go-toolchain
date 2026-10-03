@@ -160,9 +160,8 @@ func hasMainPackageMatch(dir string, match func(dir, name string) (bool, error))
 // matchFile is the host build-constraint matcher, a var so tests can observe its calls; errors fail open (included).
 var matchFile = build.Default.MatchFile
 
-// packageNameFromFile reads a Go file's package name via go/parser in PackageClauseOnly
-// mode, which stops after the package clause — this handles a multi-line comment before
-// it, unlike a naive line scanner. Returns "" if there's no parseable package clause.
+// packageNameFromFile reads a Go file's package name via go/parser in
+// PackageClauseOnly mode, which stops after the package clause.
 func packageNameFromFile(path string) string {
 	// Use the partial AST's package name even if ParseFile also returned an error.
 	f, _ := parser.ParseFile(token.NewFileSet(), path, nil, parser.PackageClauseOnly)

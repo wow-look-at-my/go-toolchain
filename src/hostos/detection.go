@@ -33,10 +33,7 @@ func warnGuessedHost(d Detection) {
 	})
 }
 
-// Detection records the host OS and the evidence behind it. "linux" via uname
-// and "linux" via a failed-probe DEFAULT are the same string but different
-// facts -- the DEFAULT is a guess, wrong on every Mac. Callers that need to
-// trust the answer read Method.
+// Detection records the host OS and the evidence behind it.
 type Detection struct {
 	// OS is what GOOS() returns: "linux", "darwin" or "windows".
 	OS string

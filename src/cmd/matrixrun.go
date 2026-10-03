@@ -49,7 +49,7 @@ func runReleaseInto(r runner.CommandRunner, sd *summary.SummaryData) (err error)
 	// Every target builds with the fork toolchain; fail fast before tests.
 	hasCosmo := slices.ContainsFunc(platforms, buildPlatform.IsCosmo)
 	hasWasm := slices.ContainsFunc(platforms, buildPlatform.IsWasm)
-	warnCGOUnavailable(hasCosmo, hasWasm)
+	warnCGOUnavailable(hasWasm)
 	forkEnv, err := resolveForkBuildEnv(hasCosmo)
 	if err != nil {
 		return err
@@ -209,14 +209,13 @@ func runReleaseInto(r runner.CommandRunner, sd *summary.SummaryData) (err error)
 		}
 	}
 
-	// Wasm artifacts default to buildhost's publishable naming
-	// (<name>_wasm_js / <name>_wasm_wasip1), which needs a buildhost with
-	// wasm artifact support -- an older server rejects the upload and aborts
-	// the whole publish, so warn about the requirement and the opt-out.
-	// The wasmPublishEnv opt-out switches to the excluded .wasm-suffixed
-	// shape, which the publish upload set never matches (it only takes
-	// <binary>_{os}_{arch} after stripping .exe) but still ships in build/,
-	// checksums.txt, and the CI artifact.
+	// Wasm artifacts default to buildhost's publishable naming (<name>_wasm_js /
+	// <name>_wasm_wasip1), which needs a buildhost with wasm artifact support --
+	// an older server rejects the upload and aborts the whole publish, so warn
+	// about the requirement and the opt-out. The wasmPublishEnv opt-out switches
+	// to the excluded .wasm-suffixed shape, which the publish upload set never
+	// matches (it only takes <binary>_{os}_{arch} after stripping .exe) but
+	// still ships in build/, checksums.txt, and the CI artifact.
 	if hasWasm {
 		if wasmPublishOptOut() {
 			logger.Warn("⇒ Warning: %s=0 — wasm artifacts are excluded from buildhost publishing (.wasm-suffixed names stay outside the publish upload set); they remain in %s/ and checksums.txt for CI artifact uploads", wasmPublishEnv, outputDir)

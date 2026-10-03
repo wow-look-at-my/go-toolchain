@@ -65,8 +65,7 @@ type Discovery struct {
 
 // platformIdents are constraint identifiers naming the BUILD TARGET, not a
 // project's own opt-in. A file gated only by these stays excluded on this
-// host -- vetting a windows-only file on linux is out of scope here. Every
-// other identifier is a user tag, so an unknown tag stays covered.
+// host -- vetting a windows-only file on linux is out of scope here.
 var platformIdents = map[string]bool{
 	"cgo": true, "race": true, "msan": true, "asan": true,
 	"gc": true, "gccgo": true, "unix": true, "boringcrypto": true,
@@ -75,8 +74,7 @@ var platformIdents = map[string]bool{
 }
 
 // knownOS and knownArch cover the GOOS/GOARCH values that may appear as
-// constraint idents. Sourced from `go tool dist list`; a value missing here is
-// treated as a user tag, which over-covers rather than under-covers.
+// constraint idents.
 var knownOS = set.Of(
 	// cosmo: absent from `go tool dist list`; checked by the matrix job instead.
 	"cosmo",
@@ -259,9 +257,8 @@ func (d *Discovery) GatedPatterns() []string {
 	return pats
 }
 
-// Verify reports the gated files that no configuration actually reached.
-// seen must hold every path the phase analyzed or compiled, across every
-// configuration.
+// Verify reports the gated files that no configuration reached. seen must
+// hold every path the phase analyzed or compiled, across every configuration.
 func Verify(d *Discovery, seen set.Set[string]) []File {
 	var missed []File
 	for _, f := range d.Gated {

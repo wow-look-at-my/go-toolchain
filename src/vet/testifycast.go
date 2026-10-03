@@ -131,10 +131,9 @@ func runTestifyCast(pass *analysis.Pass) (any, error) {
 	return result, nil
 }
 
-// equalArgIndices returns the argument indices of the compared operands for
-// a testify comparison assertion, accounting for the package form (which takes
+// equalArgIndices returns the argument indices of the compared operands for a
+// testify comparison assertion, accounting for the package form (which takes
 // a leading TestingT) versus the *Assertions method form (which does not).
-// The boolean is false if the call doesn't have enough arguments.
 func equalArgIndices(fn *types.Func, call *ast.CallExpr) (exp, act int, ok bool) {
 	sig, isSig := fn.Type().(*types.Signature)
 	if !isSig {
@@ -213,12 +212,12 @@ func castEditForEqual(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, e
 	}
 }
 
-// buildCastEdit constructs the edit that wraps argExpr (whose type-and-value is
-// argTV) in a conversion to target. It returns nil when the conversion would be
-// unsound — for constant operands, when the constant isn't representable in the
-// target type (fractional truncation or overflow), mirroring the fork, which
-// compares the original numeric values and would not have considered such a
-// pair equal.
+// buildCastEdit constructs the edit that wraps argExpr (whose type-and-value
+// is argTV) in a conversion to target. It returns nil when the conversion
+// would be unsound — for constant operands, when the constant isn't
+// representable in the target type (fractional truncation or overflow),
+// mirroring the fork, which compares the numeric values and would not have
+// considered such a pair equal.
 func buildCastEdit(pass *analysis.Pass, file *ast.File, argExpr ast.Expr, argTV types.TypeAndValue, target types.Type) *CastEdit {
 	// Guard numeric constants against value-changing conversions (truncation or
 	// overflow); non-numeric conversions are always representable.

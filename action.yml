@@ -95,9 +95,13 @@ runs:
     - name: Register the APE binfmt handler
       if: runner.os == 'Linux'
       shell: bash
-      env:
-        ACTION_PATH: ${{ github.action_path }}
-      run: bash "$ACTION_PATH/.github/scripts/register-ape-binfmt.sh"
+      run: bash "${{ github.action_path }}/.github/scripts/register-ape-binfmt.sh"
+
+    # cgo for GOOS=cosmo compiles C with cosmocc. This repository's own build also needs it: embedstd compiles runtime/cgo into the standard library the binary carries. see docs/ACTION.md
+    - name: Install cosmocc
+      if: inputs.cgo == 'true' || github.repository == 'wow-look-at-my/go-toolchain'
+      shell: bash
+      run: bash "${{ github.action_path }}/.github/scripts/install-cosmocc.sh"
 
     # No path: runner.temp is the host path in a container job. The action resolves RUNNER_TEMP itself.
     - name: Download go-toolchain

@@ -16,8 +16,7 @@ import (
 )
 
 // TestWatchdogStartsOnEveryRun pins that nothing in the environment can
-// decline stall monitoring: a build that cannot be told it went silent is
-// exactly the build that goes silent for minutes and reports nothing.
+// decline stall monitoring.
 func TestWatchdogStartsOnEveryRun(t *testing.T) {
 	t.Serial()
 	wd := startWatchdog(time.Second)
@@ -52,9 +51,6 @@ func TestWatchdogWarnsWhileTheBuildIsSilent(t *testing.T) {
 	errR, errW, err := os.Pipe()
 	require.NoError(t, err, "pipe err")
 
-	// The watchdog saves whatever fd 1 and 2 hold when it starts, so these
-	// capture pipes become its origStdout and origStderr: the banner lands in
-	// errR even though the build's own stderr is the watchdog's pipe.
 	require.NoError(t, unix.Dup2(int(outW.Fd()), 1), "dup2 out")
 	require.NoError(t, unix.Dup2(int(errW.Fd()), 2), "dup2 err")
 	outW.Close()
@@ -84,10 +80,10 @@ func TestWatchdogWarnsWhileTheBuildIsSilent(t *testing.T) {
 }
 
 // TestWatchdogStopDoesNotDropBufferedOutput is a regression test for the pipe
-// drain race at shutdown: output written just before wd.stop() must still make
-// it through to the original stdout. Without the forward-goroutine wait in
-// stop(), stdoutR.Close() discarded any bytes forward() hadn't read yet,
-// causing the coverage block to vanish intermittently.
+// drain race at shutdown: output written before wd.stop() must still make it
+// through to the stdout. Without the forward-goroutine wait in stop(),
+// stdoutR.Close() discarded any bytes forward() hadn't read yet, causing the
+// coverage block to vanish intermittently.
 func TestWatchdogStopDoesNotDropBufferedOutput(t *testing.T) {
 	t.Serial()
 	// Forces single-threaded scheduling so forward() and main compete for the same P; otherwise the race rarely triggers.

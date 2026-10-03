@@ -18,14 +18,6 @@ import (
 // statement in this module. Embed-only and declarations-only modules (no
 // function bodies anywhere) return false: their empty coverage profile is
 // expected, not evidence of a broken setup.
-//
-// The walk mirrors listTestPackages: hidden directories, vendor/, and
-// testdata/ are skipped, as are nested modules (their files belong to a
-// different module and are invisible to this module's "./..."). Generated
-// files are skipped because filterBlocksByGenerated excludes them from
-// coverage totals, and files excluded by build constraints (e.g. a
-// "//go:build ignore" generator) are skipped because `go test` never
-// compiles or instruments them.
 func HasCoverableStatements(dir string) bool {
 	found := false
 	filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {

@@ -16,7 +16,6 @@ func TestEnsureDirectFallback(t *testing.T) {
 	assert.Equal(t, "https://proxy.example.com,direct", ensureDirectFallback("https://proxy.example.com"))
 	// Existing ",direct" stays as-is.
 	assert.Equal(t, "https://proxy.example.com,direct", ensureDirectFallback("https://proxy.example.com,direct"))
-	// Trailing "|direct" downgrades to ",direct": a 502 must fail, not answer from git with different bytes.
 	assert.Equal(t, "https://proxy.example.com,direct", ensureDirectFallback("https://proxy.example.com|direct"))
 	assert.Equal(t, "https://a.com,https://b.com,direct", ensureDirectFallback("https://a.com,https://b.com|direct"))
 	assert.Equal(t, "https://a.com,https://b.com,direct", ensureDirectFallback("https://a.com,https://b.com,direct"))
@@ -85,7 +84,7 @@ func TestConfigureGoEnv_ExplicitProxyAndSumDB(t *testing.T) {
 
 	configureGoEnv()
 
-	// A trailing ",direct" is kept, so a 503 fails rather than resolving from git.
+	// A trailing ",direct" is kept, so a fails rather than resolving from git.
 	assert.Equal(t, "https://proxy.example.com,direct", os.Getenv("GOPROXY"))
 	assert.Equal(t, "mydb+abc123 https://proxy.example.com/sumdb/mydb", os.Getenv("GOSUMDB"))
 	assert.Equal(t, "github.com/wow-look-at-my/*", os.Getenv("GONOSUMDB"))

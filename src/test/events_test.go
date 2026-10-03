@@ -408,8 +408,7 @@ func TestOnOutputCallbackInSkip(t *testing.T) {
 // TestFailureOutputKeepsBuildDiagnostics is the regression test for a build
 // failure that printed as "FAIL <pkg> [build failed]" and nothing else. The
 // compiler's diagnostics arrive as "build-output" events carrying ImportPath
-// and an EMPTY Package, so they belonged to no per-package buffer and were
-// dropped -- leaving a summary of an error nobody could see.
+// and an EMPTY Package, so they belonged to no per-package buffer and.
 func TestFailureOutputKeepsBuildDiagnostics(t *testing.T) {
 	t.Serial()
 	h := &coverageHandler{
@@ -420,7 +419,7 @@ func TestFailureOutputKeepsBuildDiagnostics(t *testing.T) {
 		out:        &bytes.Buffer{},
 	}
 
-	// What `go test -json` really emits for a package that will not compile.
+	// What `go test -json` emits for a package that will not compile.
 	build := []testjson.TestEvent{
 		{Action: testjson.ActionBuild, ImportPath: "example.com/pkg", Output: "# example.com/pkg\n"},
 		{Action: testjson.ActionBuild, ImportPath: "example.com/pkg", Output: "./broken.go:7:2: undefined: nope\n"},
@@ -428,7 +427,7 @@ func TestFailureOutputKeepsBuildDiagnostics(t *testing.T) {
 	for _, e := range build {
 		require.NoError(t, h.Event(e, nil))
 	}
-	// ...followed by the package summary, which is all that used to survive.
+	// ...followed by the package summary, which is all.
 	require.NoError(t, h.Event(testjson.TestEvent{
 		Action:  testjson.ActionOutput,
 		Package: "example.com/pkg",

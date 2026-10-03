@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-# Put each org submodule on its branch head, as gosmopolitan's own
-# src/submodulebranch.bash does: name the branch for git, then let
-# `git submodule update --remote` read it. make.bash and the generator
-# install read the checkout, so this runs before either.
-# CI passes the branch in, because a checkout there is detached.
+# Put each org submodule on its branch head, as gosmopolitan's own src/submodulebranch.bash does: name the branch for git.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."

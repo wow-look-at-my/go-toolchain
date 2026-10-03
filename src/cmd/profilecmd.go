@@ -27,9 +27,7 @@ func profileDir() string {
 }
 
 // initBuildProfile activates actiongraph collection for this run (unless
-// --no-profile). Called at the start of the root and matrix commands; the
-// injection sites (runBuild, test.RunTests) pick the collector up through
-// profile.GraphArg without any plumbing.
+// --no-profile).
 func initBuildProfile() {
 	if noProfile {
 		return
