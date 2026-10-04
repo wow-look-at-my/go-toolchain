@@ -81,7 +81,7 @@ The guard regression staged into the pipeline test's module is one file too. It 
 
 The job is `timeout-minutes`-bounded and downloads the `go-build-build.broot` hand-off the `build` job uploaded, via `wow-look-at-my/actions@cache-download#latest` (run-keyed cross-OS cache wrapper. The download `path` is the destination directory). The action names its hand-off `go-build-<job id>.b<build>` per calling job and build (the sanitized `working-directory`, `root` for `.`). A matrix job adds a `.m<job-index>` suffix per leg. So concurrent same-run saves never collide on one key. That is the only name it saves.
 
-The suite EXECUTES throwaway copies of the artifacts in `dist/`, never the downloaded file itself. Every leg runs the SAME file, `dist/go-toolchain` — there is a single artifact now, and each leg proves it boots on that host.
+The suite EXECUTES throwaway copies of the artifacts in `dist/`, not the downloaded file itself. Every leg runs the SAME file, `dist/go-toolchain` — there is a single artifact now, and each leg proves it boots on that host.
 
 **linux** — APE magic `MZqFpD`, then `version`, `--help`, host detection, and the FULL default pipeline in a tiny module under the APE. The agent-output-guard regression is a committed dats fixture (`.github/dats-fixtures/agent-output-guard.dats`), copied into that module's `dats/` dir and run automatically by the pipeline's dats phase.
 
@@ -136,7 +136,7 @@ The type-check reads each dependency's export data, its compiled API, instead of
 
 ## The pipeline links the toolchain it builds with
 
-`go/parser`, `go/types`, `cmd/compile`, `cmd/link` and the standard library are one fork commit, built in one pass. The `gosmopolitan` submodule is that commit. `go-toolchain version` names it. A newer fork ships by a push to this repository that moves the submodule, never by a download.
+`go/parser`, `go/types`, `cmd/compile`, `cmd/link` and the standard library are one fork commit, built in one pass. The `gosmopolitan` submodule is that commit. `go-toolchain version` names it. A newer fork ships by a push to this repository that moves the submodule, not by a download.
 
 ## A test binary is an APE, like everything else
 
