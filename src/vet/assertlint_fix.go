@@ -62,19 +62,9 @@ func generateASTFix(pass *analysis.Pass, st *assertFixState, ifStmt *ast.IfStmt,
 		return nil, false
 	}
 
-	// Build the assertion call AST
-	assertCall := buildAssertCall(pass, ifStmt.Cond, tVar, assertPkg, assertFunc)
-	if assertCall == nil {
-		return nil, false
-	}
-
 	var commit func()
 	var newNodes []ast.Node
 	switch {
-	case ifStmt.Init == nil:
-		// Simple case: if cond { t.Error } → assert.X(t, ...)
-		newNodes = []ast.Node{assertionStmt(assertCall, rest)}
-
 	case isNoErrorInit(ifStmt, assertFunc):
 		// Special case: if err := X; err != nil → require.NoError(t, X)
 		assign := ifStmt.Init.(*ast.AssignStmt)
@@ -85,8 +75,20 @@ func generateASTFix(pass *analysis.Pass, st *assertFixState, ifStmt *ast.IfStmt,
 		)
 		newNodes = []ast.Node{assertionStmt(noErrorCall, rest)}
 
+	case ifStmt.Init == nil:
+		// Simple case: if cond { t.Error } → assert.X(t, ...)
+		assertCall := buildAssertCall(pass, ifStmt.Cond, tVar, assertPkg, assertFunc)
+		if assertCall == nil {
+			return nil, false
+		}
+		newNodes = []ast.Node{assertionStmt(assertCall, rest)}
+
 	default:
 		// Init clause: if x := expr; cond { t.Error } → x := expr; assert.X(...)
+		assertCall := buildAssertCall(pass, ifStmt.Cond, tVar, assertPkg, assertFunc)
+		if assertCall == nil {
+			return nil, false
+		}
 		var init ast.Stmt
 		init, commit, ok = st.hoistInit(ifStmt)
 		if !ok {
