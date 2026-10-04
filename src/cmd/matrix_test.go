@@ -9,27 +9,24 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
+	"github.com/wow-look-at-my/go-toolchain/src/summary"
 )
 
-// With no target flags the run takes the single-APE path, which resolves the
-// gosmopolitan toolchain rather than building a per-platform product.
+// With no target flags the run takes the single-APE path, which needs the go
+// command this binary is rather than building a per-platform product.
 func TestRunReleaseWithRunnerNoPlatformsBuildsTheAPE(t *testing.T) {
 	t.Serial()
-	oldTargets := matrixTargets
-	oldEnsure := ensureCosmoToolchainFunc
+	oldTargets, oldCmd := matrixTargets, activeGoCmd
 	matrixTargets = nil
-	ensureCosmoToolchainFunc = func() (string, error) {
-		return "", fmt.Errorf("cosmo toolchain unavailable")
-	}
+	activeGoCmd = nil
 	defer func() {
-		matrixTargets = oldTargets
-		ensureCosmoToolchainFunc = oldEnsure
+		matrixTargets, activeGoCmd = oldTargets, oldCmd
 	}()
 
 	mock := runner.NewMock()
 	err := runReleaseWithRunner(mock)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "cosmo toolchain unavailable")
+	assert.Contains(t, err.Error(), "no go command")
 }
 
 func TestRunReleaseWithRunnerSuccess(t *testing.T) {
@@ -39,10 +36,8 @@ func TestRunReleaseWithRunnerSuccess(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	// The production spelling; NT adds .exe. Hand-spelled, it never matches.
-	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+		if isForkBuild(cfg, fakeGoroot) {
 			writeBuildOutput(t, cfg, "WASM")
 			return runner.MockProcess(nil, nil), nil
 		}
@@ -50,6 +45,26 @@ func TestRunReleaseWithRunnerSuccess(t *testing.T) {
 	}
 	err := runReleaseWithRunner(mock)
 	assert.Nil(t, err)
+}
+
+// The step summary a matrix run writes carries the coverage its test phase measured.
+func TestRunReleaseIntoRecordsTheTestPhase(t *testing.T) {
+	t.Serial()
+	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js"})
+	releaseParallel = 1
+
+	mock := newTestPassMock(0)
+	origHandler := mock.Handler
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if isForkBuild(cfg, fakeGoroot) {
+			writeBuildOutput(t, cfg, "WASM")
+			return runner.MockProcess(nil, nil), nil
+		}
+		return origHandler(cfg)
+	}
+	var sd summary.SummaryData
+	require.NoError(t, runReleaseInto(mock, &sd))
+	assert.NotNil(t, sd.Coverage, "the summary must carry the test phase's coverage")
 }
 
 func TestRunReleaseWithRunnerBuildFails(t *testing.T) {
@@ -60,9 +75,8 @@ func TestRunReleaseWithRunnerBuildFails(t *testing.T) {
 	// Use a mock that passes tests but fails builds.
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+		if isForkBuild(cfg, fakeGoroot) {
 			return nil, fmt.Errorf("build failed")
 		}
 		return origHandler(cfg)
@@ -78,9 +92,8 @@ func TestRunReleaseWithRunnerMoreJobsThanWorkers(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+		if isForkBuild(cfg, fakeGoroot) {
 			writeBuildOutput(t, cfg, "WASM")
 			return runner.MockProcess(nil, nil), nil
 		}
@@ -104,9 +117,8 @@ func TestRunReleaseWithRunnerRunsBenchmarks(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+		if isForkBuild(cfg, fakeGoroot) {
 			writeBuildOutput(t, cfg, "WASM")
 			return runner.MockProcess(nil, nil), nil
 		}
@@ -134,9 +146,8 @@ func TestRunReleaseWithRunnerNoBenchmarkFlag(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+		if isForkBuild(cfg, fakeGoroot) {
 			writeBuildOutput(t, cfg, "WASM")
 			return runner.MockProcess(nil, nil), nil
 		}
@@ -160,9 +171,8 @@ func TestMatrixOutputShowsProgressAndDuration(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+		if isForkBuild(cfg, fakeGoroot) {
 			writeBuildOutput(t, cfg, "WASM")
 			return runner.MockProcess(nil, nil), nil
 		}
@@ -189,9 +199,8 @@ func TestMatrixOutputFailureShowsDuration(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+		if isForkBuild(cfg, fakeGoroot) {
 			return nil, fmt.Errorf("build failed")
 		}
 		return origHandler(cfg)

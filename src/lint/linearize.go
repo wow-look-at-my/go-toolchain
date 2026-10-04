@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"reflect"
 	"strings"
 )
 
 // Token is an element in a linearized AST sequence: structural nodes use a
-// single-char symbol; leaf nodes record "_" but keep their concrete value.
+// single-char symbol.
 type Token struct {
 	Symbol   byte   // structural symbol (e.g. 'I' for IfStmt)
 	Concrete string // original name/literal for leaf nodes, empty for structural
@@ -68,6 +69,10 @@ var nodeSymbols = map[string]byte{
 // sequence of abstract tokens, stripping all concrete identifiers,
 // literals, and type names while preserving structural shape.
 func Linearize(node ast.Node) []Token {
+	// A nil field in an interface is not nil, and ast.Walk would dereference it.
+	if held := reflect.ValueOf(node); node == nil || (held.Kind() == reflect.Pointer && held.IsNil()) {
+		return nil
+	}
 	var tokens []Token
 	ast.Inspect(node, func(n ast.Node) bool {
 		if n == nil {
@@ -102,10 +107,10 @@ func SequenceString(tokens []Token) string {
 	return b.String()
 }
 
-// ExtractBlocks walks a file AST and extracts all function/method bodies
-// as linearized blocks, plus inner blocks from compound statements within
-// each function. Only blocks with at least minNodes tokens are returned,
-// since very small blocks are uninteresting for duplication.
+// ExtractBlocks walks a file AST and extracts all function/method bodies as
+// linearized blocks, plus inner blocks from compound statements within each
+// function. Only blocks with at least minNodes tokens are returned, since
+// small blocks are uninteresting for duplication.
 func ExtractBlocks(file *ast.File, fset *token.FileSet, minNodes int) []Block {
 	var blocks []Block
 	for _, decl := range file.Decls {

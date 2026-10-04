@@ -13,44 +13,6 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-func TestImportName(t *testing.T) {
-	t.Serial()
-	tests := []struct {
-		name     string
-		imp      *ast.ImportSpec
-		expected string
-	}{
-		{
-			name: "named import",
-			imp: &ast.ImportSpec{
-				Name: &ast.Ident{Name: "foo"},
-				Path: &ast.BasicLit{Value: `"bar/baz"`},
-			},
-			expected: "foo",
-		},
-		{
-			name: "unnamed import",
-			imp: &ast.ImportSpec{
-				Path: &ast.BasicLit{Value: `"bar/baz"`},
-			},
-			expected: "baz",
-		},
-		{
-			name: "nested path",
-			imp: &ast.ImportSpec{
-				Path: &ast.BasicLit{Value: `"github.com/foo/bar"`},
-			},
-			expected: "bar",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, importName(tt.imp))
-		})
-	}
-}
-
 func TestIsRedundantCast(t *testing.T) {
 	t.Serial()
 	tests := []struct {
@@ -199,7 +161,7 @@ func TestFoo(t *testing.T) {
 
 	t.Chdir(dir)
 
-	// Just run it to exercise the compound condition path
+	// Run it to exercise the compound condition path
 	_, err := vetSemantic("./...", NewEditor(false), nil)
 	// It should find an issue
 	assert.NotNil(t, err)

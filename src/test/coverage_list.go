@@ -95,7 +95,7 @@ type funcWithPath struct {
 	file *FileCoverage
 }
 
-// shortFile returns just the last directory + filename from an import path
+// shortFile returns the last directory + filename from an import path
 func shortFile(importPath string) string {
 	parts := strings.Split(importPath, "/")
 	if len(parts) >= 2 {

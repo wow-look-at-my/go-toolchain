@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -63,12 +66,16 @@ type buildJob struct {
 	outputPath string
 	// ldflags is the revision stamp plus whatever the caller put in GOFLAGS; runBuild appends its own.
 	ldflags string
-	// forkGoroot is the gosmopolitan GOROOT for fat-APE/wasm jobs; empty for normal jobs (go on PATH).
-	forkGoroot string
-	// cacheNamespace scopes cache keys per fork toolchain; required with forkGoroot or builds share keys and poison the cache.
-	cacheNamespace string
+	// goCmd starts the go command that compiles the job.
+	goCmd []string
+	// goroot is the GOROOT that go command reads.
+	goroot string
+	// apeAppend is a file the linker appends past the APE's load span, empty for none.
+	apeAppend string
 	// cosmoPlatforms is GOCOSMOPLATFORMS for a fat-APE job; empty leaves it unset (the fork's everything-default).
 	cosmoPlatforms string
+	// selfHosted marks this pipeline's own binary, which is built in passes and carries its standard library.
+	selfHosted bool
 }
 
 type buildResult struct {
@@ -77,14 +84,74 @@ type buildResult struct {
 	duration time.Duration
 }
 
+// runMatrixModules cross-compiles every module in the tree, the way the
+// default pipeline gates every module.
+func runMatrixModules(r runner.CommandRunner) error {
+	return runMatrixModulesInto(r, nil)
+}
+
+// runMatrixModulesInto is runMatrixModules recording each module's test phase into sd when it is not nil.
+func runMatrixModulesInto(r runner.CommandRunner, sd *summary.SummaryData) error {
+	modules := findGoModules()
+	if len(modules) == 0 {
+		// Suites without a module are the whole run, as in the default
+		// pipeline: the CLI a suite drives does not have to be Go.
+		if hasDatsSuites(".") {
+			return runDatsOnly()
+		}
+		return fmt.Errorf("no go.mod and no dats/ suites found — initialize a module with: go mod init <module-path>")
+	}
+
+	startDir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	defer os.Chdir(startDir)
+
+	libraryModulesAllowed = len(modules) > 1
+	matrixBuiltBinaries = 0
+
+	for i, modDir := range modules {
+		if len(modules) > 1 {
+			if i > 0 {
+				logger.Info("")
+			}
+			logger.Info("⇒ Module: %s", modDir)
+		}
+		if modDir != "." {
+			if err := os.Chdir(filepath.Join(startDir, modDir)); err != nil {
+				return fmt.Errorf("failed to enter %s: %w", modDir, err)
+			}
+		}
+		if err := runReleaseInto(r, sd); err != nil {
+			return err
+		}
+	}
+
+	// Every module was a library. The command exists to produce binaries, so
+	// a run that produced none is a failure, not a quiet success.
+	if matrixBuiltBinaries == 0 {
+		return fmt.Errorf("no main packages found to build in any of the %d modules", len(modules))
+	}
+	return nil
+}
+
 func runRelease(cmd *cobra.Command, args []string) error {
 	InitTimeline()
+	// A dependency's generated output enters through the compiler, so it lands
+	// before the toolchain is built, as on the root path.
+	if err := generateForDeps(approvedGenerateHash()); err != nil {
+		return err
+	}
+	if err := reexecUnderOwnBuild(); err != nil {
+		return err
+	}
 	// Collects per-action build profiles; no Chrome trace here, but the deferred capture still parses graphs for emitBuildProfile.
 	initBuildProfile()
 	defer captureProfileTrace()
 	r := runner.New()
-	err := runReleaseWithRunner(r)
-	if err != nil {
+	var sd summary.SummaryData
+	if err := runMatrixModulesInto(r, &sd); err != nil {
 		return err
 	}
 
@@ -94,7 +161,7 @@ func runRelease(cmd *cobra.Command, args []string) error {
 
 	// Write GitHub Step Summary with timeline
 	if tl := GetTimeline(); tl != nil {
-		sd := summary.SummaryData{Timeline: tl.Entries()}
+		sd.Timeline = tl.Entries()
 		if writeErr := summary.Write(&sd); writeErr != nil {
 			logger.Warn("⇒ Warning: failed to write step summary: %v", writeErr)
 		}

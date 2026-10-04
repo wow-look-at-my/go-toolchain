@@ -138,7 +138,6 @@ func TestClearNodePositionsComplex(t *testing.T) {
 	require.NoError(t, err)
 	_ = fset
 
-	// All positions should be set to begin with
 	clearNodePositions(expr)
 
 	// Walk and verify all positions are cleared

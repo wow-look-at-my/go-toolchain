@@ -206,7 +206,7 @@ func ReachablePackages(root string, r runner.CommandRunner) (set.Set[string], er
 			args = append(args, pkg)
 		}
 	}
-	proc, err := runner.Cmd("go", args...).WithDir(root).WithHostTarget().WithQuiet().Run(r)
+	proc, err := runner.Cmd("go", args...).WithDir(root).WithQuiet().Run(r)
 	if err != nil {
 		return set.Set[string]{}, err
 	}
@@ -262,7 +262,7 @@ func parseProfileBlocks(filename string) ([]coverageBlock, error) {
 		lineRange string // original "startLine.startCol,endLine.endCol"
 	}
 	merged := make(map[blockKey]*coverageBlock)
-	var order []blockKey // preserve the order the blocks arrive in
+	var order []blockKey
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {

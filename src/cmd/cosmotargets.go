@@ -31,8 +31,8 @@ var cosmoRuntimeStatus = map[buildPlatform]string{
 	{OS: "windows", Arch: "arm64"}: "the APE's PE payload is amd64-only, and Windows-on-ARM x86-64 emulation fails to boot it",
 }
 
-// parseCosmoPlatforms parses --cosmo-platforms: the host platforms the fat APE
-// must cover, as os/arch pairs. The single value "all" asks for every platform
+// parseCosmoPlatforms parses --cosmo-platforms: the host platforms the fat
+// APE must cover, as os/arch pairs. The value "all" asks for every platform
 // the fork can emit and returns a nil list, which leaves GOCOSMOPLATFORMS
 // unset.
 func parseCosmoPlatforms(entries []string) ([]buildPlatform, error) {
@@ -72,8 +72,8 @@ func parseCosmoPlatforms(entries []string) ([]buildPlatform, error) {
 	return out, nil
 }
 
-// coverableCosmoPlatforms lists the os/arch pairs a fat APE actually runs on,
-// sorted, for error messages.
+// coverableCosmoPlatforms lists the os/arch pairs a fat APE runs on, sorted,
+// for error messages.
 func coverableCosmoPlatforms() []string {
 	var out []string
 	for p, reason := range cosmoRuntimeStatus {
@@ -85,10 +85,11 @@ func coverableCosmoPlatforms() []string {
 	return out
 }
 
-// apeCoverage returns the platforms a fat APE built with the given --cosmo-platforms selection
-// actually runs on. An empty selection means "all": coverage is then every platform whose
-// runtime is verified, never an unverified platform the fork can also emit -- a published set names
-// where the binary RUNS.
+// apeCoverage returns the platforms a fat APE built with the given
+// --cosmo-platforms selection runs on. An empty selection means "all":
+// coverage is then every platform whose runtime is verified, never an
+// unverified platform the fork can also emit -- a published set names where
+// the binary RUNS.
 func apeCoverage(platforms []buildPlatform) []buildPlatform {
 	if len(platforms) > 0 {
 		return platforms

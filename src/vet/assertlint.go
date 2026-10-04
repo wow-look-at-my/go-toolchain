@@ -34,6 +34,7 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 		// Track needed imports for this file
 		needsAssert := false
 		needsRequire := false
+		state := newAssertFixState(pass, file)
 
 		// Check existing imports
 		hasAssert := false
@@ -50,7 +51,6 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 		// Collect all diagnostics for this file
 		var diagnostics []fileDiagnostic
 
-		// Build set of "else if" statements (if statements that are the Else of another if)
 		elseIfStmts := set.New[*ast.IfStmt]()
 		ast.Inspect(file, func(n ast.Node) bool {
 			ifStmt, ok := n.(*ast.IfStmt)
@@ -82,12 +82,6 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 			// Determine the assertion type (assert vs require) and function name
 			assertPkg, assertFunc := determineAssertion(ifStmt)
 
-			if assertPkg == "assert" {
-				needsAssert = true
-			} else {
-				needsRequire = true
-			}
-
 			diagnostics = append(diagnostics, fileDiagnostic{
 				ifStmt:     ifStmt,
 				assertPkg:  assertPkg,
@@ -97,15 +91,23 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 			return true
 		})
 
-		// Process diagnostics and generate AST fixes
+		// Process diagnostics and generate AST fixes, in source order: a hoist
+		// sees the names every earlier hoist in its block declared.
 		for _, d := range diagnostics {
 			message := fmt.Sprintf("use %s.%s instead of if + t.Error/t.Fatal", d.assertPkg, d.assertFunc)
 
-			fix := generateASTFix(pass, d.ifStmt, d.assertPkg, d.assertFunc)
+			fix, report := generateASTFix(pass, state, d.ifStmt, d.assertPkg, d.assertFunc)
+			if !report {
+				continue
+			}
 			if fix != nil {
 				fileToFixes[file] = append(fileToFixes[file], *fix)
+				if d.assertPkg == "assert" {
+					needsAssert = true
+				} else {
+					needsRequire = true
+				}
 			}
-			// Always report diagnostic (without SuggestedFixes - AST fixes handle that)
 			pass.Reportf(d.ifStmt.Pos(), "%s", message)
 		}
 

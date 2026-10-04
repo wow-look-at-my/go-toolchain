@@ -19,6 +19,8 @@ func Nil(t TestingT, object interface{}, msgAndArgs ...interface{}) bool { retur
 
 func NotNil(t TestingT, object interface{}, msgAndArgs ...interface{}) bool { return true }
 
+func NoError(t TestingT, err error, msgAndArgs ...interface{}) bool { return true }
+
 func Equalf(t TestingT, expected, actual interface{}, msg string, args ...interface{}) bool {
 	return true
 }

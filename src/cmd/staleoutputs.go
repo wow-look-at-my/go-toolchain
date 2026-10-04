@@ -26,11 +26,7 @@ var nonBinaryOutputs = set.Of(
 // isOutputArtifact reports whether base — a file name inside the output
 // directory — is an artifact go-toolchain produces for the target named
 // name: the bare name, "<name>_…" (goos/goarch variants, wasm, the _host
-// symlink), or "<name>.…" (the APE's sidecar ELFs). The ".tmp-"-prefixed
-// spelling counts too: the compiler writes its -o there and only a
-// successful build moves it onto the final name (build.TmpPrefix), so
-// runBuild removes its own temp on failure and these sweeps only ever see
-// crash orphans — never an in-flight build's file.
+// symlink), or "<name>.…" (the APE's sidecar ELFs).
 func isOutputArtifact(base, name string) bool {
 	// A build's ".tmp-" spelling of an artifact is the same artifact on the
 	// floor: the commit never happened, so it must not survive the sweep.
@@ -145,7 +141,7 @@ func moduleOutputTargets(r runner.CommandRunner) (string, []string, error) {
 // clearBuildOutputs deletes the current module's build artifacts before the
 // pipeline starts, and records the module so a later failure can delete them
 // again. From this point the only thing that can put a binary back at
-// build/<target> is a build that actually ran.
+// build/<target> is a build that ran.
 func clearBuildOutputs(r runner.CommandRunner) error {
 	dir, names, err := moduleOutputTargets(r)
 	if err != nil {

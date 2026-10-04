@@ -26,6 +26,9 @@ var datsRunFunc = dats.Run
 // datsBuildDirEnv names the env var pointing suite commands at the staged binaries dir.
 const datsBuildDirEnv = "GO_TOOLCHAIN_DATS_BUILD_DIR"
 
+// datsForkCommitEnv names the env var carrying the gosmopolitan commit the run's build linked.
+const datsForkCommitEnv = "GO_TOOLCHAIN_DATS_GOSMOPOLITAN"
+
 // datsArtifact names a built binary to hand to dats suites.
 type datsArtifact struct {
 	sourcePath string // the built artifact (build/<name>, build/<name>_<os>_<arch>, ...)
@@ -79,10 +82,6 @@ const datsStageDir = ".dats-stage"
 // The dir must sit INSIDE the module root, as an absolute path: dats
 // sandboxes every command, reaching only the working directory (read-only)
 // plus declared paths.
-//
-// Staged binaries are READ-ONLY. A self-rewriting binary (the cosmo APE)
-// must be copied to the sandbox's own writable temp space by the suite that
-// runs it (`cp` into `$(mktemp -d)`, per dats/README.md).
 func stageDatsArtifacts(artifacts []datsArtifact) (string, error) {
 	root, err := os.Getwd()
 	if err != nil {
@@ -167,10 +166,11 @@ func datsSandbox() dats.Sandbox {
 }
 
 // runDatsPhase runs the module's dats suites (if any) against the binaries
-// just built, in this process: go-toolchain links the dats library, so the
+// built, in this process: go-toolchain links the dats library, so the
 // suite-presence gate is the only thing standing between a module and its
-// suites — no download, no cache, no dats version to drift from the linked-in copy.
-// Modules without a dats/ directory pay nothing and print nothing.
+// suites — no download, no cache, no dats version to drift from the
+// linked-in copy. Modules without a dats/ directory pay nothing and print
+// nothing.
 //
 // dats itself always runs every discovered test — there is deliberately no
 // filtering, selection, or skip mechanism at either layer. Failures fail the
@@ -214,6 +214,8 @@ func runDatsPhase(quiet bool, artifacts []datsArtifact) error {
 		Sandbox: datsSandbox(),
 		Env: []string{
 			datsBuildDirEnv + "=" + buildDir,
+			// The commit the build stamped, for a suite to hold `version` to.
+			datsForkCommitEnv + "=" + resolvedForkCommit,
 		},
 	})
 	if err != nil {

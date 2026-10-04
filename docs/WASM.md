@@ -2,13 +2,13 @@
 
 Sibling of [MATRIX.md](MATRIX.md), which covers the native targets of the same `matrix` command.
 
-`matrix --targets` also accepts the two WebAssembly platforms: `wasm/js` (browser / Node.js, run with `wasm_exec.js`) and `wasm/wasip1` (WASI runtimes such as wasmtime or wazero) — spelled os-first to match buildhost's wasm artifact scheme and the `<name>_wasm_js` artifact naming. The GOOS-order spellings `js/wasm` and `wasip1/wasm` are accepted as compatibility aliases and normalize to the same targets (mixing both spellings dedupes to one target). Wasm is the only thing `--targets` accepts besides `cosmo` itself, and the two mix freely in one run:
+`matrix --targets` also accepts the WebAssembly platforms: `wasm/js` (browser / Node.js, run with `wasm_exec.js`) and `wasm/wasip1` (WASI runtimes such as wasmtime or wazero) — spelled os-first to match buildhost's wasm artifact scheme and the `<name>_wasm_js` artifact naming. The GOOS-order spellings `js/wasm` and `wasip1/wasm` are accepted as compatibility aliases and normalize to the same targets (mixing both spellings dedupes to one target). Wasm is the only thing `--targets` accepts besides `cosmo` itself, and the two mix freely in one run:
 
 ```bash
 go-toolchain matrix --targets wasm/js,wasm/wasip1,cosmo
 ```
 
-A wasm-only consumer's action config is simply:
+A wasm-only consumer's action config is:
 
 ```yaml
 with:
@@ -17,7 +17,7 @@ with:
 
 **Per-target main-package discovery.** With an explicit `--targets` list, main packages are discovered under **each wasm target's own build context** (GOOS/GOARCH), not the host's. A main package guarded `//go:build js && wasm` (e.g. a browser entry point importing `syscall/js`) is built for `wasm/js` targets and never attempted for `wasm/wasip1`, and an unconstrained main builds for every target. A target whose context has no main packages at all is skipped with a warning (a target list where **no** entry has any main packages is still an error). The `cosmo` pseudo-target keeps host-context discovery (the fat APE spans several native platforms).
 
-**Toolchain.** Wasm targets are built with the same [gosmopolitan](https://github.com/wow-look-at-my/gosmopolitan) fork toolchain as the cosmo target (resolution is identical: `GO_TOOLCHAIN_COSMO_GOROOT`, else a buildhost download selected by `GO_TOOLCHAIN_COSMO_BRANCH`, cached under `~/.cache/go-toolchain/cosmo/`) — the fork carries this org's wasm runtime fixes. See the fork's `WASM_SHORTCOMINGS.md`). The fork defaults to `GOOS=cosmo`, so wasm builds always pin `GOOS`/`GOARCH` explicitly and run with `GOTOOLCHAIN=local` and `CGO_ENABLED=0` (wasm has no cgo. `--cgo` warns and is ignored for these targets).
+**Toolchain.** Wasm targets are built with the same [gosmopolitan](https://github.com/wow-look-at-my/gosmopolitan) fork toolchain as the cosmo target (resolution is identical: a buildhost download of the `master` branch, cached under `~/.cache/go-toolchain/cosmo/`) — the fork carries this org's wasm runtime fixes. See the fork's `WASM_SHORTCOMINGS.md`). The fork defaults to `GOOS=cosmo`. So wasm builds always pin `GOOS`/`GOARCH` explicitly. They run with `GOTOOLCHAIN=local` and `CGO_ENABLED=0` (wasm has no cgo. `--cgo` warns and is ignored for these targets).
 
 **Artifacts.** Wasm binaries are named `<name>_wasm_js` / `<name>_wasm_wasip1` — buildhost's wasm artifact convention (`os=wasm` with `arch=js`/`arch=wasip1`), with the order deliberately swapped relative to `GOOS_GOARCH`. The files are still ordinary wasm modules, covered by `checksums.txt`.
 

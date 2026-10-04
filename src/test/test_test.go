@@ -16,6 +16,12 @@ import (
 // parallelArg is the value runTestsOnce passes to both -p and -parallel.
 var parallelArg = strconv.Itoa(runtime.NumCPU())
 
+func TestPerRunEnvKeepsTheRunLockVariables(t *testing.T) {
+	for _, name := range []string{"GITHUB_REPOSITORY", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT"} {
+		assert.NotContains(t, perRunEnv, name, "the go command locks org module heads per CI run, and a CI build that names no run fails")
+	}
+}
+
 func TestRunTestsWithMock(t *testing.T) {
 	t.Serial()
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
@@ -33,7 +39,7 @@ example.com/pkg/main.go:14.20,16.2 3 0
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 85.0% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
 `
-	mock.SetResponse("go", []string{"test", "-json", "-timeout=" + testTimeout.String(), "-p", parallelArg, "-parallel", parallelArg, "-coverprofile=" + coverFile, "-coverpkg=./...", "-count=1", "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-json", "-timeout=" + testTimeout.String(), "-p", parallelArg, "-parallel", parallelArg, "-coverprofile=" + coverFile, "-coverpkg=./...", "./..."}, []byte(testOutput), nil)
 
 	result, err := RunTests(mock, false, coverFile, nil, nil)
 	require.Nil(t, err)
@@ -48,7 +54,7 @@ func TestRunTestsFailure(t *testing.T) {
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
 	mock := runner.NewMock()
-	mock.SetResponse("go", []string{"test", "-json", "-timeout=" + testTimeout.String(), "-p", parallelArg, "-parallel", parallelArg, "-coverprofile=" + coverFile, "-coverpkg=./...", "-count=1", "./..."}, nil, fmt.Errorf("test failed"))
+	mock.SetResponse("go", []string{"test", "-json", "-timeout=" + testTimeout.String(), "-p", parallelArg, "-parallel", parallelArg, "-coverprofile=" + coverFile, "-coverpkg=./...", "./..."}, nil, fmt.Errorf("test failed"))
 
 	_, err := RunTests(mock, false, coverFile, nil, nil)
 	assert.NotNil(t, err)
@@ -70,7 +76,7 @@ example.com/pkg/main.go:10.20,12.2 1 1
 {"Time":"2024-01-01T00:00:02Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 85.0% of statements\n"}
 {"Time":"2024-01-01T00:00:03Z","Action":"pass","Package":"example.com/pkg"}
 `
-	mock.SetResponse("go", []string{"test", "-json", "-timeout=" + testTimeout.String(), "-p", parallelArg, "-parallel", parallelArg, "-coverprofile=" + coverFile, "-coverpkg=./...", "-count=1", "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-json", "-timeout=" + testTimeout.String(), "-p", parallelArg, "-parallel", parallelArg, "-coverprofile=" + coverFile, "-coverpkg=./...", "./..."}, []byte(testOutput), nil)
 
 	result, err := RunTests(mock, true, coverFile, nil, nil) // verbose=true
 	require.Nil(t, err)
@@ -91,7 +97,7 @@ func TestRunTestsNoCoverageFile(t *testing.T) {
 {"Time":"2024-01-01T00:00:04Z","Action":"output","Package":"pkg2","Output":"coverage: 100% of statements\n"}
 {"Time":"2024-01-01T00:00:05Z","Action":"pass","Package":"pkg2"}
 `
-	mock.SetResponse("go", []string{"test", "-json", "-timeout=" + testTimeout.String(), "-p", parallelArg, "-parallel", parallelArg, "-coverprofile=" + coverFile, "-coverpkg=./...", "-count=1", "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-json", "-timeout=" + testTimeout.String(), "-p", parallelArg, "-parallel", parallelArg, "-coverprofile=" + coverFile, "-coverpkg=./...", "./..."}, []byte(testOutput), nil)
 
 	result, err := RunTests(mock, false, coverFile, nil, nil)
 	require.Nil(t, err)
@@ -127,7 +133,7 @@ example.com/pkg2/main.go:10.20,12.2 2 1
 {"Time":"2024-01-01T00:00:07Z","Action":"output","Package":"example.com/pkg3","Output":"coverage: [no statements]\n"}
 {"Time":"2024-01-01T00:00:08Z","Action":"pass","Package":"example.com/pkg3"}
 `
-	mock.SetResponse("go", []string{"test", "-json", "-timeout=" + testTimeout.String(), "-p", parallelArg, "-parallel", parallelArg, "-coverprofile=" + coverFile, "-coverpkg=./...", "-count=1", "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-json", "-timeout=" + testTimeout.String(), "-p", parallelArg, "-parallel", parallelArg, "-coverprofile=" + coverFile, "-coverpkg=./...", "./..."}, []byte(testOutput), nil)
 
 	result, err := RunTests(mock, false, coverFile, nil, nil)
 	require.Nil(t, err)
@@ -165,7 +171,7 @@ example.com/pkg1/main.go:14.20,16.2 1 0
 {"Time":"2024-01-01T00:00:04Z","Action":"output","Package":"example.com/pkg2","Output":"coverage: [no statements]\n"}
 {"Time":"2024-01-01T00:00:05Z","Action":"pass","Package":"example.com/pkg2"}
 `
-	mock.SetResponse("go", []string{"test", "-json", "-timeout=" + testTimeout.String(), "-p", parallelArg, "-parallel", parallelArg, "-coverprofile=" + coverFile, "-coverpkg=./...", "-count=1", "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-json", "-timeout=" + testTimeout.String(), "-p", parallelArg, "-parallel", parallelArg, "-coverprofile=" + coverFile, "-coverpkg=./...", "./..."}, []byte(testOutput), nil)
 
 	result, err := RunTests(mock, false, coverFile, nil, nil)
 	require.Nil(t, err)
@@ -200,7 +206,7 @@ example.com/pkg2/baz.go:10.20,12.2 5 0
 {"Time":"2024-01-01T00:00:04Z","Action":"output","Package":"example.com/pkg2","Output":"coverage: 0% of statements\n"}
 {"Time":"2024-01-01T00:00:05Z","Action":"pass","Package":"example.com/pkg2"}
 `
-	mock.SetResponse("go", []string{"test", "-json", "-timeout=" + testTimeout.String(), "-p", parallelArg, "-parallel", parallelArg, "-coverprofile=" + coverFile, "-coverpkg=./...", "-count=1", "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-json", "-timeout=" + testTimeout.String(), "-p", parallelArg, "-parallel", parallelArg, "-coverprofile=" + coverFile, "-coverpkg=./...", "./..."}, []byte(testOutput), nil)
 
 	result, err := RunTests(mock, false, coverFile, nil, nil)
 	require.Nil(t, err)
@@ -274,7 +280,7 @@ example.com/proj/pkg1/main.go:14.20,16.2 3 0
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/proj/pkg1","Output":"coverage: 85.0% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/proj/pkg1"}
 `
-	mock.SetResponse("go", []string{"test", "-json", "-timeout=" + testTimeout.String(), "-p", parallelArg, "-parallel", parallelArg, "-coverprofile=" + coverFile, "-coverpkg=./...", "-count=1", "example.com/proj/pkg1"}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-json", "-timeout=" + testTimeout.String(), "-p", parallelArg, "-parallel", parallelArg, "-coverprofile=" + coverFile, "-coverpkg=./...", "example.com/proj/pkg1"}, []byte(testOutput), nil)
 
 	// Handler writes coverage file when go test runs
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
@@ -308,7 +314,7 @@ example.com/pkg/main.go:10.20,12.2 1 1
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 100% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
 `
-	mock.SetResponse("go", []string{"test", "-json", "-timeout=" + testTimeout.String(), "-p", parallelArg, "-parallel", parallelArg, "-coverprofile=" + coverFile, "-coverpkg=./...", "-count=1", "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-json", "-timeout=" + testTimeout.String(), "-p", parallelArg, "-parallel", parallelArg, "-coverprofile=" + coverFile, "-coverpkg=./...", "./..."}, []byte(testOutput), nil)
 
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.IsCmd("go", "test") && cfg.HasArg("-coverprofile="+coverFile) {

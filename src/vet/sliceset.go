@@ -158,7 +158,7 @@ func lookupTarget(pass *analysis.Pass, expr ast.Expr) types.Object {
 // appendsTo reports whether body appends to obj.
 func appendsTo(pass *analysis.Pass, body *ast.BlockStmt, obj types.Object) bool {
 	found := false
-	ast.Inspect(body, func(n ast.Node) bool {
+	InspectNode(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok || !isBuiltinCall(pass, call, "append") || len(call.Args) == 0 {
 			return true

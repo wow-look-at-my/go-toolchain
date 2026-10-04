@@ -10,8 +10,9 @@
 // under cosmo on linux hosts. On a darwin or NT host the APE has no /proc, so
 // this classifier is blind and the guard cannot fire; that is a KNOWN GAP, not a
 // design — see unclassifiableSink, which says so out loud, and
-// docs/AGENT-OUTPUT-GUARD.md for what closing it needs. isTerminal is the only
-// piece needing a platform ioctl and lives in claudeguard_tty_{linux,cosmo}.go.
+// docs/AGENT-OUTPUT-GUARD.md for what closing it needs. A character device is
+// decided from its own path (isTerminalDevicePath below): this build carries
+// no platform ioctl helper.
 
 package cmd
 
@@ -35,14 +36,6 @@ func inspectStdout() outputSink {
 // inspectFD is inspectStdout's logic, parameterized on the descriptor so it can
 // be tested against controlled pipes/files/devices.
 func inspectFD(fd uintptr) outputSink {
-	// A cosmo APE on a darwin host has no /proc and needs the darwin
-	// classifier instead. Decided on the HOST, not runtime.GOOS.
-	if sink, ok, handled := hostSpecificInspect(fd); handled {
-		if !ok {
-			return blindClassifierSink(hostos.GOOS())
-		}
-		return sink
-	}
 	target, err := os.Readlink("/proc/self/fd/" + strconv.FormatUint(uint64(fd), 10))
 	if err != nil {
 		return unclassifiableSink()
@@ -61,27 +54,10 @@ func inspectFD(fd uintptr) outputSink {
 		return unnamedPeerSink()
 	case strings.HasPrefix(target, "socket:"), strings.HasPrefix(target, "anon_inode:"):
 		// A socketpair looks like a pipe here -- give it the same peer-ID
-		// chance rather than assuming hidden. detail always shows something:
-		// the peer's name, else the fd target.
-		//
-		// A socketpair's ends are separate sockets with different inodes, so
-		// an fd-target match can't find the other end. SO_PEERCRED gives the
-		// kernel's peer record, fixed at connect time, so it resolves even
-		// after the parent closes its copy of the child's fd.
-		if pid, ok := socketPeerPID(fd); ok {
-			name, _, _ := agent.CommPPID(pid)
-			if harnessIsPipeReader(name, pid) {
-				return outputSink{kind: sinkVisible}
-			}
-			if name != "" {
-				return outputSink{kind: sinkHidden, detail: name}
-			}
-			// No name, but a pid an agent published as its own, matched by the kernel as peer, still identifies the reader.
-			if harnessIsPID(pid) {
-				return outputSink{kind: sinkVisible}
-			}
-			return unnamedPeerSink()
-		}
+		// chance rather than assuming hidden. A socketpair's ends are separate
+		// sockets with different inodes, so an fd-target match usually cannot
+		// find the other end; the unnameable-reader fallback -- the spawning
+		// command line -- decides.
 		if name, pid, ok := pipePeerName(target); ok {
 			if harnessIsPipeReader(name, pid) {
 				return outputSink{kind: sinkVisible}
@@ -104,12 +80,10 @@ func inspectFD(fd uintptr) outputSink {
 	mode := fi.Mode()
 	switch {
 	case mode&os.ModeCharDevice != 0:
-		if isTerminal(fd) {
-			// The script tool and friends forkpty() a pty exactly to pass this
-			// check; see claudeguard_ptywrap.go.
-			if wrapper, ok := ptyWrapperAncestorFn(); ok {
-				return outputSink{kind: sinkHidden, detail: wrapper}
-			}
+		// No platform ioctl in this build, so the device's own path answers:
+		// a tty spelling is a real terminal, anything else (/dev/null and
+		// friends) is a discard.
+		if isTerminalDevicePath(target) {
 			return outputSink{kind: sinkVisible} // a real terminal — output is seen
 		}
 		return outputSink{kind: sinkDiscard, detail: target} // /dev/null and friends
@@ -165,12 +139,19 @@ const guardInoperativeBanner = "\n%s⚠ go-toolchain's agent output guard is INO
 	"cannot tell whether its output is being captured and will not refuse a run\n" +
 	"that hides it. Read the output yourself; do not trust the guard here.\n\n"
 
-// socketPeerPID (per-platform: linux uses x/sys/unix, cosmo a raw syscall,
-// since x/sys/unix has no cosmo port) returns the SO_PEERCRED pid of the
-// AF_UNIX socket's other end. That credential is fixed at socketpair()
-// creation, so it resolves even after the creating process closes its own
-// copy of the fd -- unlike pipePeerName's inode match. ok is false for
-// anything that isn't a SOCK_STREAM/SOCK_DGRAM AF_UNIX socket.
+// isTerminalDevicePath reports whether a character device's path names a
+// terminal: a pty slave spells /dev/pts/N or /dev/ttyN, and the console and
+// pty master keep their own well-known names. Path-based because this build
+// carries no platform ioctl helper.
+func isTerminalDevicePath(path string) bool {
+	switch {
+	case strings.HasPrefix(path, "/dev/tty"), strings.HasPrefix(path, "/dev/pts/"):
+		return true
+	case path == "/dev/console", path == "/dev/ptmx":
+		return true
+	}
+	return false
+}
 
 // pipePeerName returns the comm and pid of another process holding the same
 // pipe as target ("pipe:[inode]"), i.e. the reader on the far end. Both ends

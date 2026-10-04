@@ -161,7 +161,6 @@ func TestPartialLineAtFlushIsEmittedWithoutDurationWhenFast(t *testing.T) {
 	t.Serial()
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintf(os.Stderr, "no newline yet")
-		// No newline — Flush should still deliver it.
 	}))
 	require.Equal(t, "no newline yet\n", got)
 }
@@ -171,7 +170,6 @@ func TestPartialLineAtFlushIsEmittedWithDurationWhenSlow(t *testing.T) {
 	withMinDuration(t, 0)
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintf(os.Stderr, "no newline yet")
-		// No newline — Flush should still deliver it.
 	}))
 	re := regexp.MustCompile(`^no newline yet \d+\.\d{2}s\n$`)
 	require.True(t, re.MatchString(got))

@@ -2,7 +2,6 @@ package hostos
 
 import (
 	"bytes"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -20,7 +19,7 @@ func TestDetectReportsItsEvidence(t *testing.T) {
 	assert.Equal(t, GOOS(), d.OS, "Detect and GOOS must agree")
 	assert.NotEmpty(t, d.Method, "an answer with no recorded method cannot be audited")
 
-	if runtime.GOOS != "cosmo" {
+	if !cosmoTarget {
 		assert.Equal(t, "compiled", d.Method, "a non-cosmo build never probes")
 		assert.False(t, d.Guessed())
 		return

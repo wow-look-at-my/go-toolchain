@@ -229,7 +229,7 @@ func TestCanonicalizeGoSource(t *testing.T) {
 	assert.Contains(t, got, "\tA   int\n")
 	assert.Contains(t, got, "\tBBB string\n")
 	assert.NotContains(t, got, "\tA\tint")
-	// The smart quote in the doc comment was reverted to the ASCII digraph.
+	// The smart quote in the doc comment.
 	assert.Contains(t, got, `'foo'\''bar'`)
 	assert.NotContains(t, got, smartRight)
 	assertPrintableASCII(t, got)
