@@ -7,8 +7,8 @@ on:
 
 # A push supersedes the branch's running build, except on master, where run_id makes every run its own group so none is ever cancelled.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/master' && github.run_id || 'branch' }}
-  cancel-in-progress: true
+  group: gha_${{ github.repository }}_${{ github.workflow }}_${{ github.ref != 'refs/heads/master' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 permissions:
   contents: write
@@ -91,6 +91,10 @@ jobs:
           tar -xzf "${{ runner.temp }}/gosmopolitan.tar.gz" -C "${{ runner.temp }}/bootstrap"
           echo "GOROOT_BOOTSTRAP=${{ runner.temp }}/bootstrap/go" >> "$GITHUB_ENV"
           "${{ runner.temp }}/bootstrap/go/bin/go" version
+
+      # The fork's cmd/dist and this pipeline's fork sync compile the APE loaders with these, from the fork's own pinned install.
+      - name: Install the APE loader tools
+        uses: ./_gosmopolitan/.github/actions/apeld-tools
 
       # The pipeline links the fork's go command, so the fork's own build is what earliest compiles it; it runs after the secrets because a CI run of the fork's go command refuses to build with no shared cache configured. see docs/CI.md
       - name: Build the bootstrap go command from the fork checkout
@@ -329,6 +333,9 @@ jobs:
           echo "GOROOT_BOOTSTRAP=${{ runner.temp }}/bootstrap/go" >> "$GITHUB_ENV"
           "${{ runner.temp }}/bootstrap/go/bin/go" version
 
+      - name: Install the APE loader tools
+        uses: ./_gosmopolitan/.github/actions/apeld-tools
+
       - name: Build the bootstrap go command from the fork checkout
         working-directory: _gosmopolitan/src
         run: ./make.bash
@@ -480,6 +487,10 @@ jobs:
           printf '%s\n' "${usage%%$'\n'*}"
           echo "${{ runner.temp }}/generators" >> "$GITHUB_PATH"
 
+      # The fork sync compiles the APE loaders cmd/link embeds with these.
+      - name: Install the APE loader tools
+        uses: ./_gosmopolitan/.github/actions/apeld-tools
+
       # The go-toolchain action itself cache-uploads build/ under the per-job name `go-build-<job... see docs/CI.md
       - uses: ./
         with:
@@ -593,6 +604,10 @@ jobs:
       - name: Install cosmocc
         shell: bash
         run: bash .github/scripts/install-cosmocc.sh
+
+      # The fork sync compiles the APE loaders cmd/link embeds with these, the same pinned releases as the linux leg.
+      - name: Install the APE loader tools
+        uses: ./_gosmopolitan/.github/actions/apeld-tools
 
       - name: Build this repo's APE here
         shell: bash
