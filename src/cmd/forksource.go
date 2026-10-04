@@ -76,6 +76,9 @@ func syncForkSource(r runner.CommandRunner) (string, error) {
 	if err := generateForkFiles(forkSubmoduleDir); err != nil {
 		return "", err
 	}
+	if err := buildForkApeLoaders(r, forkSubmoduleDir); err != nil {
+		return "", err
+	}
 	return want, refreshWasmExec()
 }
 
