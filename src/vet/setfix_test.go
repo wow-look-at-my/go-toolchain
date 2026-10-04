@@ -18,6 +18,7 @@ import (
 // so the output shows the declaration, the uses and the added import
 // together: that is what has to compile.
 func TestSetFixRewritesEveryUse(t *testing.T) {
+	t.Serial()
 	for _, c := range []struct {
 		name     string
 		analyzer *analysis.Analyzer
@@ -120,6 +121,7 @@ func TestSetFixRewritesEveryUse(t *testing.T) {
 // blocks the whole variable. Half a rewrite does not compile, so the finding
 // stays a diagnostic and the source is untouched.
 func TestSetFixLeavesUnspellableUsesAlone(t *testing.T) {
+	t.Serial()
 	for _, c := range []struct {
 		name     string
 		analyzer *analysis.Analyzer
@@ -158,6 +160,7 @@ func TestSetFixLeavesUnspellableUsesAlone(t *testing.T) {
 // file must rewrite it. Blocking both is how a whole package of set-shaped
 // maps kept its warning and never got the fix.
 func TestSetFixReachesAPackageVariableUsedFromATestFile(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	writeGoFile(t, dir, "main.go", "package main\n\n"+
 		"var wrappers = map[string]bool{\"env\": true}\n\n"+
@@ -189,6 +192,7 @@ func TestSetFixReachesAPackageVariableUsedFromATestFile(t *testing.T) {
 // build configuration left out holds uses the rewrite would not reach, and a
 // half-rewritten variable does not compile.
 func TestSetFixStopsAtAFileThisBuildExcludes(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	writeGoFile(t, dir, "main.go", "package main\n\n"+
 		"var wrappers = map[string]bool{\"env\": true}\n\n"+
@@ -202,6 +206,7 @@ func TestSetFixStopsAtAFileThisBuildExcludes(t *testing.T) {
 // TestSetFixIgnoresAnExternalTestFile pins the exemption: an external test
 // package reaches only exported names, so it hides no unexported use.
 func TestSetFixIgnoresAnExternalTestFile(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	writeGoFile(t, dir, "main.go", "package main\n\n"+
 		"var wrappers = map[string]bool{\"env\": true}\n\n"+

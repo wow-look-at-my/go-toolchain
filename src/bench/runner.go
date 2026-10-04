@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -31,7 +32,7 @@ func RunBenchmarks(r runner.CommandRunner, opts Options) (*BenchmarkReport, erro
 	goTestArgs = append([]string{goTestArgs[0], "-json"}, goTestArgs[1:]...)
 
 	// Clear GOCACHEPROG: a cacheprog child inheriting stdout blocks io.ReadAll.
-	proc, err := runner.Cmd("go", goTestArgs...).WithHostTarget().WithQuiet().WithEnv("GOCACHEPROG", "").Run(r)
+	proc, err := runner.Cmd("go", goTestArgs...).WithQuiet().WithEnv("GOCACHEPROG", "").Run(r)
 	if err != nil {
 		return nil, fmt.Errorf("benchmarks failed: %w", err)
 	}
@@ -66,7 +67,7 @@ func RunBenchmarks(r runner.CommandRunner, opts Options) (*BenchmarkReport, erro
 	output := buf.Bytes()
 
 	if waitErr != nil {
-		// Say what go test said, or a build failure reports just an exit status.
+		// Say what go test said, or a build failure reports an exit status.
 		err := fmt.Errorf("benchmarks failed: %w", waitErr)
 		if diag := Diagnostics(output); diag != "" {
 			err = fmt.Errorf("%w\n%s", err, diag)
@@ -108,16 +109,16 @@ func streamBenchResult(line []byte, w io.Writer, once *sync.Once, onFirst func()
 	}
 }
 
-// HasBenchmarks scans _test.go files under the current directory for
-// func Benchmark signatures. Returns true if any are found.
-func HasBenchmarks() bool {
+// HasBenchmarks scans _test.go files under root for func Benchmark
+// signatures. Returns true if any are found.
+func HasBenchmarks(root string) bool {
 	found := false
-	filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if d.IsDir() {
-			if name := d.Name(); name == "vendor" || name == "testdata" || (name != "." && strings.HasPrefix(name, ".")) {
+			if name := d.Name(); name == "vendor" || name == "testdata" || (path != root && strings.HasPrefix(name, ".")) || (path != root && gomod.IsNestedModule(path)) {
 				return filepath.SkipDir
 			}
 			return nil

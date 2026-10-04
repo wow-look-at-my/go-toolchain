@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -24,6 +25,9 @@ var datsRunFunc = dats.Run
 
 // datsBuildDirEnv names the env var pointing suite commands at the staged binaries dir.
 const datsBuildDirEnv = "GO_TOOLCHAIN_DATS_BUILD_DIR"
+
+// datsForkCommitEnv names the env var carrying the gosmopolitan commit the run's build linked.
+const datsForkCommitEnv = "GO_TOOLCHAIN_DATS_GOSMOPOLITAN"
 
 // datsArtifact names a built binary to hand to dats suites.
 type datsArtifact struct {
@@ -78,10 +82,6 @@ const datsStageDir = ".dats-stage"
 // The dir must sit INSIDE the module root, as an absolute path: dats
 // sandboxes every command, reaching only the working directory (read-only)
 // plus declared paths.
-//
-// Staged binaries are READ-ONLY. A self-rewriting binary (the cosmo APE)
-// must be copied to the sandbox's own writable temp space by the suite that
-// runs it (`cp` into `$(mktemp -d)`, per dats/README.md).
 func stageDatsArtifacts(artifacts []datsArtifact) (string, error) {
 	root, err := os.Getwd()
 	if err != nil {
@@ -166,10 +166,11 @@ func datsSandbox() dats.Sandbox {
 }
 
 // runDatsPhase runs the module's dats suites (if any) against the binaries
-// just built, in this process: go-toolchain links the dats library, so the
+// built, in this process: go-toolchain links the dats library, so the
 // suite-presence gate is the only thing standing between a module and its
-// suites — no download, no cache, no dats version to drift from the linked-in copy.
-// Modules without a dats/ directory pay nothing and print nothing.
+// suites — no download, no cache, no dats version to drift from the
+// linked-in copy. Modules without a dats/ directory pay nothing and print
+// nothing.
 //
 // dats itself always runs every discovered test — there is deliberately no
 // filtering, selection, or skip mechanism at either layer. Failures fail the
@@ -205,17 +206,16 @@ func runDatsPhase(quiet bool, artifacts []datsArtifact) error {
 		out = &noteFirstWrite{w: out, note: st.noteOutput}
 	}
 
-	// Serial, so staged APE copies never race their self-assimilation.
-	// GOCACHEPROG/GOCACHE_STATS_SOCK are cleared so a suite's `go` cannot
-	// reach the outer cacheprog daemon.
 	res, err := datsRunFunc(context.Background(), dats.Options{
-		Paths:   []string{datsSuiteDir},
+		Paths: []string{datsSuiteDir},
+		// A staged APE extracts its loader under TMPDIR instead of rewriting itself, so concurrent copies do not race.
+		Jobs:    runtime.NumCPU(),
 		Output:  out,
 		Sandbox: datsSandbox(),
 		Env: []string{
 			datsBuildDirEnv + "=" + buildDir,
-			"GOCACHEPROG=",
-			"GOCACHE_STATS_SOCK=",
+			// The commit the build stamped, for a suite to hold `version` to.
+			datsForkCommitEnv + "=" + resolvedForkCommit,
 		},
 	})
 	if err != nil {

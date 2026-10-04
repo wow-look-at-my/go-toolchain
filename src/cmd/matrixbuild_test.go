@@ -26,12 +26,12 @@ func hostLinkName(name string) string {
 func wasmJob(t *testing.T, outputPath string) buildJob {
 	t.Helper()
 	return buildJob{
-		goos:           "wasip1",
-		goarch:         wasmArch,
-		srcPath:        ".",
-		outputPath:     outputPath,
-		forkGoroot:     filepath.Join(t.TempDir(), "fork-goroot"),
-		cacheNamespace: "deadbeef00c0ffee",
+		goos:       "wasip1",
+		goarch:     wasmArch,
+		srcPath:    ".",
+		outputPath: outputPath,
+		goCmd:      []string{filepath.Join(t.TempDir(), "go")},
+		goroot:     filepath.Join(t.TempDir(), "fork-goroot"),
 	}
 }
 
@@ -52,6 +52,7 @@ func tmpOut(t *testing.T) string {
 }
 
 func TestRunBuildCapturesStderr(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if isGoBuild(cfg) {
@@ -67,6 +68,7 @@ func TestRunBuildCapturesStderr(t *testing.T) {
 }
 
 func TestRunBuildNoStderrOnSuccess(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	// The mocked compiler obeys a real compiler's contract: a successful go build
 	// materializes its -o target.
@@ -81,14 +83,10 @@ func TestRunBuildNoStderrOnSuccess(t *testing.T) {
 	assert.FileExists(t, job.outputPath, "the commit moved the build onto the target name")
 }
 
-// The compiler is a file on disk, and on a windows host that file is go.exe.
-// runBuild is where everything compiles, so a path spelled without the suffix
-// fails to exec every build on that host.
-func TestRunBuildExecsGoExeOnWindowsHost(t *testing.T) {
-	oldHost := cosmoHostPlatformFunc
-	cosmoHostPlatformFunc = func() (string, string) { return "windows", "amd64" }
-	t.Cleanup(func() { cosmoHostPlatformFunc = oldHost })
-
+// The compiler is the go link to this binary, so the command line runBuild
+// starts is the job's go command followed by the build.
+func TestRunBuildStartsTheGoCommandOfTheJob(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		writeMockBuildOutput(cfg, "bin")
@@ -99,7 +97,8 @@ func TestRunBuildExecsGoExeOnWindowsHost(t *testing.T) {
 	require.NoError(t, runBuild(mock, job, nil))
 	calls := mock.Calls()
 	require.Len(t, calls, 1)
-	assert.Equal(t, filepath.Join(job.forkGoroot, "bin", "go.exe"), calls[0].Name)
+	assert.Equal(t, job.goCmd[0], calls[0].Name)
+	assert.Equal(t, "build", calls[0].Args[0])
 }
 
 // The APE claims to run on every host, and that claim is honest only if every
@@ -108,6 +107,7 @@ func TestRunBuildExecsGoExeOnWindowsHost(t *testing.T) {
 // through the build-ID notes, and each flag closes its own channel, so a build
 // missing either still leaves the hosts disagreeing.
 func TestRunBuildIsReproducibleAcrossHosts(t *testing.T) {
+	t.Serial()
 	for _, job := range []buildJob{wasmJob(t, tmpOut(t)), cosmoJob(t, tmpOut(t))} {
 		t.Run(job.goos, func(t *testing.T) {
 			mock := runner.NewMock()
@@ -130,6 +130,7 @@ func TestRunBuildIsReproducibleAcrossHosts(t *testing.T) {
 // An explicit ldflags survives, and the reproducibility flag still wins:
 // dropping it silently would give up cross-host identity without saying so.
 func TestRunBuildKeepsCallerLDFlagsAndStillEmptiesTheBuildID(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		writeMockBuildOutput(cfg, "bin")
@@ -153,6 +154,7 @@ func TestRunBuildKeepsCallerLDFlagsAndStillEmptiesTheBuildID(t *testing.T) {
 }
 
 func TestRunBuild(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		writeMockBuildOutput(cfg, "bin")
@@ -174,7 +176,7 @@ func TestRunBuild(t *testing.T) {
 	goroot, _ := cfg.Env.Get("GOROOT")
 	assert.Equal(t, "wasip1", goos)
 	assert.Equal(t, wasmArch, goarch)
-	assert.Equal(t, job.forkGoroot, goroot)
+	assert.Equal(t, job.goroot, goroot)
 
 	// -o is the .tmp- spelling, never the target file itself.
 	hasOutput := false
@@ -186,13 +188,24 @@ func TestRunBuild(t *testing.T) {
 	assert.True(t, hasOutput)
 }
 
-// --cgo cannot turn cgo on: the APE and wasm both lack it, so CGO_ENABLED is
-// assigned off either way rather than left to the flag or the environment.
-func TestRunBuildForcesCGOOffEvenWithTheFlag(t *testing.T) {
-	for _, flag := range []bool{false, true} {
-		t.Run(fmt.Sprintf("cgoEnabled=%v", flag), func(t *testing.T) {
+// CGO_ENABLED is assigned, never inherited: --cgo turns it on for the APE,
+// whose C the fork compiles with cosmocc, and wasm has no cgo either way.
+func TestRunBuildAssignsCGOEnabled(t *testing.T) {
+	t.Serial()
+	for _, tc := range []struct {
+		name string
+		job  func(*testing.T, string) buildJob
+		flag bool
+		want string
+	}{
+		{"wasm without --cgo", wasmJob, false, "0"},
+		{"wasm with --cgo", wasmJob, true, "0"},
+		{"cosmo without --cgo", cosmoJob, false, "0"},
+		{"cosmo with --cgo", cosmoJob, true, "1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			oldCgo := cgoEnabled
-			cgoEnabled = flag
+			cgoEnabled = tc.flag
 			defer func() { cgoEnabled = oldCgo }()
 
 			mock := runner.NewMock()
@@ -200,13 +213,13 @@ func TestRunBuildForcesCGOOffEvenWithTheFlag(t *testing.T) {
 				writeMockBuildOutput(cfg, "bin")
 				return runner.MockProcess(nil, nil), nil
 			}
-			require.NoError(t, runBuild(mock, wasmJob(t, tmpOut(t)), nil))
+			require.NoError(t, runBuild(mock, tc.job(t, tmpOut(t)), nil))
 
 			calls := mock.Calls()
 			require.Len(t, calls, 1)
 			cgo, ok := calls[0].Env.Get("CGO_ENABLED")
 			assert.True(t, ok, "CGO_ENABLED must be assigned, not inherited")
-			assert.Equal(t, "0", cgo)
+			assert.Equal(t, tc.want, cgo)
 		})
 	}
 }
@@ -214,6 +227,7 @@ func TestRunBuildForcesCGOOffEvenWithTheFlag(t *testing.T) {
 // The APE already occupies the bare name, so only the _host convenience link
 // is created. Overwriting the bare name would delete the artifact itself.
 func TestCreateHostSymlinks(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	targets := []build.Target{
@@ -238,6 +252,7 @@ func TestCreateHostSymlinks(t *testing.T) {
 }
 
 func TestCreateHostSymlinksSkipsMissing(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	targets := []build.Target{
@@ -256,6 +271,7 @@ func TestCreateHostSymlinksSkipsMissing(t *testing.T) {
 }
 
 func TestCreateHostSymlinksReplacesStale(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	targets := []build.Target{
@@ -277,6 +293,7 @@ func TestCreateHostSymlinksReplacesStale(t *testing.T) {
 // outside runBuild: the -o arg carries the .tmp- spelling, the result ends up
 // on the target file, and the temp name is gone.
 func TestRunBuildMovesOutputIntoPlace(t *testing.T) {
+	t.Serial()
 	final := filepath.Join(t.TempDir(), "mytool")
 	var built string
 	mock := runner.NewMock()
@@ -303,6 +320,7 @@ func TestRunBuildMovesOutputIntoPlace(t *testing.T) {
 // what the compiler already wrote under the temp spelling is removed, and the
 // target file never appears.
 func TestRunBuildDeletesTempOutputOnFailure(t *testing.T) {
+	t.Serial()
 	final := filepath.Join(t.TempDir(), "mytool")
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
@@ -324,6 +342,7 @@ func TestRunBuildDeletesTempOutputOnFailure(t *testing.T) {
 // producing its -o target is not shippable — the run fails loudly instead of
 // reporting a build whose output nobody can find.
 func TestRunBuildRefusesToCommitMissingOutput(t *testing.T) {
+	t.Serial()
 	final := filepath.Join(t.TempDir(), "mytool")
 	// A build that "succeeds" but writes nothing, unlike a real compiler.
 	mock := runner.NewMock()

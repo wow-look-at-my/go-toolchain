@@ -40,7 +40,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 }
 
 func runInstallImpl() error {
-	// Source is the currently running binary
+	// Source is the running binary
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to find current executable: %w", err)

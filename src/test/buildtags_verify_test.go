@@ -14,6 +14,7 @@ import (
 // gated file is unreachable. Failing there is a guard firing when it could not
 // look -- and it fired on every caller driving the phase without a toolchain.
 func TestVerifyTagCoverageDoesNotFailOnAnEmptyListing(t *testing.T) {
+	t.Serial()
 	d := &buildtags.Discovery{
 		Configs: []buildtags.Config{{}, {Tags: []string{"cosmo"}}},
 		Gated:   []buildtags.File{{Path: "xattr_cosmo.go", Tags: []string{"cosmo"}}},
@@ -28,6 +29,7 @@ func TestVerifyTagCoverageDoesNotFailOnAnEmptyListing(t *testing.T) {
 // The check still fails when the listing DID answer and the file is genuinely
 // out of reach -- otherwise the leniency above would have removed the guard.
 func TestVerifyTagCoverageStillFailsWhenTheListingAnswersWithoutTheFile(t *testing.T) {
+	t.Serial()
 	d := &buildtags.Discovery{
 		Configs: []buildtags.Config{{}},
 		Gated:   []buildtags.File{{Path: "xattr_cosmo.go", Tags: []string{"cosmo"}}},

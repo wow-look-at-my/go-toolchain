@@ -21,11 +21,13 @@ func entry(label, thread string, startOffset, endOffset time.Duration, failed bo
 }
 
 func TestRenderGanttEmpty(t *testing.T) {
+	t.Serial()
 	assert.Empty(t, RenderGantt(nil))
 	assert.Empty(t, RenderGantt([]TimelineEntry{}))
 }
 
 func TestRenderGanttSingleThread(t *testing.T) {
+	t.Serial()
 	entries := []TimelineEntry{
 		entry("go mod tidy", "main", 0, 850*time.Millisecond, false),
 		entry("go vet", "main", 850*time.Millisecond, 2400*time.Millisecond, false),
@@ -36,8 +38,8 @@ func TestRenderGanttSingleThread(t *testing.T) {
 	assert.Contains(t, result, "```mermaid")
 	assert.Contains(t, result, "gantt")
 	assert.Contains(t, result, "section main")
-	assert.Contains(t, result, "go mod tidy :done, t0, 0, 850")
-	assert.Contains(t, result, "go vet :done, t1, 850, 2400")
+	assert.Contains(t, result, "go mod tidy (850ms) :done, t0, 0, 850")
+	assert.Contains(t, result, "go vet (1.6s) :done, t1, 850, 2400")
 	assert.Contains(t, result, "```\n")
 	// Theme config
 	assert.Contains(t, result, "doneTaskBkgColor")
@@ -49,6 +51,7 @@ func TestRenderGanttSingleThread(t *testing.T) {
 // Contains assertions around it would all pass with a stray blank line between
 // adjacent sections, which mermaid reads as the end of the chart.
 func TestRenderGanttRendersTheWholeDocument(t *testing.T) {
+	t.Serial()
 	entries := []TimelineEntry{
 		entry("go vet", "main", 0, time.Second, false),
 		entry("go test", "main", time.Second, 2*time.Second, true),
@@ -84,16 +87,17 @@ func TestRenderGanttRendersTheWholeDocument(t *testing.T) {
 		"    dateFormat x\n" +
 		"    axisFormat %S s\n" +
 		"    section main\n" +
-		"    go vet :done, t0, 0, 1000\n" +
-		"    go test :crit, t1, 1000, 2000\n" +
+		"    go vet (1.0s) :done, t0, 0, 1000\n" +
+		"    go test (1.0s) :crit, t1, 1000, 2000\n" +
 		"    section deps\n" +
-		"    Dep check :done, t2, 0, 3000\n" +
+		"    Dep check (3.0s) :done, t2, 0, 3000\n" +
 		"```\n"
 
 	assert.Equal(t, want, RenderGantt(entries))
 }
 
 func TestRenderGanttMultipleThreads(t *testing.T) {
+	t.Serial()
 	entries := []TimelineEntry{
 		entry("go test", "main", time.Second, 5*time.Second, false),
 		entry("Dep check", "deps", 0, 3*time.Second, false),
@@ -108,6 +112,7 @@ func TestRenderGanttMultipleThreads(t *testing.T) {
 }
 
 func TestRenderGanttFailedStep(t *testing.T) {
+	t.Serial()
 	entries := []TimelineEntry{
 		entry("go test", "main", 0, time.Second, true),
 	}
@@ -117,16 +122,18 @@ func TestRenderGanttFailedStep(t *testing.T) {
 }
 
 func TestRenderGanttLabelSanitization(t *testing.T) {
+	t.Serial()
 	entries := []TimelineEntry{
 		entry("go build -o build/bin:thing", "main", 0, time.Second, false),
 	}
 
 	result := RenderGantt(entries)
 	assert.NotContains(t, result, "bin:thing")
-	assert.Contains(t, result, "bin thing")
+	assert.Contains(t, result, "build/binthing")
 }
 
 func TestRenderGanttSortsWithinThread(t *testing.T) {
+	t.Serial()
 	entries := []TimelineEntry{
 		entry("second", "main", 2*time.Second, 3*time.Second, false),
 		entry("first", "main", time.Second, 2*time.Second, false),
@@ -140,6 +147,7 @@ func TestRenderGanttSortsWithinThread(t *testing.T) {
 }
 
 func TestRenderGanttMinimumWidth(t *testing.T) {
+	t.Serial()
 	entries := []TimelineEntry{
 		entry("setup", "main", 0, 5*time.Second, false),
 		entry("instant", "main", time.Second, time.Second, false),
@@ -151,12 +159,15 @@ func TestRenderGanttMinimumWidth(t *testing.T) {
 }
 
 func TestSanitizeLabel(t *testing.T) {
-	assert.Equal(t, "foo bar", sanitizeLabel("foo:bar"))
-	assert.Equal(t, "a b c", sanitizeLabel("a;b;c"))
+	t.Serial()
+	assert.Equal(t, "foobar", sanitizeLabel("foo:bar"))
+	assert.Equal(t, "abc", sanitizeLabel("a;b;c"))
 	assert.Equal(t, "no hash", sanitizeLabel("no #hash"))
+	assert.Equal(t, "vet compile", sanitizeLabel("vet: compile"))
 }
 
 func TestRenderGanttWorkerThreadOrder(t *testing.T) {
+	t.Serial()
 	entries := []TimelineEntry{
 		entry("linux/amd64", "worker-2", 0, time.Second, false),
 		entry("linux/arm64", "worker-1", 0, time.Second, false),
@@ -173,6 +184,7 @@ func TestRenderGanttWorkerThreadOrder(t *testing.T) {
 }
 
 func TestRenderGanttAxisFormatMinutes(t *testing.T) {
+	t.Serial()
 	entries := []TimelineEntry{
 		entry("long step", "main", 0, 2*time.Minute, false),
 	}
@@ -181,6 +193,7 @@ func TestRenderGanttAxisFormatMinutes(t *testing.T) {
 }
 
 func TestRenderGanttAxisFormatHours(t *testing.T) {
+	t.Serial()
 	entries := []TimelineEntry{
 		entry("very long step", "main", 0, 2*time.Hour, false),
 	}

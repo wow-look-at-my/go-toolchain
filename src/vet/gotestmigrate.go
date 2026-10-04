@@ -161,7 +161,7 @@ func migrateFileGotestTools(ed Editor, filename string) (bool, error) {
 	}
 
 	if hasExistingRequire {
-		// File already has testify/require — just remove the gotest.tools import
+		// File already has testify/require — remove the gotest.tools import
 		removeImport(f, gotestImportSpec)
 	} else {
 		// Rewrite gotest.tools/v3/assert → testify/require in-place
@@ -171,7 +171,7 @@ func migrateFileGotestTools(ed Editor, filename string) (bool, error) {
 		}
 	}
 
-	// Record fixes to print only if the change is actually written (fix mode).
+	// Record fixes to print only if the change is written (fix mode).
 	fixLog := [][2]string{{gotestAssert, testifyRequire}}
 
 	// Rename functions, unwrap cmp calls, and track idents that stay "assert" (Check paths).

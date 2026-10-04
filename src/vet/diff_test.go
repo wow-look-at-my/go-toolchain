@@ -8,6 +8,7 @@ import (
 )
 
 func TestUnifiedDiffRendersHeaderAndHunks(t *testing.T) {
+	t.Serial()
 	old := "package p\n\nfunc f(){println(1)}\n"
 	want := "package p\n\nfunc f() {\n\tprintln(1)\n}\n"
 
@@ -25,6 +26,7 @@ func TestUnifiedDiffRendersHeaderAndHunks(t *testing.T) {
 }
 
 func TestUnifiedDiffIdenticalInputsProduceNoHunks(t *testing.T) {
+	t.Serial()
 	same := "package p\n"
 	got, err := unifiedDiff("f.go", []byte(same), []byte(same))
 	require.NoError(t, err)
