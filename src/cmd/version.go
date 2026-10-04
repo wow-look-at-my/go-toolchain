@@ -5,19 +5,16 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
-	"path/filepath"
+	"runtime"
 	"runtime/debug"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
-	"github.com/wow-look-at-my/go-toolchain/src/memlimit"
 )
 
 // buildVersion is derived from Go's built-in VCS stamping.
-// Other commands (update, cacheprog, dependabot) read this directly.
 var buildVersion = resolvedVersion()
 
 // vcsInfo reads Go's built-in VCS stamping from the binary.
@@ -77,9 +74,10 @@ func resolvedTimestamp() (int64, bool) {
 }
 
 var githubRepo = envOr("GITHUB_REPOSITORY", "wow-look-at-my/go-toolchain")
-var githubAPIBase = "https://api.github.com"
 
-func setGithubRepo(repo string)    { githubRepo = repo }
+// Overrides where staleness-footer commit queries go; point it unreachable for an instant offline footer in tests.
+var githubAPIBase = envOr("GO_TOOLCHAIN_GITHUB_API_URL", "https://api.github.com")
+
 func setGithubAPIBase(base string) { githubAPIBase = base }
 
 func envOr(key, fallback string) string {
@@ -105,12 +103,25 @@ func init() {
 		Short: "Print version info as JSON",
 		Run:   runVersionJSON,
 	})
+	// The APE runs on several hosts, so "which host is this on" has a
+	// fallback answer that can be wrong. Printing the evidence makes it
+	// auditable anywhere the binary runs, including inside a sandbox.
+	versionCmd.AddCommand(&cobra.Command{
+		Use:   "host",
+		Short: "Print the detected host OS and the evidence for it",
+		Run: func(cmd *cobra.Command, args []string) {
+			d := hostos.Detect()
+			logger.Output("%s", d)
+			logger.Output("goos: %s, goarch: %s", runtime.GOOS, runtime.GOARCH)
+		},
+	})
 	rootCmd.AddCommand(versionCmd)
 }
 
 type versionOutput struct {
 	Version       string `json:"version"`
 	Commit        string `json:"commit"`
+	Gosmopolitan  string `json:"gosmopolitan"`
 	CommitDate    string `json:"commit_date,omitempty"`
 	BuildDate     string `json:"build_date,omitempty"`
 	LatestCommit  string `json:"latest_commit,omitempty"`
@@ -120,8 +131,9 @@ type versionOutput struct {
 func runVersionJSON(cmd *cobra.Command, args []string) {
 	commit := resolvedCommit()
 	out := versionOutput{
-		Version: resolvedVersion(),
-		Commit:  commit,
+		Version:      resolvedVersion(),
+		Commit:       commit,
+		Gosmopolitan: linkedForkCommit(),
 	}
 
 	if ts, ok := resolvedTimestamp(); ok {
@@ -154,6 +166,7 @@ func runVersion(cmd *cobra.Command, args []string) {
 func printVersionInfo() {
 	logger.Output("Version:     %s", resolvedVersion())
 	logger.Output("Commit:      %s", resolvedCommit())
+	logger.Output("Gosmopolitan: %s", linkedForkCommit())
 
 	if ts, ok := resolvedTimestamp(); ok {
 		logger.Output("Commit date: %s", time.Unix(ts, 0).UTC().Format(time.RFC3339))
@@ -200,7 +213,7 @@ func printStaleness() {
 
 // newGitHubRequest creates an HTTP GET request, adding an Authorization
 // header if a GitHub token is discovered in the environment. This raises
-// the rate limit from 60 to 5 000 requests/hour.
+// the hourly rate limit from the anonymous allowance to the authenticated allowance.
 func newGitHubRequest(url string) (*http.Request, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -275,117 +288,6 @@ func fetchCommitsBehind(fromCommit, toCommit string) (int, error) {
 	}
 
 	return result.AheadBy, nil
-}
-
-// checkDirtyInCI returns an error if running in CI with a dirty working
-// tree. This prevents shipping binaries built from uncommitted changes.
-//
-// The transient GOMEMLIMIT guard (memlimit.GuardFileName) is excluded in every
-// state — added, modified, or deleted. It is generated for the build and removed
-// afterward, so it must never count as a dirty change. The deleted case matters
-// for migration: a repo that committed the guard under an older go-toolchain
-// sheds it the first time the new cleanup runs, and that in-flight deletion must
-// not fail the build.
-func checkDirtyInCI() error {
-	if os.Getenv("CI") == "" {
-		return nil
-	}
-	out, err := exec.Command("git", "status", "--short").Output()
-	if err != nil {
-		return nil
-	}
-	files := dirtyFilesExcludingGuard(string(out))
-	if files == "" {
-		return nil
-	}
-	if !jsonOutput {
-		logError("", fmt.Sprintf(
-			"Working tree is dirty in CI (go-toolchain %s). Dirty files:\n%s\n\n"+
-				"Fix: run `go-toolchain` locally, review the diff, commit the changes, and push.",
-			buildVersion, files))
-	}
-	return fmt.Errorf("working tree is dirty in CI (run `go-toolchain` locally, review the diff, commit, and push)")
-}
-
-// dirtyFilesExcludingGuard returns the trimmed `git status --short` lines that
-// represent real uncommitted changes, dropping any line that refers to the
-// go-toolchain-managed GOMEMLIMIT guard. An empty result means the tree is clean
-// apart from guard files.
-func dirtyFilesExcludingGuard(statusOut string) string {
-	var kept []string
-	for _, line := range strings.Split(statusOut, "\n") {
-		if strings.TrimSpace(line) == "" || statusLineIsGuard(line) {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	return strings.Join(kept, "\n")
-}
-
-// statusLineIsGuard reports whether a `git status --short` porcelain line refers
-// to a GOMEMLIMIT guard file. The format is "XY <path>" (or "XY <old> -> <new>"
-// for renames); the guard is matched by base name so it is ignored in any
-// package directory.
-func statusLineIsGuard(line string) bool {
-	if len(line) < 4 {
-		return false
-	}
-	path := strings.TrimSpace(line[3:])
-	if i := strings.Index(path, " -> "); i != -1 {
-		path = path[i+len(" -> "):]
-	}
-	path = strings.Trim(path, "\"")
-	if filepath.Base(path) == memlimit.GuardFileName {
-		return true
-	}
-	// removeFromGitignore strips the stale guard line from .gitignore during the
-	// build; a .gitignore whose only change vs HEAD is that removal is the
-	// toolchain's own migration cleanup, not a developer edit, so it must not
-	// count as a dirty tree — mirroring the guard-file exclusion above. (A repo
-	// finalizes the migration by committing the removal once.)
-	if filepath.Base(path) == ".gitignore" && gitignoreChangeOnlyDropsGuard(path) {
-		return true
-	}
-	return false
-}
-
-// gitignoreChangeOnlyDropsGuard reports whether the working-tree change to the
-// .gitignore at path, relative to HEAD, is solely the removal of the GOMEMLIMIT
-// guard line.
-func gitignoreChangeOnlyDropsGuard(path string) bool {
-	out, err := exec.Command("git", "diff", "HEAD", "--", path).Output()
-	if err != nil {
-		return false
-	}
-	return diffOnlyDropsGuard(string(out))
-}
-
-// diffOnlyDropsGuard parses a unified diff and reports whether every content
-// change is the removal of the guard line: at least one guard line removed, no
-// additions, and nothing else removed (blank-line churn aside). It is split out
-// from the git invocation so it can be unit-tested without a repository.
-func diffOnlyDropsGuard(diff string) bool {
-	sawGuardRemoval := false
-	for _, line := range strings.Split(diff, "\n") {
-		switch {
-		case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
-			// file headers, not content
-		case strings.HasPrefix(line, "+"):
-			if strings.TrimSpace(line[1:]) != "" {
-				return false // a real addition
-			}
-		case strings.HasPrefix(line, "-"):
-			content := strings.TrimSpace(line[1:])
-			if content == "" {
-				continue // removed blank line: cosmetic
-			}
-			if content != memlimit.GuardFileName {
-				return false // removed something other than the guard
-			}
-			sawGuardRemoval = true
-		}
-	}
-	return sawGuardRemoval
 }
 
 func formatDuration(d time.Duration) string {

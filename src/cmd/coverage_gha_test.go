@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,16 +11,15 @@ import (
 // emits a GitHub Actions error workflow command when running inside GitHub
 // Actions, so the failure shows up as a tagged error in the workflow UI.
 func TestCoverageBelowMinimum_GHAErrorAnnotation(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-	setupMockProject()
+	t.Chdir(tmpDir)
+	setupMockProject(t)
 	t.Setenv("GITHUB_ACTIONS", "true")
 	jsonOutput = false
 	defer func() { jsonOutput = false }()
 
-	// 60 covered / 40 uncovered = 60% (well below 80%, with >=10 uncovered)
+	// well below the minimum, with too many uncovered statements to excuse
 	mock := newSmallMock(60, 40)
 
 	var err error
@@ -39,11 +37,10 @@ func TestCoverageBelowMinimum_GHAErrorAnnotation(t *testing.T) {
 // is emitted when not running inside GitHub Actions (avoids duplicating the
 // error message that cobra already prints).
 func TestCoverageBelowMinimum_NoGHAAnnotationLocally(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-	setupMockProject()
+	t.Chdir(tmpDir)
+	setupMockProject(t)
 	t.Setenv("GITHUB_ACTIONS", "")
 	jsonOutput = false
 	defer func() { jsonOutput = false }()
@@ -65,11 +62,10 @@ func TestCoverageBelowMinimum_NoGHAAnnotationLocally(t *testing.T) {
 // stdout is reserved for the JSON payload and a workflow command would corrupt
 // it for programmatic consumers.
 func TestCoverageBelowMinimum_NoGHAAnnotationInJSONMode(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-	setupMockProject()
+	t.Chdir(tmpDir)
+	setupMockProject(t)
 	t.Setenv("GITHUB_ACTIONS", "true")
 	jsonOutput = true
 	defer func() { jsonOutput = false }()

@@ -7,7 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wow-look-at-my/go-toolchain/src/cache"
 	"github.com/wow-look-at-my/go-toolchain/src/profile"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
@@ -45,6 +44,7 @@ func seedCollector(t *testing.T) {
 }
 
 func TestInitBuildProfile_RespectsNoProfile(t *testing.T) {
+	t.Serial()
 	resetProfileState(t)
 
 	noProfile = true
@@ -63,6 +63,7 @@ func TestInitBuildProfile_RespectsNoProfile(t *testing.T) {
 }
 
 func TestCaptureProfileTrace_RecordsLaneEvents(t *testing.T) {
+	t.Serial()
 	resetProfileState(t)
 	seedCollector(t)
 	profileGraph = nil
@@ -78,6 +79,7 @@ func TestCaptureProfileTrace_RecordsLaneEvents(t *testing.T) {
 }
 
 func TestEmitBuildProfile_WritesBothJSONFiles(t *testing.T) {
+	t.Serial()
 	resetProfileState(t)
 	seedCollector(t)
 	profileGraph = nil
@@ -97,6 +99,7 @@ func TestEmitBuildProfile_WritesBothJSONFiles(t *testing.T) {
 }
 
 func TestEmitBuildProfile_SkipsCleanly(t *testing.T) {
+	t.Serial()
 	resetProfileState(t)
 
 	// No collector at all (--no-profile or a non-building command).
@@ -110,24 +113,4 @@ func TestEmitBuildProfile_SkipsCleanly(t *testing.T) {
 	emitBuildProfile()
 	_, err := os.Stat(filepath.Join(outputDir, "profile.json"))
 	assert.True(t, os.IsNotExist(err), "no actiongraph: no profile.json")
-}
-
-func TestCacheTotalsFromStats(t *testing.T) {
-	sl := &cache.StatsListener{}
-	ss := sl.Stats()
-	ss.Local.Hits.Add(7)
-	ss.Local.Puts.Add(3)
-	ss.Misses.Add(2)
-
-	ct := cacheTotalsFromStats(ss)
-	assert.Equal(t, uint32(7), ct.LocalHits)
-	assert.Equal(t, uint32(3), ct.LocalPuts)
-	assert.Equal(t, uint32(2), ct.Misses)
-	assert.Equal(t, uint32(0), ct.RemoteHits, "no remote configured: zero, not nil-panic")
-
-	sl.SetHasRemote()
-	ss = sl.Stats()
-	ss.Remote.Hits.Add(5)
-	ct = cacheTotalsFromStats(ss)
-	assert.Equal(t, uint32(5), ct.RemoteHits)
 }

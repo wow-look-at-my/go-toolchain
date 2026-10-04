@@ -1,0 +1,160 @@
+package cmd
+
+import (
+	"bytes"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+
+	"github.com/wow-look-at-my/go-toolchain/src/build"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
+	"github.com/wow-look-at-my/go-toolchain/src/profile"
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
+)
+
+// hostRunnableArtifact names the APE, which runs here by construction. Named
+// even when absent, so callers report a missing artifact instead of a wrong path.
+func hostRunnableArtifact(target build.Target, outDir string) string {
+	return filepath.Join(outDir, build.BinaryName(target.OutputName, cosmoOS, cosmoFatArch))
+}
+
+func createHostSymlinks(targets []build.Target, outDir string) error {
+	// hostos, not runtime: a cosmo fat APE reports runtime.GOOS=="cosmo" everywhere.
+	hostOS := hostos.GOOS()
+
+	for _, target := range targets {
+		hostPath := hostRunnableArtifact(target, outDir)
+		hostBinary := filepath.Base(hostPath)
+		ext := ""
+		if hostOS == "windows" {
+			ext = ".exe"
+		}
+
+		// Verify the host binary exists in the output directory
+		if _, err := os.Stat(hostPath); err != nil {
+			logger.Info("  SKIP symlink for %s (host binary %s not found)", target.OutputName, hostBinary)
+			continue
+		}
+
+		// Create <name>_host and <name> symlinks (relative, pointing to the host binary)
+		for _, suffix := range []string{"_host", ""} {
+			linkName := target.OutputName + suffix + ext
+			linkPath := filepath.Join(outDir, linkName)
+			// A cosmo build writes the APE under the plain name, so it is a real
+			// binary, not a link slot -- overwriting it would delete the artifact.
+			if st, statErr := os.Lstat(linkPath); statErr == nil && st.Mode()&os.ModeSymlink == 0 {
+				continue
+			}
+			os.Remove(linkPath) // remove any stale symlink
+			if err := os.Symlink(hostBinary, linkPath); err != nil {
+				return fmt.Errorf("failed to create symlink %s: %w", linkName, err)
+			}
+			logger.Info("  LINK %s -> %s", linkPath, hostBinary)
+		}
+	}
+	return nil
+}
+
+// reproducibleLDFlags empties the linked binary's Go build ID. Depth: docs/MATRIX.md.
+const reproducibleLDFlags = "-buildid="
+
+// checkPortableJob allows only the fat APE and wasm, only through the fork.
+// It sits at the sole chokepoint that compiles anything, so a call site that
+// invents a target fails here instead of shipping a native binary.
+func checkPortableJob(job buildJob) error {
+	if len(job.goCmd) == 0 {
+		return fmt.Errorf("build for %s/%s names no go command: the fat APE and the wasm targets are the only outputs, and both compile with the fork this binary links", job.goos, job.goarch)
+	}
+	if job.goos == cosmoOS || (isWasmGOOS(job.goos) && job.goarch == wasmArch) {
+		return nil
+	}
+	return fmt.Errorf("refusing to build GOOS=%s GOARCH=%s: this pipeline builds the cosmo fat APE (one binary for every host) and the wasm targets, so a per-platform native binary has no build path", job.goos, job.goarch)
+}
+
+// runBuild compiles a single binary. If onFirstOutput is non-nil, it is
+// called as soon as the compiler produces output (used for progress
+// indicators on the default build path).
+//
+// The compiler never writes onto the target file (job.outputPath) directly:
+// its -o is the .tmp- spelling of that path (build.TmpPrefix), and only the
+// commit after the build succeeded moves the results onto the target name.
+// A failing or killed build can therefore never leave even a partial binary
+// at build/<name> for an agent or a later phase to pick up.
+func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error {
+	if err := checkPortableJob(job); err != nil {
+		return err
+	}
+	if job.selfHosted {
+		return buildSelf(r, job, onFirstOutput)
+	}
+	// -trimpath: without it the build IDs record where the build ran, so each runner ships a different APE.
+	args := append(append([]string{}, job.goCmd[1:]...), "build", "-trimpath")
+	// Dump the action graph for the build profile (a file per invocation;
+	// matrix targets each get their own). No-op when profiling is off.
+	if garg := profile.GraphArg(); garg != "" {
+		args = append(args, garg)
+	}
+	if onFirstOutput != nil {
+		args = append(args, "-v") // print packages as they are compiled
+	}
+	// Ours goes last: the linker reads the final spelling, so a caller's flags cannot drop it.
+	ldflags := reproducibleLDFlags
+	if job.ldflags != "" {
+		ldflags = job.ldflags + " " + ldflags
+	}
+	args = append(args, "-ldflags", ldflags)
+	// -o is the temp spelling; the commit below is what makes the target exist.
+	args = append(args, "-o", build.TempOutputPath(job.outputPath), job.srcPath)
+	// An ambient GOOS is the last way to ask for a native binary, so every variable below is assigned.
+	cmd := runner.Cmd(job.goCmd[0], args...).
+		WithEnv("GOTOOLCHAIN", "local").
+		WithEnv("GOROOT", job.goroot).
+		WithEnv("CGO_ENABLED", cgoEnabledValue(job.goos))
+	if job.goos == cosmoOS {
+		// "fat" is a pseudo-arch, and an inherited GOCOSMOFAT would silently
+		// produce a thin binary, so each is cleared.
+		cmd = cmd.WithEnv("GOOS", cosmoOS).
+			WithEnv("GOARCH", "").
+			WithEnv("GOCOSMOFAT", "").
+			WithEnv(cosmoPlatformsEnv, job.cosmoPlatforms).
+			WithEnv(apeAppendEnv, job.apeAppend)
+	} else {
+		cmd = cmd.WithEnv("GOOS", job.goos).WithEnv("GOARCH", job.goarch)
+	}
+	if onFirstOutput != nil {
+		cmd = cmd.WithOnFirstOutput(onFirstOutput)
+		if activeMissTracker != nil {
+			// A tee: this writer replaces the console rather than joining it.
+			cmd = cmd.WithStderrWriter(io.MultiWriter(activeMissTracker, os.Stderr))
+		}
+	} else {
+		cmd = cmd.WithQuiet()
+	}
+	proc, err := cmd.Run(r)
+	if err == nil {
+		if onFirstOutput != nil {
+			// Non-quiet: Wait() streams -v output to console; compiler errors go to stderr.
+			err = proc.Wait()
+		} else {
+			// Quiet (matrix): drain both pipes, and keep both for the error.
+			stdout, _ := io.ReadAll(proc.Stdout())
+			stderr, _ := io.ReadAll(proc.Stderr())
+			if err = proc.Wait(); err != nil {
+				said := bytes.TrimSpace(bytes.Join([][]byte{stderr, stdout}, []byte("\n")))
+				if len(said) == 0 {
+					said = []byte("it printed nothing on either stream")
+				}
+				err = fmt.Errorf("%w\n%s", err, said)
+			}
+		}
+	}
+	if err != nil {
+		// The target itself was never written, so it stays absent.
+		build.DiscardOutput(job.outputPath)
+		return err
+	}
+	// Only now do the outputs take the target's name.
+	return build.CommitOutput(job.outputPath)
+}

@@ -23,42 +23,56 @@ inputs:
     description: 'Path to a pre-built go-toolchain binary (skips release download)'
     required: false
     default: ''
-  os:
-    description: 'Comma-separated list of target operating systems (e.g. linux,darwin,windows)'
-    required: false
-    default: 'linux,darwin,windows'
-  arch:
-    description: 'Comma-separated list of target architectures (e.g. amd64,arm64)'
-    required: false
-    default: 'amd64,arm64'
   targets:
-    description: 'Comma-separated exact build targets, each an os/arch pair (e.g. darwin/amd64) or the special value "cosmo" (one fat APE built with the gosmopolitan toolchain, plus per-platform slot copies). When non-empty this replaces the os/arch inputs.'
+    description: >-
+      Comma-separated wasm targets to add (wasm/js, wasm/wasip1, built with
+      the gosmopolitan toolchain) plus the special value "cosmo" (one fat
+      APE, the org's only native output). Empty (the default) builds the APE
+      alone.
     required: false
     default: ''
+  cosmo-platforms:
+    description: >-
+      Host platforms the fat APE must cover, as comma-separated os/arch pairs.
+      One binary runs on all of them and publishes as ONE artifact carrying the
+      whole set. "all" covers every platform the gosmopolitan fork can emit.
+    required: false
+    default: 'linux/amd64,darwin/arm64,windows/amd64'
   cgo:
     description: 'Enable CGO (disabled by default for static binaries)'
     required: false
     default: 'false'
-  autorelease:
-    description: 'Automatically publish to buildhost on every branch push (requires id-token: write and actions: read permissions)'
+  autorelease_args:
+    description: >-
+      Extra publish options forwarded to the buildhost publish, as
+      whitespace- or comma-separated key=value pairs (e.g.
+      "create_service=true"). Recognized keys: create_service (true|false --
+      declare that the published binary runs as a background service; each
+      download format materializes it, e.g. brew formulas gain a `service do`
+      block and generated debs ship an auto-enabled systemd user unit).
+      Unknown keys fail the build. Empty (the default) forwards nothing --
+      the publish request is byte-identical to before this input existed.
+      Ignored by a build that produces no executable binary, which publishes
+      nothing.
     required: false
-    default: 'true'
+    default: ''
+  apt-depends:
+    description: >-
+      Runtime prerequisites of the published binary, in Debian relationship
+      syntax (e.g. 'bubblewrap | docker.io'). Forwarded to the buildhost
+      publish as apt_depends, so the generated deb and the APT index carry a
+      Depends line. buildhost refuses an invalid value, and the publish
+      fails. Empty (the default) forwards nothing.
+    required: false
+    default: ''
   allow-source-build:
     description: 'Allow building go-toolchain from source when the buildhost binary is unavailable. When false (default), the build fails fast instead of silently falling back to a source build.'
     required: false
     default: 'false'
-  upload-artifacts:
-    description: 'Upload build/ directory as a GitHub Actions artifact after building'
-    required: false
-    default: 'true'
   timeout:
     description: 'Timeout in minutes for the go-toolchain build step'
     required: false
     default: '10'
-  wait-ci:
-    description: 'Wait for the latest go-toolchain CI run to finish before downloading the release binary'
-    required: false
-    default: 'false'
   codeql:
     description: 'Run CodeQL security-and-quality analysis around the build (requires security-events: write permission, and the consumer repo must NOT have GitHub default CodeQL setup enabled)'
     required: false
@@ -74,97 +88,54 @@ runs:
       shell: bash
       run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
-    - name: Download go-toolchain from build artifact
-      if: inputs.binary == '' && github.repository == 'wow-look-at-my/go-toolchain'
-      uses: actions/download-artifact@v8
+    # Lets the kernel start an APE, so a bare exec works. see docs/ACTION.md
+    - name: Register the APE binfmt handler
+      if: runner.os == 'Linux'
+      shell: bash
+      run: bash "${{ github.action_path }}/.github/scripts/register-ape-binfmt.sh"
+
+    # cgo for GOOS=cosmo compiles C with cosmocc. This repository's own build also needs it: embedstd compiles runtime/cgo into the standard library the binary carries. see docs/ACTION.md
+    - name: Install cosmocc
+      if: inputs.cgo == 'true' || github.repository == 'wow-look-at-my/go-toolchain'
+      shell: bash
+      run: bash "${{ github.action_path }}/.github/scripts/install-cosmocc.sh"
+
+    # No path: runner.temp is the host path in a container job. The action resolves RUNNER_TEMP itself.
+    - name: Download go-toolchain
+      id: download
+      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
+      uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
       with:
-        name: go-toolchain-binary
-        path: /tmp/go-toolchain-artifact
-
-    - name: Install go-toolchain from build artifact
-      if: inputs.binary == '' && github.repository == 'wow-look-at-my/go-toolchain'
-      shell: bash
-      run: |
-        chmod +x /tmp/go-toolchain-artifact/go-toolchain
-        sudo cp /tmp/go-toolchain-artifact/go-toolchain /usr/local/bin/go-toolchain
-
-    - name: Wait for go-toolchain CI to finish
-      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain' && inputs.wait-ci == 'true'
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        gh extension install PazerOP/gh-wait-ci || true
-        gh wait-ci -R wow-look-at-my/go-toolchain || true
+        project: go-toolchain
 
     - name: Install go-toolchain
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
       run: |
         set -euo pipefail
-        # Download the released binary straight from buildhost's dl endpoint with
-        # curl -- no npm. --compressed advertises Accept-Encoding (including zstd
-        # when curl was built with it), so buildhost streams the stored zstd blob
-        # as-is and curl decompresses client-side; the server never pays the
-        # decompression cost. If curl lacks zstd it just gets the plain binary.
-        # buildhost normalizes platform aliases natively (RUNNER_OS Linux/macOS/
-        # Windows, RUNNER_ARCH X64/ARM64, ...), so pass them through verbatim, and
-        # it serves the branch tip no-store, so no cache-buster is needed.
-        #
-        # TEMPORARY: pinned to ?branch=v1 instead of the apex "latest". buildhost's
-        # "latest" resolves against a project's default branch; until buildhost has
-        # learned go-toolchain's default branch is "v1" it defaults to "master"
-        # (which go-toolchain never publishes to), so the unqualified latest
-        # download 404s and hard-fails every consumer's build. Revert to the
-        # unqualified URL once buildhost has resolved go-toolchain's default branch
-        # to v1 (buildhost deploy + the next go-toolchain publish).
-        URL="https://dl.pazer.build/go-toolchain?branch=v1&os=${RUNNER_OS}&arch=${RUNNER_ARCH}"
-        # Install only on a successful download. A failure is reported (not hidden
-        # behind `|| true`) but is non-fatal here: gating with `if` keeps `set -e`
-        # from skipping the probe + source-build fallback below, which surface the
-        # reason and decide whether to fail the build.
-        if curl -fL --compressed --connect-timeout 20 --max-time 120 -o /tmp/go-toolchain "${URL}"; then
-          chmod +x /tmp/go-toolchain
-          # Run the binary once BEFORE the root-owned install. Since the
-          # fat-APE migration (#275) the linux and windows/amd64 slots serve
-          # an APE polyglot that self-assimilates on first exec by reopening
-          # ITSELF read-write -- fine here while the file is still
-          # runner-writable in /tmp, impossible for the non-root runner once
-          # it is root-owned in /usr/local/bin ("line 11: ... Permission
-          # denied"). After this run, the installed file is a plain native
-          # binary. For native slots (e.g. darwin/arm64) this is just an
-          # early version check. Failures are tolerated (|| true): the probe
-          # below stays the single pass/fail gate and surfaces the reason.
-          /tmp/go-toolchain version || true
-          sudo cp /tmp/go-toolchain /usr/local/bin/go-toolchain
-        else
-          echo "::warning::Download from buildhost failed (curl exit $?): ${URL}"
-        fi
-        # Probe the installed binary. Capture the output (don't discard it) so
-        # the real reason it is unusable -- 404, not on PATH, or a crash -- is shown.
-        if ! probe=$(go-toolchain version 2>&1); then
-          echo "buildhost go-toolchain (${URL}) not usable; probe output:"
+        BIN_DIR="$RUNNER_TEMP/go-toolchain-bin"
+        mkdir -p "${BIN_DIR}"
+        mv "${{ steps.download.outputs.path }}" "${BIN_DIR}/go-toolchain"
+        echo "${BIN_DIR}" >> "$GITHUB_PATH"
+        # Capture the probe output: it names a crash or an unrunnable binary.
+        if ! probe=$("${BIN_DIR}/go-toolchain" version 2>&1); then
+          echo "buildhost go-toolchain not usable; probe output:"
           echo "${probe}"
-          # Fail fast unless the caller has explicitly opted in to a source
-          # build: a silent fallback hides buildhost outages and ships a
-          # locally-compiled toolchain that may differ from the released one.
+          # A silent source build hides a buildhost outage. see docs/ACTION.md
           if [ "${{ inputs.allow-source-build }}" != "true" ]; then
             echo "::error::Could not install go-toolchain from buildhost and allow-source-build is not enabled. Set allow-source-build: 'true' to build from source instead."
             exit 1
           fi
           echo "::warning::buildhost binary not usable; building from source (allow-source-build=true)"
           (cd "${{ github.action_path }}" && GOTOOLCHAIN=auto go install ./src)
-          sudo cp "$(go env GOPATH)/bin/src" /usr/local/bin/go-toolchain
+          cp "$(go env GOPATH)/bin/src" "${BIN_DIR}/go-toolchain"
         fi
 
     - name: Install provided binary
       if: inputs.binary != ''
       shell: bash
       run: |
-        # Stage through /tmp and pre-run once so a fat-APE binary
-        # self-assimilates while still runner-writable (see the buildhost
-        # install step above for why); staging also keeps the caller's file
-        # byte-identical. For a native binary this changes nothing.
+        # Stage through /tmp and pre-run it. see docs/ACTION.md
         cp "${{ inputs.binary }}" /tmp/go-toolchain-provided
         chmod +x /tmp/go-toolchain-provided
         /tmp/go-toolchain-provided version || true
@@ -177,79 +148,11 @@ runs:
         brew install coreutils
         echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
 
-    - name: Verify security-events write permission
+    - name: Require the security-events grant CodeQL needs
       if: inputs.codeql == 'true'
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-        GH_REPO: ${{ github.repository }}
-        GH_API: ${{ github.api_url }}
-      run: |
-        set -euo pipefail
-        # Probe the SARIF upload endpoint with an empty body.
-        # 403 = workflow lacks security-events: write.
-        # 422 = permission OK, body invalid (expected, no upload occurs).
-        HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
-          -X POST \
-          -H "Authorization: Bearer ${GH_TOKEN}" \
-          -H "Accept: application/vnd.github+json" \
-          -H "X-GitHub-Api-Version: 2022-11-28" \
-          "${GH_API}/repos/${GH_REPO}/code-scanning/sarifs" \
-          -d '{}')
-        if [ "${HTTP_CODE}" = "403" ]; then
-          echo "::error title=Missing security-events: write::CodeQL is enabled but this workflow lacks 'security-events: write'. Add 'permissions: { security-events: write }' to the workflow, or pass codeql: 'false' to disable CodeQL."
-          exit 1
-        fi
-        echo "security-events: write confirmed (probe HTTP ${HTTP_CODE})"
-
-    - name: Verify autorelease permissions
-      if: inputs.autorelease == 'true'
-      uses: wow-look-at-my/actions@typescript#latest
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
+      uses: wow-look-at-my/actions@has-permission#latest
       with:
-        script: |
-          // Probe the artifacts endpoint to verify actions: read.
-          // A 403 means the workflow is missing the permission.
-          // The typescript action's auto-derived `github` context carries no
-          // token, and composite actions don't propagate GITHUB_TOKEN to
-          // sub-action processes, so pass it explicitly via the step env above
-          // and build the client from process.env.
-          const token = process.env.GITHUB_TOKEN;
-          if (!token) {
-            // Top-level `return` is rejected by the typescript action's tsc
-            // validation (the script is type-checked as a module); throwing
-            // fails the step with this message via the action's catch handler.
-            throw new Error("autorelease permission check needs GITHUB_TOKEN, but it is empty -- the action passes github.token via step env; ensure the workflow grants at least 'contents: read'.");
-          }
-          const oct = getOctokit(token);
-          let actionsReadOk = false;
-          try {
-            await oct.rest.actions.listWorkflowRunArtifacts({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              run_id: context.runId,
-            });
-            actionsReadOk = true;
-          } catch (e: any) {
-            if (e.status !== 403) throw e;
-            core.setFailed("autorelease is enabled but this workflow lacks 'actions: read', needed to download build artifacts for buildhost publishing. Add 'permissions: { actions: read }' (and 'id-token: write'), or pass autorelease: 'false' to disable publishing.");
-          }
-          if (actionsReadOk) {
-            core.info('actions: read confirmed');
-            // Verify id-token: write via OIDC environment variables.
-            // On external fork PRs GitHub withholds OIDC regardless of
-            // declared permissions; skip rather than fail spuriously.
-            const isForkPr = context.eventName === 'pull_request' &&
-              (context.payload as any)?.pull_request?.head?.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`;
-            if (isForkPr) {
-              core.info("External fork PR: skipping id-token check (OIDC unavailable on external fork PRs)");
-            } else if (!env.ACTIONS_ID_TOKEN_REQUEST_URL || !env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
-              core.setFailed("autorelease is enabled but this workflow lacks 'id-token: write', needed to mint an OIDC token for buildhost authentication. Add 'permissions: { id-token: write }' (and 'actions: read'), or pass autorelease: 'false' to disable publishing.");
-            } else {
-              core.info('id-token: write confirmed (OIDC environment variables present)');
-            }
-          }
+        permission: security-events
 
     - name: Initialize CodeQL
       if: inputs.codeql == 'true'
@@ -259,12 +162,32 @@ runs:
         build-mode: manual
         queries: security-and-quality
 
+    # A dependency's //go:generate directives run when it is fetched, and a missing generator fails the build. A runner with no go of its own uses the pipeline's go: the pipeline binary is the go command under the name go.
+    - name: Install the generators a dependency's directives need
+      shell: bash
+      run: |
+        set -euo pipefail
+        # The pipeline binary is the go command these generators build with, whatever else the runner has on PATH. A runner supplies GOPROXY and GOSUMDB set to nothing, which the go command reads as a list naming no proxy and refuses, so a value is named here for whichever binary runs: an older published one fills nothing in for itself. A value the caller named is kept.
+        export GOPROXY="${GOPROXY:-direct}" GOSUMDB="${GOSUMDB:-off}"
+        mkdir -p "$RUNNER_TEMP/gt-go"
+        ln -sf "$(command -v go-toolchain)" "$RUNNER_TEMP/gt-go/go"
+        go=("$RUNNER_TEMP/gt-go/go")
+        for pkg in \
+          golang.org/x/tools/cmd/stringer@v0.49.0 \
+          golang.org/x/tools/cmd/goyacc@v0.49.0 \
+          golang.org/x/text/cmd/gotext@v0.42.0 \
+        ; do
+          "${go[@]}" install "$pkg"
+        done
+        bin="$("${go[@]}" env GOPATH)/bin"
+        echo "$bin" >> "$GITHUB_PATH"
+        # The pipeline's go builds for GOOS=cosmo, so its go install writes into a per-platform subdirectory and ignores GOBIN.
+        echo "$bin/$("${go[@]}" env GOOS)_$("${go[@]}" env GOARCH)" >> "$GITHUB_PATH"
+
     - name: Run go-toolchain
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
-        OTEL_EXPORTER_OTLP_ENDPOINT: https://otel.pazer.tube
-        OTEL_SERVICE_NAME: ${{ github.repository }}
         GITHUB_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
@@ -276,21 +199,33 @@ runs:
         if [ -n "${{ inputs.generate }}" ]; then
           ARGS="$ARGS --generate ${{ inputs.generate }}"
         fi
+        # The default builds a single fat APE. see docs/ACTION.md
         if [ -n "${{ inputs.targets }}" ]; then
-          # --targets replaces the --os x --arch matrix entirely.
           ARGS="$ARGS --targets ${{ inputs.targets }}"
-        else
-          if [ -n "${{ inputs.os }}" ]; then
-            ARGS="$ARGS --os ${{ inputs.os }}"
-          fi
-          if [ -n "${{ inputs.arch }}" ]; then
-            ARGS="$ARGS --arch ${{ inputs.arch }}"
-          fi
+        fi
+        if [ -n "${{ inputs.cosmo-platforms }}" ]; then
+          ARGS="$ARGS --cosmo-platforms ${{ inputs.cosmo-platforms }}"
         fi
         if [ "${{ inputs.cgo }}" = "true" ]; then
           ARGS="$ARGS --cgo"
         fi
         timeout "${TIMEOUT_SECONDS}" go-toolchain matrix $ARGS
+
+    # The name must stay unique per job, per matrix leg, AND per build (working-directory). see docs/ACTION.md
+    - name: Compute hand-off build identity
+      id: build-id
+      shell: bash
+      run: |
+        wd="${{ inputs.working-directory }}"
+        id="$(printf '%s' "$wd" | tr '/.' '-' | sed -E 's/^-+//; s/-+$//')"
+        [ -n "$id" ] || id="root"
+        echo "id=$id" >> "$GITHUB_OUTPUT"
+
+    - name: Hand off build outputs (go-build-<job>.<build>)
+      uses: wow-look-at-my/actions@cache-upload#latest
+      with:
+        name: go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}.b${{ steps.build-id.outputs.id }}
+        path: ${{ inputs.working-directory }}/build
 
     - name: Analyze with CodeQL
       if: inputs.codeql == 'true'
@@ -298,13 +233,59 @@ runs:
       with:
         category: /language:go
 
-    - name: Upload build artifacts
-      if: inputs.upload-artifacts == 'true'
-      uses: actions/upload-artifact@v7
+    # Every executable binary publishes. A build with none (a library module, or a wasm-only build with publishing opted out) has nothing buildhost can upload. see docs/ACTION.md
+    - name: Select publishable artifacts
+      id: publishable
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "$ACTION_PATH/.github/scripts/publishable-artifacts.sh" "${{ inputs.working-directory }}/build"
+
+    - name: Require the id-token grant the publish needs
+      if: steps.publishable.outputs.publish == 'true'
+      uses: wow-look-at-my/actions@has-permission#latest
       with:
-        name: go-build
-        path: ${{ inputs.working-directory }}/build/
+        permission: id-token
+
+    - name: Require the deployments grant the publish needs
+      if: steps.publishable.outputs.publish == 'true'
+      uses: wow-look-at-my/actions@has-permission#latest
+      with:
+        permission: deployments
+
+    - name: Require the artifact-metadata grant the publish needs
+      if: steps.publishable.outputs.publish == 'true'
+      uses: wow-look-at-my/actions@has-permission#latest
+      with:
+        permission: artifact-metadata
+
+    # A composite `with:` block is static YAML. see docs/ACTION.md
+    - name: Parse autorelease_args
+      if: steps.publishable.outputs.publish == 'true'
+      id: autorelease_args
+      uses: wow-look-at-my/actions@typescript#latest
+      with:
+        script: |
+          const raw: string = "${{ inputs.autorelease_args }}";
+          const known: string[] = ["create_service"];
+          const out: Record<string, string> = {};
+          for (const key of known) out[key] = "";
+          for (const pair of raw.split(/[\s,]+/).filter((p: string) => p.length > 0)) {
+            const eq = pair.indexOf("=");
+            const key = eq < 0 ? pair : pair.slice(0, eq);
+            const value = eq < 0 ? "" : pair.slice(eq + 1);
+            if (!known.includes(key) || value === "") {
+              core.setFailed(`autorelease_args: unrecognized or valueless entry '${pair}' (known keys: ${known.join(", ")}; form: key=value)`);
+              return;
+            }
+            out[key] = value;
+          }
+          for (const key of known) core.setOutput(key, out[key]);
 
     - name: Auto-release to buildhost
-      if: inputs.autorelease == 'true'
+      if: steps.publishable.outputs.publish == 'true'
       uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
+      with:
+        path: ${{ inputs.working-directory }}/build
+        create_service: ${{ steps.autorelease_args.outputs.create_service }}
+        apt_depends: ${{ inputs.apt-depends }}

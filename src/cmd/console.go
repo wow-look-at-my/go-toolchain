@@ -27,7 +27,7 @@ type ColorPct struct {
 	Format string
 }
 
-// hslToRGB converts HSL to RGB. h is in degrees [0,360), s and l are [0,1].
+// hslToRGB converts HSL to RGB. h is a hue in degrees; s and l are unit fractions.
 func hslToRGB(h, s, l float64) (r, g, b uint8) {
 	c := (1 - math.Abs(2*l-1)) * s
 	x := c * (1 - math.Abs(math.Mod(h/60, 2)-1))
@@ -52,15 +52,15 @@ func hslToRGB(h, s, l float64) (r, g, b uint8) {
 	return uint8((r1 + m) * 255), uint8((g1 + m) * 255), uint8((b1 + m) * 255)
 }
 
-// colorPct formats a percentage with color based on value (red=0%, green=100%)
-// Uses HSL hue rotation: 0° (red) → 60° (yellow) → 120° (green)
+// colorPct formats a percentage in a colour running from red at the bottom of
+// the range to green at the top, by rotating the HSL hue through yellow.
 func colorPct(p ColorPct) string {
 	format := p.Format
 	if format == "" {
 		format = "%6.1f%%"
 	}
-	// Map 0-100% to hue 0-120° (red to green through yellow)
-	hue := float64(p.Pct) * 1.2 // 0% = 0°, 100% = 120°
+	// Map the percentage range onto the red-to-green arc of the hue circle
+	hue := float64(p.Pct) * 1.2
 	r, g, b := hslToRGB(hue, 1.0, 0.5)
 	return fmt.Sprintf("\033[38;2;%d;%d;%dm"+format+colorReset, r, g, b, p.Pct)
 }
@@ -75,8 +75,8 @@ func isGHA() bool {
 	return os.Getenv("GITHUB_ACTIONS") == "true"
 }
 
-// logWarning prints a warning. In GHA it emits a ::warning annotation;
-// locally it prints yellow text. file is optional (used for GHA file annotations).
+// logWarning prints a warning: a ::warning annotation in GHA, yellow text otherwise.
+// file is optional, for GHA file annotations.
 func logWarning(file, msg string) {
 	if file != "" {
 		logger.WarnFile(file, "%s", msg)
@@ -85,8 +85,8 @@ func logWarning(file, msg string) {
 	}
 }
 
-// logError prints an error. In GHA it emits a ::error annotation;
-// locally it prints red text. file is optional (used for GHA file annotations).
+// logError prints an error: a ::error annotation in GHA, red text otherwise.
+// file is optional, for GHA file annotations.
 func logError(file, msg string) {
 	if file != "" {
 		logger.ErrorFile(file, "%s", msg)
@@ -95,8 +95,7 @@ func logError(file, msg string) {
 	}
 }
 
-// pipelineTimeline records start/end times for pipeline steps.
-// Initialized by InitTimeline(); nil until then.
+// pipelineTimeline records pipeline step times; nil until InitTimeline runs.
 var pipelineTimeline *summary.Timeline
 
 // InitTimeline creates the global pipeline timeline, anchored to now.
@@ -109,11 +108,8 @@ func GetTimeline() *summary.Timeline {
 	return pipelineTimeline
 }
 
-// step tracks progress for a long-running build step.
-// It prints "⇒ label..." initially, then " done. (Xs)" when finished.
-// If output was produced between start and finish, the done message
-// goes on a new line with the label repeated.
-// Sub-steps (created via logSubStep) print indented "    label Xs" instead.
+// step tracks progress for a build step, printed as "⇒ label..." then
+// " done.". Sub-steps print " label Xs" instead.
 type step struct {
 	label  string
 	thread string
@@ -121,6 +117,47 @@ type step struct {
 	noisy  bool
 	sub    bool // sub-step: indented output, no "⇒" prefix
 	once   sync.Once
+	stopHB chan struct{}
+	hbOnce sync.Once
+}
+
+// heartbeatEvery is how often a step with no output of its own says it is still running.
+const heartbeatEvery = 20 * time.Second
+
+// heartbeat starts reporting elapsed time until the step finishes. detail
+// answers what the step is doing now, or "" when it has nothing to add.
+func (s *step) heartbeat(detail func() string) {
+	s.stopHB = make(chan struct{})
+	go func() {
+		t := time.NewTicker(heartbeatEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-s.stopHB:
+				return
+			case <-t.C:
+				s.noteOutput()
+				line := ""
+				if detail != nil {
+					line = detail()
+				}
+				if line != "" {
+					line = ": " + line
+				}
+				fmt.Fprintf(os.Stdout, "    %s still running%s %s\n", s.label, line, fmtDuration(time.Since(s.start)))
+			}
+		}
+	}()
+}
+
+// stopHeartbeat ends the reporting started by heartbeat. It is safe to call
+// when none was started, and safe to call twice.
+func (s *step) stopHeartbeat() {
+	s.hbOnce.Do(func() {
+		if s.stopHB != nil {
+			close(s.stopHB)
+		}
+	})
 }
 
 // logStep prints "⇒ label..." without a newline and returns a step
@@ -138,9 +175,8 @@ func logStepOn(label, thread string) *step {
 	return &step{label: label, thread: thread, start: time.Now()}
 }
 
-// logSubStep creates a sub-step that prints as "    label Xs" when done.
-// It doesn't print anything on creation — only on completion.
-// Useful for recording sub-phases (e.g. vet phases) that have their own timing.
+// logSubStep creates a sub-step that prints " label Xs" only on completion,
+// for recording sub-phases (e.g. vet phases) with their own timing.
 func logSubStep(label, thread string) *step {
 	if activeWatchdog != nil {
 		activeWatchdog.setStep(label)
@@ -148,9 +184,8 @@ func logSubStep(label, thread string) *step {
 	return &step{label: label, thread: thread, start: time.Now(), sub: true}
 }
 
-// noteOutput marks that visible output was produced during this step.
-// On the first call, it prints a newline to terminate the "..." line
-// so that subprocess output starts on its own line.
+// noteOutput marks visible output during this step. On its earliest call it
+// prints a newline so subprocess output starts on its own line.
 func (s *step) noteOutput() {
 	s.once.Do(func() {
 		s.noisy = true
@@ -165,6 +200,7 @@ func fmtDuration(d time.Duration) string {
 
 // finish prints the completion message with elapsed time and a status word.
 func (s *step) finish(status string) {
+	s.stopHeartbeat()
 	end := time.Now()
 	d := end.Sub(s.start)
 	if s.sub {
@@ -196,17 +232,16 @@ func (s *step) failed() {
 	s.finish(colorRed + "failed!" + colorReset)
 }
 
-// timedLineWriter wraps a writer and appends elapsed time to each line.
-// When a complete line is seen, its content is written immediately (without
-// the trailing newline). The newline is deferred until the next content
-// arrives, at which point " <elapsed>\n" is written first. This way each
-// line's duration reflects the wall-clock time until the next line appeared.
+// timedLineWriter appends elapsed time to each line.
 type timedLineWriter struct {
 	target      io.Writer
 	buf         bytes.Buffer
 	awaitingEnd bool      // wrote line content, waiting to close with timing
 	lineEnd     time.Time // when the line content was written
 }
+
+// timedLineMinDuration mirrors logx's minDurationToShow: skip stamping fast lines.
+var timedLineMinDuration = time.Second
 
 // newTimedLineWriter creates a writer that appends elapsed time to each line.
 func newTimedLineWriter(target io.Writer) *timedLineWriter {
@@ -226,7 +261,7 @@ func (w *timedLineWriter) Write(p []byte) (int, error) {
 			w.buf.Write(line)
 			break
 		}
-		// Complete line found. Close any previous open line first.
+		// Complete line found. Close any open line before writing.
 		if w.awaitingEnd {
 			w.closeLine()
 		}
@@ -239,9 +274,14 @@ func (w *timedLineWriter) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-// closeLine appends " <elapsed>\n" to finish the current open line.
+// closeLine finishes the current open line: " <elapsed>\n" when the gap since
+// its content was written reaches timedLineMinDuration, otherwise "\n".
 func (w *timedLineWriter) closeLine() {
-	fmt.Fprintf(w.target, " %s\n", fmtDuration(time.Since(w.lineEnd)))
+	if elapsed := time.Since(w.lineEnd); elapsed >= timedLineMinDuration {
+		fmt.Fprintf(w.target, " %s\n", fmtDuration(elapsed))
+	} else {
+		fmt.Fprintln(w.target)
+	}
 	w.awaitingEnd = false
 }
 

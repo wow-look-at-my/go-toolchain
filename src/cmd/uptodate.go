@@ -13,8 +13,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/spf13/pflag"
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
-	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
@@ -22,31 +23,113 @@ import (
 // fingerprintFile returns the path where the last-successful-run fingerprint is stored.
 func fingerprintFile() string {
 	dir := filepath.Join(os.TempDir(), "go-toolchain-fingerprint")
-	os.MkdirAll(dir, 0o755)
+	// Best effort, but never silent: the lost fast exit is correct and slow,
+	// and it should arrive with its cause.
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		logger.Warn("cannot store the up-to-date fingerprint in %s (%v); every run will redo the pipeline", dir, err)
+	}
 	wd, _ := os.Getwd()
 	h := sha256.Sum256([]byte(wd))
 	return filepath.Join(dir, hex.EncodeToString(h[:])+".sha256")
 }
 
-// computeFingerprint hashes all inputs that affect a go-toolchain run:
-// all .go files (including tests), go.mod, go.sum, Go version, CGO flag, and
-// every file pulled in by a //go:embed directive (resolved via go list).
+// runEnv is captured at run start, before the pipeline sets its own PID-derived vars.
+var runEnv []string
+
+func captureRunEnv() { runEnv = os.Environ() }
+
+// fingerprintEnv returns the captured environment, or the live environment for callers
+// that skipped PersistentPreRunE.
+func fingerprintEnv() []string {
+	if runEnv != nil {
+		return runEnv
+	}
+	return os.Environ()
+}
+
+// fingerprintFlags is the root command's flag set, wired up in root.go's init.
+var fingerprintFlags *pflag.FlagSet
+
+// fingerprintPersistentFlags holds what Flags() merges in at parse time.
+var fingerprintPersistentFlags *pflag.FlagSet
+
+// volatileEnv holds shell-rewritten vars excluded from the fingerprint.
+var volatileEnv = set.Of("_", "OLDPWD", "SHLVL")
+
+// flagFingerprint renders every root flag as name=value, sorted, so a flag
+// added later needs no update here. Reads fingerprintFlags rather than
+// rootCmd directly, since rootCmd's init reaches this via saveFingerprint.
+func flagFingerprint() string {
+	if fingerprintFlags == nil {
+		return ""
+	}
+	seen := map[string]string{}
+	visit := func(fs *pflag.FlagSet) {
+		if fs == nil {
+			return
+		}
+		fs.VisitAll(func(f *pflag.Flag) { seen[f.Name] = f.Value.String() })
+	}
+	visit(fingerprintFlags)
+	visit(fingerprintPersistentFlags)
+	lines := make([]string, 0, len(seen))
+	for name, value := range seen {
+		lines = append(lines, name+"="+value)
+	}
+	sort.Strings(lines)
+	return strings.Join(lines, "\n")
+}
+
+// isOutputDir reports whether path, relative to the walk root, is the output
+// directory. outputDir can also be absolute, so both spellings are compared.
+func isOutputDir(path string) bool {
+	if filepath.Clean(path) == filepath.Clean(outputDir) {
+		return true
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	outAbs, err := filepath.Abs(outputDir)
+	return err == nil && abs == outAbs
+}
+
+// computeFingerprint hashes all inputs that affect a go-toolchain run: all .go
+// files (including tests), go.mod, go.sum, .dats suites and their .golden
+// snapshots, everything under a testdata directory, Go version, the flags the
+// run was invoked with, the environment it was invoked in, and every file
+// pulled in by a //go:embed directive (resolved via go list).
 func computeFingerprint(r runner.CommandRunner) (string, error) {
 	h := sha256.New()
 
 	fmt.Fprintf(h, "go:%s\n", runtime.Version())
 	fmt.Fprintf(h, "toolchain:%s\n", buildVersion)
-	fmt.Fprintf(h, "cgo:%v\n", cgoEnabled)
+	// The fork checkout is the standard library a build of this module compiles.
+	fmt.Fprintf(h, "gosmopolitan:%s\n", resolvedForkCommit)
 	fmt.Fprintf(h, "output:%s\n", outputDir)
+	fmt.Fprintf(h, "flags:%s\n", flagFingerprint())
+
+	// Folds in every var except shell noise, so flipping an env-gated test counts as a different run.
+	env := append([]string(nil), fingerprintEnv()...)
+	sort.Strings(env)
+	for _, kv := range env {
+		if name, _, ok := strings.Cut(kv, "="); ok && volatileEnv.Contains(name) {
+			continue
+		}
+		fmt.Fprintf(h, "env:%s\n", kv)
+	}
 
 	var files []string
+	// The walk must skip the run's own product. Matching the NAME "build"
+	// instead hid src/build, a real package, so an edit there left the
+	// fingerprint unchanged and the fast exit served a stale binary.
 	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if name == "build" || name == "vendor" || name == "node_modules" {
+			if isOutputDir(path) || name == "vendor" || name == "node_modules" || isForkSubmodulePath(path) {
 				return filepath.SkipDir
 			}
 			if name != "." && strings.HasPrefix(name, ".") {
@@ -55,7 +138,12 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 			return nil
 		}
 		name := d.Name()
-		if strings.HasSuffix(name, ".go") || name == "go.mod" || name == "go.sum" {
+		// .dats/.golden files, action.yml (read as test data, not embed-reachable),
+		// and testdata/ (convention-ignored by go, so no embed covers it) are
+		// pipeline inputs the fast-exit would otherwise miss.
+		if strings.HasSuffix(name, ".go") || strings.HasSuffix(name, ".dats") ||
+			strings.HasSuffix(name, ".golden") || name == "go.mod" || name == "go.sum" ||
+			name == "action.yml" || name == "action.yaml" || underTestdata(path) {
 			files = append(files, path)
 		}
 		return nil
@@ -79,12 +167,7 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 		f.Close()
 	}
 
-	// Fold in files pulled in by //go:embed. They are compile inputs to the
-	// embedding package (and to that package's test binary), so an embed-only
-	// change must bust the fingerprint even though no .go file changed —
-	// otherwise the top-level "Up to date" skip fires and the rebuilt embedded
-	// bytes (and the affected package's tests) are never re-run. An error here
-	// (e.g. a broken build) is propagated so the caller declines to short-circuit.
+	// //go:embed files are compile inputs too; an embed-only change must still bust the fingerprint.
 	embeds, err := embeddedFiles(r)
 	if err != nil {
 		return "", err
@@ -105,22 +188,28 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// underTestdata reports whether any directory component of path is "testdata".
+func underTestdata(path string) bool {
+	for dir := filepath.Dir(path); dir != "." && dir != string(filepath.Separator); dir = filepath.Dir(dir) {
+		if filepath.Base(dir) == "testdata" {
+			return true
+		}
+	}
+	return false
+}
+
 // embeddedFiles returns the absolute paths of every file referenced by a
 // //go:embed directive in the main module's packages, de-duplicated and sorted.
 //
-// It shells out to `go list -test -json ./...` and lets go list resolve the
-// embed patterns the way the compiler does (globs, directory trees, the all:
-// prefix, quoted names, multiple patterns/lines), rather than parsing //go:embed
-// comments by hand. The -test flag is required: without it go list leaves
-// TestEmbedFiles and XTestEmbedFiles unresolved (null). ./... without -deps
-// keeps the scope to the main module — dependency embeds are already pinned
-// through go.mod/go.sum. GOCACHEPROG is cleared so go list doesn't spawn a
-// cacheprog child that inherits stdout and stalls the io.ReadAll below (the
-// same precaution the benchmark runner takes).
+// It shells out to `go list -test -json ./...`, letting go list resolve the
+// embed patterns (globs, directory trees, the all: prefix) instead of parsing
+// //go:embed comments by hand. -test is required, or TestEmbedFiles and
+// XTestEmbedFiles stay unresolved. ./... without -deps keeps the scope to the
+// main module. GOCACHEPROG is cleared so go list doesn't spawn a cacheprog
+// child that inherits stdout and stalls the io.ReadAll below.
 //
-// Note: only files covered by a //go:embed directive are tracked. A file a test
-// reads at runtime via os.ReadFile that no //go:embed covers is still not
-// tracked — that is a separate, broader gap.
+// Note: files read at run time from a testdata directory are covered by the
+// walk above; a file living elsewhere with no embed directive stays untracked.
 func embeddedFiles(r runner.CommandRunner) ([]string, error) {
 	proc, err := runner.Cmd("go", "list", "-test", "-json", "./...").
 		WithQuiet().WithEnv("GOCACHEPROG", "").Run(r)
@@ -132,7 +221,7 @@ func embeddedFiles(r runner.CommandRunner) ([]string, error) {
 		return nil, err
 	}
 
-	set := make(map[string]struct{})
+	embedded := set.New[string]()
 	dec := json.NewDecoder(bytes.NewReader(out))
 	for {
 		var pkg struct {
@@ -152,24 +241,21 @@ func embeddedFiles(r runner.CommandRunner) ([]string, error) {
 		}
 		for _, group := range [][]string{pkg.EmbedFiles, pkg.TestEmbedFiles, pkg.XTestEmbedFiles} {
 			for _, rel := range group {
-				set[filepath.Join(pkg.Dir, rel)] = struct{}{}
+				embedded.Add(filepath.Join(pkg.Dir, rel))
 			}
 		}
 	}
 
-	embeds := make([]string, 0, len(set))
-	for f := range set {
-		embeds = append(embeds, f)
-	}
+	embeds := embedded.Values()
 	sort.Strings(embeds)
 	return embeds, nil
 }
 
-// isUpToDate returns true if the project fingerprint matches the last successful run
-// and all build outputs still exist.
-func isUpToDate(r runner.CommandRunner) bool {
-	fp := fingerprintFile()
-	stored, err := os.ReadFile(fp)
+// inputsUnchanged reports whether every input the pipeline reads still matches
+// the last run that went green. It says nothing about the outputs, so a caller
+// that lost its outputs builds again without re-running vet or the tests.
+func inputsUnchanged(r runner.CommandRunner) bool {
+	stored, err := os.ReadFile(fingerprintFile())
 	if err != nil {
 		return false
 	}
@@ -183,25 +269,31 @@ func isUpToDate(r runner.CommandRunner) bool {
 		return false
 	}
 
+	return true
+}
+
+// outputsPresent reports whether every target this module builds is on disk.
+func outputsPresent(r runner.CommandRunner) bool {
 	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {
 		return false
 	}
 
-	inDocker := build.InDocker()
 	for _, t := range targets {
-		outputName := t.OutputName
-		if inDocker {
-			// hostos: must mirror the naming in root.go's runBuildPhase.
-			outputName = build.BinaryName(outputName, hostos.GOOS(), runtime.GOARCH)
-		}
-		outPath := filepath.Join(outputDir, outputName)
+		// Must mirror the naming in root.go's runBuildPhase.
+		outPath := filepath.Join(outputDir, build.BinaryName(t.OutputName, cosmoOS, cosmoFatArch))
 		if _, err := os.Stat(outPath); err != nil {
 			return false
 		}
 	}
 
 	return true
+}
+
+// isUpToDate returns true if the project fingerprint matches the last successful run
+// and all build outputs still exist.
+func isUpToDate(r runner.CommandRunner) bool {
+	return inputsUnchanged(r) && outputsPresent(r)
 }
 
 // saveFingerprint writes the current fingerprint to disk.

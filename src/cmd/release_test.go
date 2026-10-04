@@ -9,17 +9,20 @@ import (
 )
 
 func TestParseCommitLines(t *testing.T) {
+	t.Serial()
 	input := "abc1234 add feature X\ndef5678 fix bug Y\n"
 	commits := parseCommitLines(input)
 	assert.Equal(t, []string{"add feature X", "fix bug Y"}, commits)
 }
 
 func TestParseCommitLinesEmpty(t *testing.T) {
+	t.Serial()
 	commits := parseCommitLines("")
 	assert.Nil(t, commits)
 }
 
 func TestParseCommitLinesNoSpace(t *testing.T) {
+	t.Serial()
 	commits := parseCommitLines("abc1234")
 	assert.Equal(t, []string{"abc1234"}, commits)
 }
@@ -50,6 +53,7 @@ func (m *mockExecutor) gitRun(args ...string) error {
 }
 
 func TestReleaseCmdAbort(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "")
 	oldTag := releaseTag
 	releaseTag = "v1.0.0"
@@ -70,6 +74,7 @@ func TestReleaseCmdAbort(t *testing.T) {
 }
 
 func TestReleaseCmdAbortEmpty(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "")
 	oldTag := releaseTag
 	releaseTag = "v1.0.0"
@@ -90,6 +95,7 @@ func TestReleaseCmdAbortEmpty(t *testing.T) {
 }
 
 func TestReleaseCmdSuccess(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "true")
 
 	oldTag := releaseTag
@@ -125,6 +131,7 @@ func TestReleaseCmdSuccess(t *testing.T) {
 }
 
 func TestReleaseCmdAutoTag(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "true")
 
 	oldTag := releaseTag
@@ -158,6 +165,7 @@ func TestReleaseCmdAutoTag(t *testing.T) {
 }
 
 func TestReleaseCmdGitTagFails(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "true")
 	oldTag := releaseTag
 	releaseTag = "v1.0.0"
@@ -184,6 +192,7 @@ func TestReleaseCmdGitTagFails(t *testing.T) {
 }
 
 func TestReleaseCmdPushTagFails(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "true")
 	oldTag := releaseTag
 	releaseTag = "v1.0.0"
@@ -212,6 +221,7 @@ func TestReleaseCmdPushTagFails(t *testing.T) {
 }
 
 func TestReleaseCmdAutoTagFails(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "true")
 	oldTag := releaseTag
 	releaseTag = "" // auto-detect
@@ -229,6 +239,7 @@ func TestReleaseCmdAutoTagFails(t *testing.T) {
 }
 
 func TestReleaseCmdCollectCommitsFails(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "true")
 	oldTag := releaseTag
 	releaseTag = "v1.0.0"
@@ -246,6 +257,7 @@ func TestReleaseCmdCollectCommitsFails(t *testing.T) {
 }
 
 func TestReleaseCmdRollingTagFails(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "true")
 	oldTag := releaseTag
 	releaseTag = "v1.0.0"
@@ -274,6 +286,7 @@ func TestReleaseCmdRollingTagFails(t *testing.T) {
 }
 
 func TestParseRemoteHost(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		url  string
 		want string
@@ -297,6 +310,7 @@ func TestParseRemoteHost(t *testing.T) {
 }
 
 func TestResolveNoCosign(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		name      string
 		cosign    bool
@@ -330,6 +344,7 @@ func TestResolveNoCosign(t *testing.T) {
 }
 
 func TestRealExecutorGitOutput(t *testing.T) {
+	t.Serial()
 	ex := realExecutor{}
 	out, err := ex.gitOutput("rev-parse", "--is-inside-work-tree")
 	assert.Nil(t, err)
@@ -337,18 +352,21 @@ func TestRealExecutorGitOutput(t *testing.T) {
 }
 
 func TestRealExecutorGitOutputError(t *testing.T) {
+	t.Serial()
 	ex := realExecutor{}
 	_, err := ex.gitOutput("rev-parse", "--verify", "nonexistent-ref-that-does-not-exist-xyz")
 	assert.NotNil(t, err)
 }
 
 func TestRealExecutorGitRun(t *testing.T) {
+	t.Serial()
 	ex := realExecutor{}
 	err := ex.gitRun("status", "--porcelain")
 	assert.Nil(t, err)
 }
 
 func TestCollectCommitsWithExecutor(t *testing.T) {
+	t.Serial()
 	mock := &mockExecutor{
 		gitOutputFunc: func(args ...string) (string, error) {
 			for _, a := range args {
@@ -366,6 +384,7 @@ func TestCollectCommitsWithExecutor(t *testing.T) {
 }
 
 func TestCollectCommitsWithExecutorNoFrom(t *testing.T) {
+	t.Serial()
 	mock := &mockExecutor{
 		gitOutputFunc: func(args ...string) (string, error) {
 			for _, a := range args {

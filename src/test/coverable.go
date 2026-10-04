@@ -13,19 +13,11 @@ import (
 )
 
 // HasCoverableStatements reports whether any non-test, non-generated Go file
-// under dir that is part of the current build contains at least one function
+// under dir that is part of the current build contains a function
 // body with a statement — i.e. whether `go test -cover` could ever measure a
 // statement in this module. Embed-only and declarations-only modules (no
 // function bodies anywhere) return false: their empty coverage profile is
 // expected, not evidence of a broken setup.
-//
-// The walk mirrors listTestPackages: hidden directories, vendor/, and
-// testdata/ are skipped, as are nested modules (their files belong to a
-// different module and are invisible to this module's "./..."). Generated
-// files are skipped because filterBlocksByGenerated excludes them from
-// coverage totals, and files excluded by build constraints (e.g. a
-// "//go:build ignore" generator) are skipped because `go test` never
-// compiles or instruments them.
 func HasCoverableStatements(dir string) bool {
 	found := false
 	filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
@@ -46,10 +38,8 @@ func HasCoverableStatements(dir string) bool {
 		if isGeneratedFile(path) {
 			return nil
 		}
-		// Honor build constraints so a tag-excluded file (never compiled,
-		// never instrumented) cannot count as coverable. An error means
-		// "can't classify" — treat the file as included, matching
-		// gomod.fileMatchesBuild.
+		// A tag-excluded file is never compiled, so it is not coverable. A match
+		// error means "can't classify"; include it (see fileMatchesBuild).
 		if matched, matchErr := build.Default.MatchFile(filepath.Dir(path), name); matchErr == nil && !matched {
 			return nil
 		}

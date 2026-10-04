@@ -121,8 +121,18 @@ func TestInitClauseFatal(t *testing.T) {
 func TestWithBVar(t *testing.T) {
 	// Test using b as the receiver (common in benchmarks)
 	b := t
+	b.Helper()
 	var err error
 	if err != nil { // want "use assert.Nil instead of if \\+ t.Error/t.Fatal"
+		b.Error("error")
+	}
+}
+
+func TestMessageOnlyReceiver(t *testing.T) {
+	// b is read only by the failure call, so dropping it would leave b unused
+	b := t
+	var err error
+	if err != nil {
 		b.Error("error")
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/mod/modfile"
@@ -88,7 +89,7 @@ func buildDepSnapshot() (*depSnapshot, error) {
 	}
 
 	sourceLocation := "go.mod"
-	if workspace := os.Getenv("GITHUB_WORKSPACE"); workspace != "" {
+	if workspace := workspaceDir(); workspace != "" {
 		absGoMod, err := filepath.Abs(goModPath)
 		if err == nil {
 			if rel, err := filepath.Rel(workspace, absGoMod); err == nil {
@@ -103,7 +104,7 @@ func buildDepSnapshot() (*depSnapshot, error) {
 	}
 
 	correlator := "go-toolchain"
-	if wd := os.Getenv("GITHUB_WORKSPACE"); wd != "" {
+	if wd := workspaceDir(); wd != "" {
 		if cwd, err := os.Getwd(); err == nil {
 			if rel, err := filepath.Rel(wd, cwd); err == nil && rel != "." {
 				correlator += "-" + filepath.ToSlash(rel)
@@ -141,7 +142,7 @@ func postDepSnapshot(snapshot *depSnapshot) error {
 		token = os.Getenv("GH_TOKEN")
 	}
 	if token == "" {
-		return fmt.Errorf("GITHUB_TOKEN or GH_TOKEN required")
+		return fmt.Errorf("GITHUB_TOKEN or GH_TOKEN required — in GitHub Actions pass GITHUB_TOKEN: ${{ github.token }} in the step's env (the go-toolchain action does this automatically)")
 	}
 
 	repo := os.Getenv("GITHUB_REPOSITORY")
@@ -171,6 +172,9 @@ func postDepSnapshot(snapshot *depSnapshot) error {
 
 	if resp.StatusCode != http.StatusCreated {
 		respBody, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusForbidden {
+			return fmt.Errorf("dependency submission failed (HTTP %d): %s — the workflow token lacks contents: write; add \"permissions: contents: write\" to the calling workflow job", resp.StatusCode, string(respBody))
+		}
 		return fmt.Errorf("dependency submission failed (HTTP %d): %s", resp.StatusCode, string(respBody))
 	}
 
@@ -182,19 +186,94 @@ func postDepSnapshot(snapshot *depSnapshot) error {
 	return nil
 }
 
-// maybeSubmitDeps submits a dependency snapshot when running in GitHub Actions.
-// Errors are logged but don't fail the build.
-func maybeSubmitDeps() {
+// selfRepository is the only repo exempt from dependency-graph submission.
+const selfRepository = "wow-look-at-my/go-toolchain"
+
+// resolveLinks spells path as the kernel resolves it, so darwin's /var and
+// /private/var compare equal.
+func resolveLinks(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return path
+}
+
+// workspaceDir returns GITHUB_WORKSPACE in the form os.Getwd uses.
+func workspaceDir() string {
+	return unixDrivePath(os.Getenv("GITHUB_WORKSPACE"))
+}
+
+// unixDrivePath spells a Windows drive path as a cosmo binary sees it: D:\a\b
+// is /d/a/b. The runner hands a cosmo binary on Windows the Windows spelling,
+// and Unix path rules read that spelling as a relative name.
+func unixDrivePath(path string) string {
+	if filepath.Separator != '/' || len(path) < 3 || path[1] != ':' || (path[2] != '\\' && path[2] != '/') {
+		return path
+	}
+	drive := path[0] | 0x20
+	if drive < 'a' || drive > 'z' {
+		return path
+	}
+	return "/" + string(drive) + strings.ReplaceAll(path[2:], `\`, "/")
+}
+
+// insideWorkspace reports whether the working directory is inside
+// GITHUB_WORKSPACE, i.e. the module being built is the checked-out repository's
+// own. A snapshot describes GITHUB_REPOSITORY at GITHUB_SHA, so it is only
+// meaningful for that repository's module.
+func insideWorkspace() bool {
+	workspace := workspaceDir()
+	if workspace == "" {
+		return false
+	}
+	absWorkspace, err := filepath.Abs(workspace)
+	if err != nil {
+		return false
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return false
+	}
+	// darwin spells a directory differently on each side, so both get resolved.
+	rel, err := filepath.Rel(resolveLinks(absWorkspace), resolveLinks(cwd))
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+// maybeSubmitDeps submits a dependency snapshot when running in GitHub Actions
+// against the repository's own checkout. A failed snapshot or submission fails
+// the build.
+//
+// Building outside the checkout is NOT a way to skip. It is refused for every
+// repository but this repository, because "run the build somewhere else" is exactly
+// the shape the removed GO_TOOLCHAIN_NO_DEP_SUBMISSION knob had: cheap to reach
+// for, invisible afterwards, and it leaves a repository out of vulnerability
+// scanning while its builds stay green. A repository that genuinely must build a
+// module outside its checkout gets a loud failure telling it so, never silence.
+func maybeSubmitDeps() error {
 	if os.Getenv("CI") == "" || os.Getenv("GITHUB_REPOSITORY") == "" || os.Getenv("GITHUB_SHA") == "" {
-		return
+		return nil
+	}
+	if !insideWorkspace() {
+		repo := os.Getenv("GITHUB_REPOSITORY")
+		if repo != selfRepository {
+			cwd, _ := os.Getwd()
+			return fmt.Errorf(
+				"refusing to submit a dependency snapshot: building %q, which is outside GITHUB_WORKSPACE (%q). "+
+					"A snapshot describes %s at %s, so submitting this module would publish its dependencies as that "+
+					"repository's dependency graph. Run go-toolchain from within the checkout. Building elsewhere is not "+
+					"a supported way to skip submission",
+				cwd, os.Getenv("GITHUB_WORKSPACE"), repo, os.Getenv("GITHUB_SHA"))
+		}
+		logger.Debug("=> Dependency submission skipped: " + selfRepository + " smoke fixture built outside the checkout")
+		return nil
 	}
 
 	snapshot, err := buildDepSnapshot()
 	if err != nil {
-		logger.Warn("=> Warning: dependency snapshot failed: %v", err)
-		return
+		return fmt.Errorf("dependency snapshot failed: %w", err)
 	}
-	if err := postDepSnapshot(snapshot); err != nil {
-		logger.Warn("=> Warning: dependency submission failed: %v", err)
-	}
+	return postDepSnapshot(snapshot)
 }
