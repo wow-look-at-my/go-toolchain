@@ -275,10 +275,15 @@ func collectUsedInterfaceMethods(pass *analysis.Pass) []*types.Func {
 // isInterfaceMethod returns true if some named type in the package has fn in
 // its method set, declared on the type itself or promoted from an embedded
 // field at any depth, and implements an interface that contains fn's name.
-// Both T and *T are checked.
+// Both T and *T are checked. A method declared in an interface type is one of
+// that interface's methods and is always true.
 func isInterfaceMethod(fn *types.Func, named []*types.Named, ifaces []*types.Interface, pkg *types.Package) bool {
-	if fn.Type().(*types.Signature).Recv() == nil {
+	recv := fn.Type().(*types.Signature).Recv()
+	if recv == nil {
 		return false
+	}
+	if types.IsInterface(recv.Type()) {
+		return true
 	}
 	for _, n := range named {
 		if carriesInterfaceMethod(n, fn, ifaces, pkg) {
