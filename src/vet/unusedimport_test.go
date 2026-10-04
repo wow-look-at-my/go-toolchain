@@ -10,50 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestImportNameAliased(t *testing.T) {
-	imp := &ast.ImportSpec{
-		Name: &ast.Ident{Name: "myfmt"},
-		Path: &ast.BasicLit{Value: `"fmt"`},
-	}
-	assert.Equal(t, "myfmt", importName(imp))
-}
-
-func TestImportNameStdlib(t *testing.T) {
-	imp := &ast.ImportSpec{
-		Path: &ast.BasicLit{Value: `"fmt"`},
-	}
-	assert.Equal(t, "fmt", importName(imp))
-}
-
-func TestImportNameFallback(t *testing.T) {
-	// Non-existent package falls back to filepath.Base
-	imp := &ast.ImportSpec{
-		Path: &ast.BasicLit{Value: `"example.invalid/nonexistent/mypkg"`},
-	}
-	assert.Equal(t, "mypkg", importName(imp))
-}
-
-func TestImportNameDotImport(t *testing.T) {
-	imp := &ast.ImportSpec{
-		Name: &ast.Ident{Name: "."},
-		Path: &ast.BasicLit{Value: `"fmt"`},
-	}
-	assert.Equal(t, ".", importName(imp))
-}
-
-func TestImportNameBlankImport(t *testing.T) {
-	imp := &ast.ImportSpec{
-		Name: &ast.Ident{Name: "_"},
-		Path: &ast.BasicLit{Value: `"fmt"`},
-	}
-	assert.Equal(t, "_", importName(imp))
-}
-
 func TestFixUnusedRangeVarsNoFiles(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	fixed, err := FixUnusedRangeVars("./...")
 	require.NoError(t, err)
@@ -61,10 +21,9 @@ func TestFixUnusedRangeVarsNoFiles(t *testing.T) {
 }
 
 func TestFixUnusedRangeVarsNothingToFix(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	// Create a Go file where range vars are used
 	code := `package main
@@ -84,10 +43,9 @@ func main() {
 }
 
 func TestFixUnusedRangeVarsFixesUnused(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	// Create a Go file with unused range variable
 	code := `package main
@@ -111,10 +69,9 @@ func main() {
 }
 
 func TestFixUnusedRangeVarsGlobPattern(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	code := `package main
 
@@ -132,10 +89,9 @@ func main() {
 }
 
 func TestFixUnusedRangeVarsSkipsVendor(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	// Create a file in vendor/
 	os.MkdirAll(filepath.Join(dir, "vendor", "pkg"), 0755)
@@ -155,6 +111,7 @@ func Foo() {
 }
 
 func TestRemoveImportFromAST(t *testing.T) {
+	t.Serial()
 	f := &ast.File{
 		Decls: []ast.Decl{
 			&ast.GenDecl{

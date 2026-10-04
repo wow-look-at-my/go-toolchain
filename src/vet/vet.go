@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"go/ast"
+	"go/build"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/buildtags"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"golang.org/x/tools/go/analysis"
 
@@ -34,7 +37,6 @@ func Analyzers() []*analysis.Analyzer {
 		AssertNormAnalyzer,
 		DeadCodeAnalyzer,
 		BannedOutputAnalyzer,
-		CommentNumbersAnalyzer,
 		CommentSpanAnalyzer,
 		JSONInterpAnalyzer,
 		MapSetAnalyzer,
@@ -75,25 +77,10 @@ func RunWithProgress(fix bool, progress ProgressFunc) (bool, error) {
 	return fmtChanged || semanticChanged, err
 }
 
-// RunFromSource type-checks every dependency from SOURCE. The default reads
-// export data, which is faster and can be rejected. Depth: docs/CI.md
-func RunFromSource(fix bool, progress ProgressFunc) (bool, error) {
-	loadDepsFromSource = true
-	defer func() { loadDepsFromSource = false }()
-	return RunWithProgress(fix, progress)
-}
-
-// loadDepsFromSource is set only for the duration of RunFromSource.
-var loadDepsFromSource bool
-
-// NeedModule populates pkg.Module, which bannedoutput scopes its ban by.
-// NeedDeps drops export data, so no importer is in the path.
+// loadMode type-checks the module's own source and reads each dependency as
+// the export data the compiler in this binary wrote.
 func loadMode() packages.LoadMode {
-	mode := packages.LoadSyntax | packages.NeedModule
-	if loadDepsFromSource {
-		mode |= packages.NeedDeps
-	}
-	return mode
+	return packages.LoadSyntax | packages.NeedModule
 }
 
 // RunOnPattern executes all analyzers on packages matching pattern.
@@ -102,8 +89,8 @@ func RunOnPattern(pattern string, fix bool, progress ProgressFunc) (bool, error)
 	return vetSemantic(pattern, NewEditor(fix), progress)
 }
 
-// loadErrorMessages collects load errors from the WHOLE import graph, not just
-// the roots: a failed dependency records its cause on its own Errors, and the
+// loadErrorMessages collects load errors from the WHOLE import graph, not the
+// roots: a failed dependency records its cause on its own Errors, and the
 // root only carries the downstream `undefined:` cascade. Go version mismatch
 // warnings are dropped (a minimum, not a syntax gate). Messages are
 // deduplicated: a directory's test variants carry the same Errors.
@@ -170,7 +157,6 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 	resetSliceSetWarnings()
 	resetWriteRunWarnings()
 	resetCommentSpanWarnings()
-	resetCommentNumbersWarnings()
 	discovery, err := buildtags.Scan(".")
 	if err != nil {
 		return filesChanged, fmt.Errorf("discovering build tags: %w", err)
@@ -209,16 +195,59 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 	return finishSemantic(pattern, ed, progress, filesChanged, diagnostics)
 }
 
+// moduleHasGoFiles reports whether the tree holds a Go file the loader owes an
+// answer for UNDER tagCfg. It skips what every walk here skips: a hidden
+// directory, vendor, testdata and a nested module. This separates a dead loader
+// from a module that genuinely has nothing to check.
+//
+// A file counts only when the build constraints admit it. A module whose every
+// file is constrained out has nothing to load, and a loader that returns
+// nothing for it is correct. Counting the file on disk instead reports that
+// module as a dead loader -- which is how a wasm-only main, legal and building
+// nowhere else, read as a failure.
+func moduleHasGoFiles(tagCfg buildtags.Config) bool {
+	ctx := build.Default
+	ctx.BuildTags = append(ctx.BuildTags, tagCfg.Tags...)
+	found := false
+	filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata") {
+				return filepath.SkipDir
+			}
+			if gomod.IsNestedModule(path) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		// MatchFile reads the constraints, so an excluded file does not count.
+		match, merr := ctx.MatchFile(filepath.Dir(path), filepath.Base(path))
+		if match || merr != nil {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
+}
+
 // vetOneConfig loads and analyzes the module under a single build-tag
-// configuration, appending diagnostics and recording every file it actually
-// parsed into analyzedFiles (module-relative, slash separated) so Verify can
-// prove no tagged file went unseen.
+// configuration, appending diagnostics and recording every file it parsed
+// into analyzedFiles (module-relative, slash separated) so Verify can prove
+// no tagged file went unseen.
 func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report func(string),
 	diagnostics *[]Diagnostic, analyzedFiles set.Set[string], nParsedTotal *int,
 ) (bool, error) {
 	filesChanged := false
 
 	report("type-check " + tagCfg.String())
+	// The fork's default target, cosmo, is the a single every artifact and test binary builds for.
 	cfg := &packages.Config{
 		Mode:  loadMode(),
 		Tests: true,
@@ -233,6 +262,12 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 		f, err := parser.ParseFile(fset, filename, src, parser.AllErrors|parser.ParseComments)
 		task.End()
 		return f, err
+	}
+
+	// Which go command answers the loader, and what it reads as GOROOT.
+	if goPath, lookErr := exec.LookPath("go"); lookErr == nil {
+		goroot, _ := exec.Command(goPath, "env", "GOROOT").Output()
+		logger.Info("vet: go command %s, GOROOT %s", goPath, strings.TrimSpace(string(goroot)))
 	}
 
 	loadStart := time.Now()
@@ -256,6 +291,20 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 
 	if len(loadErrors) > 0 {
 		return false, fmt.Errorf("package load errors:\n%s", strings.Join(loadErrors, "\n"))
+	}
+
+	// An empty load analyzes nothing. Every check below it then passes for want
+	// of input, and the phase reports a green it never earned. packages.Load
+	// reports no error when the go list driver it shells out to dies or is
+	// killed, so an empty result is the only symptom there is. buildtags.Verify
+	// cannot see this. It compares against the GATED files, and a module with no
+	// build tag has none to miss.
+	if nPkgs == 0 && moduleHasGoFiles(tagCfg) {
+		return false, fmt.Errorf("vet loaded no packages under tags %s from %s, "+
+			"but this module has Go files: no file was type-checked and no analyzer ran.\n"+
+			"The go list driver returned an empty result. It usually died or was killed: "+
+			"look above for a timeout, and for a shared build cache that stopped answering",
+			tagCfg, strings.Join(patterns, " "))
 	}
 
 	// Run analyzers — wrap each Run function to record per-analyzer per-package timing.
@@ -298,9 +347,9 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 				if result == nil {
 					continue
 				}
-				// The uncommitted-changes guard only matters when a fix is
-				// actually written; on CI nothing is clobbered, so skip it.
-				if ed.Writes() {
+				// The guard protects the user's edits: skip it where there are none.
+				name := fixesFilename(result)
+				if ed.Writes() && !ed.Wrote(name) {
 					if err := checkFileCommitted(result); err != nil {
 						return false, err
 					}
@@ -320,7 +369,7 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 				if result == nil || len(result.Edits) == 0 {
 					continue
 				}
-				if ed.Writes() {
+				if ed.Writes() && !ed.Wrote(result.Filename) {
 					if err := checkFileCommittedByName(result.Filename); err != nil {
 						return false, err
 					}
@@ -389,9 +438,12 @@ func finishSemantic(pattern string, ed Editor, progress ProgressFunc,
 	return filesChanged, nil
 }
 
+// instrumentedAnalyzers remembers the analyzer singletons already wrapped for the trace, so a repeat run cannot nest the wrapper again.
+var instrumentedAnalyzers sync.Map // *analysis.Analyzer -> struct{}
+
 // instrumentAnalyzers wraps each analyzer's Run function in-place to record
-// per-analyzer per-package timing in the trace. Mutates the original analyzers
-// since cloning breaks checker.Analyze's internal pointer-identity maps.
+// per-analyzer per-package timing in the trace. Mutates the analyzers
+// directly, because cloning breaks checker.Analyze's pointer-identity maps.
 func instrumentAnalyzers(analyzers []*analysis.Analyzer) []*analysis.Analyzer {
 	seen := set.New[*analysis.Analyzer]()
 	var instrument func(a *analysis.Analyzer)
@@ -399,13 +451,15 @@ func instrumentAnalyzers(analyzers []*analysis.Analyzer) []*analysis.Analyzer {
 		if !seen.Add(a) {
 			return
 		}
-		origRun := a.Run
-		name := a.Name
-		a.Run = func(pass *analysis.Pass) (interface{}, error) {
-			_, task := runtimetrace.NewTask(context.Background(), "analyze/"+name+"/"+pass.Pkg.Path())
-			result, err := origRun(pass)
-			task.End()
-			return result, err
+		if _, already := instrumentedAnalyzers.LoadOrStore(a, struct{}{}); !already {
+			origRun := a.Run
+			name := a.Name
+			a.Run = func(pass *analysis.Pass) (interface{}, error) {
+				_, task := runtimetrace.NewTask(context.Background(), "analyze/"+name+"/"+pass.Pkg.Path())
+				result, err := origRun(pass)
+				task.End()
+				return result, err
+			}
 		}
 		for _, req := range a.Requires {
 			instrument(req)
@@ -426,31 +480,33 @@ type Diagnostic struct {
 }
 
 // checkFileCommitted verifies the file is committed before auto-fix modifies it.
-// Tries go-git, then falls back to the git CLI on go-git infrastructure errors.
 func checkFileCommitted(fixes *ASTFixes) error {
-	filename := fixes.Fset.Position(fixes.File.Pos()).Filename
-	return checkFileCommittedByName(filename)
+	return checkFileCommittedByName(fixesFilename(fixes))
 }
 
-// checkFileCommittedByName is checkFileCommitted keyed by an explicit filename,
-// used by fix producers that don't carry an *ASTFixes (e.g. cast text edits).
+// fixesFilename names the file these AST fixes rewrite.
+func fixesFilename(fixes *ASTFixes) string {
+	return fixes.Fset.Position(fixes.File.Pos()).Filename
+}
+
+// checkFileCommittedByName is checkFileCommitted keyed by an explicit
+// filename, used by fix producers that don't carry an *ASTFixes (e.g. cast
+// text edits).
 func checkFileCommittedByName(filename string) error {
 	err := checkFileCommittedGoGit(filename)
 	if err == nil {
 		return nil
 	}
-	// If go-git detected uncommitted changes, trust that result
-	if strings.Contains(err.Error(), "uncommitted changes") {
-		return err
-	}
-	// go-git failed for infrastructure reasons; fall back to git CLI
+	// A dirty verdict is confirmed against the git CLI before it stops the fix.
 	return checkFileCommittedExec(filename)
 }
 
 // checkFileCommittedExec checks file status by shelling out to the git CLI.
 // Used as a fallback when go-git encounters bugs or unsupported repo features.
+// The file's directory is the working directory, which cosmo spells for the
+// host, and the pathspec is the base name, which needs no spelling at all.
 func checkFileCommittedExec(filename string) error {
-	cmd := exec.Command("git", "status", "--porcelain", "--", filename)
+	cmd := exec.Command("git", "status", "--porcelain", "--", filepath.Base(filename))
 	cmd.Dir = filepath.Dir(filename)
 	out, err := cmd.Output()
 	if err != nil {

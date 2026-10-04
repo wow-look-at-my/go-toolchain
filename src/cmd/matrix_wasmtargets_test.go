@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,22 +9,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-containers/set"
-	"github.com/wow-look-at-my/go-toolchain/src/cache"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
+	"github.com/wow-look-at-my/go-toolchain/src/wasmexec"
 )
 
 func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
+	t.Serial()
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm", "wasip1/wasm"})
 	t.Setenv("CI", "")
-	// The fork toolchain ships the js exec harness; a js/wasm build copies it next to the artifact.
-	require.NoError(t, os.MkdirAll(filepath.Join(fakeGoroot, "lib", "wasm"), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(fakeGoroot, "lib", "wasm", "wasm_exec.js"), []byte("// harness"), 0644))
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+		if isForkBuild(cfg, fakeGoroot) {
 			writeBuildOutput(t, cfg, "WASM")
 			return runner.MockProcess(nil, nil), nil
 		}
@@ -64,8 +60,8 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 
 	// wasm_exec.js ships alongside the js artifact and must byte-match the toolchain that built it.
 	harness, err := os.ReadFile(filepath.Join(outDir, "wasm_exec.js"))
-	require.NoError(t, err, "wasm_exec.js must be copied into the output dir for js/wasm builds")
-	assert.Equal(t, "// harness", string(harness))
+	require.NoError(t, err, "wasm_exec.js must be written into the output dir for js/wasm builds")
+	assert.Equal(t, string(wasmexec.Script), string(harness))
 
 	// checksums.txt covers both wasm artifacts plus wasm_exec.js.
 	sums, err := os.ReadFile(filepath.Join(outDir, "checksums.txt"))
@@ -75,10 +71,10 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 	assert.Contains(t, string(sums), "mytool_wasm_wasip1")
 	assert.Contains(t, string(sums), "wasm_exec.js")
 
-	// Each wasm build pins GOOS/GOARCH (fork defaults to cosmo), GOTOOLCHAIN=local, GOROOT/PATH, and disables cgo.
+	// Each wasm build pins GOOS/GOARCH (fork defaults to cosmo), GOTOOLCHAIN=local, GOROOT, and disables cgo.
 	seenGOOS := set.New[string]()
 	for _, cfg := range mock.Calls() {
-		if cfg.Name != forkGo {
+		if !isForkBuild(cfg, fakeGoroot) {
 			continue
 		}
 		goos, _ := cfg.Env.Get("GOOS")
@@ -89,21 +85,15 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 		assert.Equal(t, "local", toolchain)
 		goroot, _ := cfg.Env.Get("GOROOT")
 		assert.Equal(t, fakeGoroot, goroot)
-		path, _ := cfg.Env.Get("PATH")
-		assert.True(t, strings.HasPrefix(path, filepath.Join(fakeGoroot, "bin")), "PATH must be prefixed with the fork GOROOT/bin")
 		cgo, _ := cfg.Env.Get("CGO_ENABLED")
 		assert.Equal(t, "0", cgo)
-		// Wasm builds share the cosmo build's toolchain-content cache namespace (same constant-version fork).
-		ns, _ := cfg.Env.Get(cache.KeyNamespaceEnv)
-		wantNS, nsErr := forkToolchainCacheNamespace(fakeGoroot)
-		require.NoError(t, nsErr)
-		assert.Equal(t, wantNS, ns, "wasm build env must set %s from the toolchain content hash", cache.KeyNamespaceEnv)
 	}
 	assert.True(t, seenGOOS.Contains("js"), "expected a js/wasm build via the fork toolchain")
 	assert.True(t, seenGOOS.Contains("wasip1"), "expected a wasip1/wasm build via the fork toolchain")
 }
 
 func TestRunReleaseWithRunnerWasmOnlySkipsCosmoPrereqs(t *testing.T) {
+	t.Serial()
 	// Uses the canonical wasm/js spelling end to end; the js/wasm alias (other tests) produces the same artifact.
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"wasm/js"})
 	// --cosmo-platforms is a cosmo-only prerequisite, so an invalid value is ignored with no cosmo target requested.
@@ -111,9 +101,8 @@ func TestRunReleaseWithRunnerWasmOnlySkipsCosmoPrereqs(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+		if isForkBuild(cfg, fakeGoroot) {
 			writeBuildOutput(t, cfg, "WASM")
 			return runner.MockProcess(nil, nil), nil
 		}
@@ -127,15 +116,15 @@ func TestRunReleaseWithRunnerWasmOnlySkipsCosmoPrereqs(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerWasmPublishOptOut(t *testing.T) {
+	t.Serial()
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm"})
 	// The wasmPublishEnv opt-out falls back to the excluded .wasm-suffixed name, skipping the buildhost publish upload set.
 	t.Setenv(wasmPublishEnv, "0")
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+		if isForkBuild(cfg, fakeGoroot) {
 			writeBuildOutput(t, cfg, "WASM")
 			return runner.MockProcess(nil, nil), nil
 		}
@@ -155,25 +144,24 @@ func TestRunReleaseWithRunnerWasmPublishOptOut(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(sums), "mytool_js_wasm.wasm")
 
-	// The exclusion warning fires, plus the note that a wasm-only publish has nothing to publish.
+	// The exclusion warning fires, plus the a wasm-only publish has nothing to publish.
 	assert.Contains(t, output, "excluded from buildhost publishing")
 	assert.Contains(t, output, "every target is wasm")
 	assert.NotContains(t, output, "requires buildhost wasm artifact support")
 }
 
-func TestRunReleaseWithRunnerWasmToolchainFailureFailsFast(t *testing.T) {
+func TestRunReleaseWithRunnerWasmWithoutAGoCommandFailsFast(t *testing.T) {
+	t.Serial()
 	setupCosmoMatrixTest(t, []string{"wasip1/wasm"})
-	ensureCosmoToolchainFunc = func() (string, error) {
-		return "", fmt.Errorf("no fork toolchain for you")
-	}
+	activeGoCmd = nil
 
 	mock := newTestPassMock(0)
 	err := runReleaseWithRunner(mock)
-	assert.NotNil(t, err)
-	assert.Contains(t, err.Error(), "no fork toolchain for you")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no go command")
 	// Fail-fast: the toolchain is resolved before the test phase runs.
 	for _, cfg := range mock.Calls() {
-		assert.False(t, cfg.IsCmd("go", "test"), "tests must not run when the fork toolchain is unavailable")
+		assert.False(t, cfg.IsCmd("go", "test"), "tests must not run without a go command")
 	}
 }
 
@@ -191,6 +179,7 @@ func writeConstrainedMain(t *testing.T, dir, constraint string) {
 }
 
 func TestRunReleaseWithRunnerPerTargetMainDiscovery(t *testing.T) {
+	t.Serial()
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm", "wasip1/wasm"})
 	t.Setenv("CI", "")
 	// Alongside the unconstrained root main ("mytool"): a js&&wasm-only main and a wasip1&&wasm-only main.
@@ -199,9 +188,8 @@ func TestRunReleaseWithRunnerPerTargetMainDiscovery(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+		if isForkBuild(cfg, fakeGoroot) {
 			writeBuildOutput(t, cfg, "WASM")
 			return runner.MockProcess(nil, nil), nil
 		}
@@ -224,13 +212,10 @@ func TestRunReleaseWithRunnerPerTargetMainDiscovery(t *testing.T) {
 	} {
 		assert.NoFileExists(t, filepath.Join(outDir, name), "artifact %s must not be built", name)
 	}
-
-	// The memlimit guard (injected into host-context mains) must not linger in the wasm-only main dirs.
-	assert.NoFileExists(t, filepath.Join("cmd", "wasmonly", "gomemlimit_gen.go"))
-	assert.NoFileExists(t, filepath.Join("cmd", "wasip1only", "gomemlimit_gen.go"))
 }
 
 func TestRunReleaseWithRunnerTargetWithoutMainsSkipped(t *testing.T) {
+	t.Serial()
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm", "wasip1/wasm"})
 	t.Setenv("CI", "")
 	// A wasip1-only root main leaves js/wasm with no main packages, skipped with a warning; wasip1/wasm still builds.
@@ -239,9 +224,8 @@ func TestRunReleaseWithRunnerTargetWithoutMainsSkipped(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+		if isForkBuild(cfg, fakeGoroot) {
 			writeBuildOutput(t, cfg, "WASM")
 			return runner.MockProcess(nil, nil), nil
 		}
@@ -262,6 +246,7 @@ func TestRunReleaseWithRunnerTargetWithoutMainsSkipped(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerNoMainsForAnyTargetFails(t *testing.T) {
+	t.Serial()
 	_, _ = setupCosmoMatrixTest(t, []string{"js/wasm"})
 	// Only a linux-guarded main: the js/wasm-only target list has nothing to build anywhere, which errors.
 	require.NoError(t, os.Remove("main.go"))

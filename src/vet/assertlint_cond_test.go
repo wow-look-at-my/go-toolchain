@@ -9,6 +9,7 @@ import (
 )
 
 func TestCastableType(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		litKind    token.Token
 		litValue   string
@@ -35,6 +36,7 @@ func TestCastableType(t *testing.T) {
 }
 
 func TestDeterminePositiveAssertFunc(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		name     string
 		cond     ast.Expr
@@ -109,6 +111,7 @@ func TestDeterminePositiveAssertFunc(t *testing.T) {
 }
 
 func TestDetermineNegativeAssertFunc(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		name     string
 		cond     ast.Expr
@@ -157,12 +160,14 @@ func TestDetermineNegativeAssertFunc(t *testing.T) {
 }
 
 func TestIsNil(t *testing.T) {
+	t.Serial()
 	assert.True(t, isNil(&ast.Ident{Name: "nil"}))
 	assert.False(t, isNil(&ast.Ident{Name: "x"}))
 	assert.False(t, isNil(&ast.BasicLit{Kind: token.INT, Value: "0"}))
 }
 
 func TestGetCallFuncName(t *testing.T) {
+	t.Serial()
 	// strings.Contains(a, b)
 	call := &ast.CallExpr{
 		Fun: &ast.SelectorExpr{
@@ -178,6 +183,7 @@ func TestGetCallFuncName(t *testing.T) {
 }
 
 func TestHasTestingErrorCall(t *testing.T) {
+	t.Serial()
 	// Block with t.Error
 	block := &ast.BlockStmt{
 		List: []ast.Stmt{
@@ -199,6 +205,7 @@ func TestHasTestingErrorCall(t *testing.T) {
 }
 
 func TestIsTestingErrorCall(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		receiver string
 		method   string
@@ -229,6 +236,7 @@ func TestIsTestingErrorCall(t *testing.T) {
 }
 
 func TestGetTestVarName(t *testing.T) {
+	t.Serial()
 	block := &ast.BlockStmt{
 		List: []ast.Stmt{
 			&ast.ExprStmt{
@@ -248,6 +256,7 @@ func TestGetTestVarName(t *testing.T) {
 }
 
 func TestDetermineAssertFuncUnary(t *testing.T) {
+	t.Serial()
 	// Test negation path
 	cond := &ast.UnaryExpr{
 		Op: token.NOT,
@@ -260,6 +269,7 @@ func TestDetermineAssertFuncUnary(t *testing.T) {
 }
 
 func TestDeterminePositiveAssertFuncCall(t *testing.T) {
+	t.Serial()
 	// Test strings.HasPrefix
 	call := &ast.CallExpr{
 		Fun: &ast.SelectorExpr{
@@ -293,6 +303,7 @@ func TestDeterminePositiveAssertFuncCall(t *testing.T) {
 }
 
 func TestDetermineNegativeAssertFuncCall(t *testing.T) {
+	t.Serial()
 	// Test reflect.DeepEqual (negative)
 	call := &ast.CallExpr{
 		Fun: &ast.SelectorExpr{
@@ -308,6 +319,7 @@ func TestDetermineNegativeAssertFuncCall(t *testing.T) {
 }
 
 func TestDetermineAssertionWithInit(t *testing.T) {
+	t.Serial()
 	// Test init clause pattern: if err := X; err != nil
 	ifStmt := &ast.IfStmt{
 		Init: &ast.AssignStmt{

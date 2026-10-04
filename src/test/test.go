@@ -7,8 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wow-look-at-my/go-containers/set"
@@ -27,7 +30,8 @@ const (
 	clrFail   = "\033[38;2;255;128;128m"
 	clrYellow = "\033[38;2;255;255;0m"
 
-	testTimeout = 30 * time.Second
+	// Per BINARY, and it must clear the slowest host. Depth: docs/CI.md.
+	testTimeout = 5 * time.Minute
 )
 
 // TimelineRecorder records pipeline timeline entries. Satisfied by *summary.Timeline.
@@ -53,32 +57,31 @@ type TestResult struct {
 	TestCases     []TestCaseResult
 }
 
-// readModulePath reads the module path from go.mod in the current directory.
-func readModulePath() string {
-	return gomod.ReadModulePath()
-}
-
 // listTestPackages returns the import paths of packages that contain test files,
 // excluding packages where all non-test .go files are generated code (e.g. sqlc).
 // It walks the filesystem directly instead of shelling out to `go list`, which
 // is significantly faster.
 // On any error it returns nil, signaling the caller to fall back to "./...".
-func listTestPackages(_ runner.CommandRunner) []string {
-	modPath := readModulePath()
+func listTestPackages(root string) []string {
+	modPath := gomod.ReadModulePath(root)
 	if modPath == "" {
 		return nil
 	}
 	var pkgs []string
-	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil // skip unreadable dirs
 		}
 		if !d.IsDir() {
 			return nil
 		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return nil
+		}
 		// Skip hidden dirs, non-source dirs, and nested modules (different module, not our import paths).
 		name := d.Name()
-		if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata" || gomod.IsNestedModule(path)) {
+		if rel != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata" || gomod.IsNestedModule(path)) {
 			return filepath.SkipDir
 		}
 		// Skip packages where all non-test .go files are generated code
@@ -91,11 +94,10 @@ func listTestPackages(_ runner.CommandRunner) []string {
 		}
 		for _, e := range entries {
 			if !e.IsDir() && strings.HasSuffix(e.Name(), "_test.go") {
-				rel := filepath.ToSlash(path)
 				if rel == "." {
 					pkgs = append(pkgs, modPath)
 				} else {
-					pkgs = append(pkgs, modPath+"/"+rel)
+					pkgs = append(pkgs, modPath+"/"+filepath.ToSlash(rel))
 				}
 				break
 			}
@@ -126,10 +128,15 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 		return nil, fmt.Errorf("discovering build tags: %w", err)
 	}
 
-	var merged *TestResult
-	var firstErr error
+	// Every build-tag configuration together; they share no state.
+	type configRun struct {
+		res *TestResult
+		err error
+	}
+	runs := make([]configRun, len(discovery.Configs))
+	var wg sync.WaitGroup
 	for i, tagCfg := range discovery.Configs {
-		// Coverage is collected only on the default config; extra configs still run and can fail, just uncovered.
+		// Coverage is collected only on the default config; extra configs still run and can fail, uncovered.
 		cf := coverFile
 		cb := onOutput
 		var only []string
@@ -141,11 +148,21 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 			}
 			logger.Info("tests: build tags %s (%s)", tagCfg, strings.Join(only, " "))
 		}
-		res, err := runTestsOnce(r, verbose, cf, cb, timeline, tagCfg, only)
-		if err != nil && firstErr == nil {
-			firstErr = err
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			runs[i].res, runs[i].err = runTestsOnce(r, verbose, cf, cb, timeline, tagCfg, only)
+		}()
+	}
+	wg.Wait()
+
+	var merged *TestResult
+	var firstErr error
+	for _, run := range runs {
+		if run.err != nil && firstErr == nil {
+			firstErr = run.err
 		}
-		merged = mergeTestResults(merged, res)
+		merged = mergeTestResults(merged, run.res)
 	}
 	if firstErr != nil {
 		return merged, firstErr
@@ -176,9 +193,9 @@ func mergeTestResults(acc, next *TestResult) *TestResult {
 	return acc
 }
 
-// verifyTagCoverage asks the go tool which files each configuration actually
-// builds, and fails when a build-tagged file was compiled by none of them. This
-// is the guarantee that a tag cannot hide a test: the check is on the real file
+// verifyTagCoverage asks the go tool which files each configuration builds,
+// and fails when a build-tagged file was compiled by none of them. This is
+// the guarantee that a tag cannot hide a test: the check is on the real file
 // set the toolchain saw, not on the enumeration that produced the tag sets.
 func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 	if len(d.Gated) == 0 {
@@ -199,7 +216,7 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 			args = append(args, "-tags", arg)
 		}
 		args = append(args, "./...")
-		proc, err := runner.Cmd("go", args...).WithHostTarget().WithQuiet().Run(r)
+		proc, err := runner.Cmd("go", args...).WithQuiet().Run(r)
 		if err != nil {
 			return fmt.Errorf("listing files for tags %s: %w", tagCfg, err)
 		}
@@ -227,12 +244,21 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 	return nil
 }
 
+// perRunEnv names the GitHub Actions variables that differ between runs of the same commit's tests.
+// GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT stay: a CI go command refuses to build without them.
+var perRunEnv = []string{
+	"GITHUB_SHA", "GITHUB_REF", "GITHUB_REF_NAME", "GITHUB_RUN_NUMBER",
+	"GITHUB_STEP_SUMMARY", "GITHUB_OUTPUT", "GITHUB_ENV", "GITHUB_PATH", "GITHUB_STATE",
+}
+
 // runTestsOnce executes go test for a single build-tag configuration.
 func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutput func(),
 	timeline TimelineRecorder, tagCfg buildtags.Config, only []string,
 ) (*TestResult, error) {
-	// Enumerate only packages with test files, avoiding the "no such tool covdata" error and generated-only packages.
-	args := []string{"test", "-json", "-timeout=" + testTimeout.String()}
+	// -p spans packages and -parallel spans tests; GOMAXPROCS shrinks under a cgroup quota, so state the CPU count.
+	procs := runtime.NumCPU()
+	args := []string{"test", "-json", "-timeout=" + testTimeout.String(),
+		"-p", strconv.Itoa(procs), "-parallel", strconv.Itoa(procs)}
 	if arg := tagCfg.Arg(); arg != "" {
 		args = append(args, "-tags", arg)
 	}
@@ -244,14 +270,14 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 		}
 	}
 	if coverFile != "" {
-		// -count disables result caching only; stale coverprofile fragments otherwise corrupt coverage (https://go.dev/issue/74873).
-		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...", "-count=1")
+		// No -count: the fork keys the coverprofile on the coverage metadata, so a cached run cannot replay a stale profile.
+		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...")
 	}
 	switch {
 	case len(only) > 0:
 		args = append(args, only...)
 	default:
-		if pkgs := listTestPackages(r); len(pkgs) > 0 {
+		if pkgs := listTestPackages("."); len(pkgs) > 0 {
 			args = append(args, pkgs...)
 		} else {
 			args = append(args, "./...")
@@ -261,7 +287,11 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 	// Tee stderr to console and a buffer, for progress and error reporting.
 	var stderrBuf bytes.Buffer
 	stderrTee := io.MultiWriter(&stderrBuf, os.Stderr)
-	proc, err := runner.Cmd("go", args...).WithHostTarget().WithStderrWriter(stderrTee).Run(r)
+	cmd := runner.Cmd("go", args...).WithStderrWriter(stderrTee)
+	for _, name := range perRunEnv {
+		cmd = cmd.WithEnv(name, "")
+	}
+	proc, err := cmd.Run(r)
 	if err != nil {
 		return nil, err
 	}
@@ -340,7 +370,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 					}
 				}
 				// -o discards the binary; without it, `go build src` would write an executable colliding with the src/ directory.
-				buildProc, buildErr := runner.Cmd("go", "build", "-o", os.DevNull, pkg).WithHostTarget().WithQuiet().Run(r)
+				buildProc, buildErr := runner.Cmd("go", "build", "-o", os.DevNull, pkg).WithQuiet().Run(r)
 				if buildErr != nil {
 					break
 				}
@@ -372,7 +402,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 	}
 
 	// Determine reachable packages to filter coverage (non-fatal on error)
-	reachable, _ := ReachablePackages(r)
+	reachable, _ := ReachablePackages(".", r)
 
 	// Parse coverage profile for total and file coverage (files contain functions)
 	totalCoverage, files, _ := ParseProfileFiltered(coverFile, reachable)

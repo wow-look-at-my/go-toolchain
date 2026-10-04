@@ -24,6 +24,7 @@ func write(t *testing.T, dir, name, constraint string) {
 // not be, because the pipeline cannot build for another GOOS and pretending
 // otherwise would fail every cross-platform repo.
 func TestScanSeparatesUserTagsFromPlatform(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	write(t, dir, "plain.go", "")
 	write(t, dir, "gated.go", "//go:build radvdiff")
@@ -43,6 +44,7 @@ func TestScanSeparatesUserTagsFromPlatform(t *testing.T) {
 // unchanged, and every discovered tag must get a configuration of its own --
 // that is what satisfies an `a && !b` shape.
 func TestConfigsCoverEachTagAloneAndAllTogether(t *testing.T) {
+	t.Serial()
 	assert.Equal(t, []Config{{}}, configsFor(nil))
 
 	got := configsFor([]string{"a", "b"})
@@ -55,6 +57,7 @@ func TestConfigsCoverEachTagAloneAndAllTogether(t *testing.T) {
 // The guarantee: a gated file no configuration reached is reported, not
 // silently skipped. This is what makes the tag impossible to hide behind.
 func TestVerifyReportsUnreachedGatedFiles(t *testing.T) {
+	t.Serial()
 	d := &Discovery{Gated: []File{
 		{Path: "a.go", Tags: []string{"x"}},
 		{Path: "b.go", Tags: []string{"y"}},
@@ -73,6 +76,7 @@ func TestVerifyReportsUnreachedGatedFiles(t *testing.T) {
 // An unknown identifier must be treated as a user tag: over-covering analyzes a
 // file unnecessarily, under-covering hides it, and only over-covering is safe.
 func TestUnknownIdentIsAUserTag(t *testing.T) {
+	t.Serial()
 	assert.False(t, isPlatformIdent("radvdiff"))
 	assert.False(t, isPlatformIdent("ignore"))
 	assert.True(t, isPlatformIdent("linux"))
@@ -85,6 +89,7 @@ func TestUnknownIdentIsAUserTag(t *testing.T) {
 // Directories the go tool never builds from must not contribute tags, or every
 // repo with a tagged testdata fixture would gain a phantom configuration.
 func TestScanSkipsNonBuildDirs(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	for _, sub := range []string{"testdata", "vendor", ".git", "_ignored"} {
 		require.NoError(t, os.MkdirAll(filepath.Join(dir, sub), 0o755))

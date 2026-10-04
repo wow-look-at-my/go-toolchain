@@ -29,7 +29,7 @@ var generatedFileRe = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
 // the `package` clause), so a marker appearing after that point does not count.
 func isGeneratedFile(r io.Reader) bool {
 	scanner := bufio.NewScanner(r)
-	// Allow long lines (generated files can have very long header lines).
+	// Allow long lines (generated files can have long header lines).
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	inBlockComment := false
 	for scanner.Scan() {
@@ -86,8 +86,7 @@ func isGeneratedPath(path string) bool {
 
 // checkFileLength walks all .go files under root and warns past the warn
 // threshold, erroring past the error threshold (both below). Generated files
-// (per isGeneratedFile) are skipped unless the
-// --count-generated flag is set.
+// (per isGeneratedFile) are skipped unless the --count-generated flag is set.
 func checkFileLength(root string) error {
 	var nWarn, nErr, nSkipped int
 

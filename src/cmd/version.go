@@ -115,21 +115,13 @@ func init() {
 			logger.Output("goos: %s, goarch: %s", runtime.GOOS, runtime.GOARCH)
 		},
 	})
-	// Every host in a CI run must build against the same compiler. This
-	// prints the release to hand them through GO_TOOLCHAIN_COSMO_VERSION.
-	versionCmd.AddCommand(&cobra.Command{
-		Use:   "cosmo",
-		Short: "Print the gosmopolitan release this host would build against",
-		Run: func(cmd *cobra.Command, args []string) {
-			logger.Output("%s", ResolveCosmoVersion())
-		},
-	})
 	rootCmd.AddCommand(versionCmd)
 }
 
 type versionOutput struct {
 	Version       string `json:"version"`
 	Commit        string `json:"commit"`
+	Gosmopolitan  string `json:"gosmopolitan"`
 	CommitDate    string `json:"commit_date,omitempty"`
 	BuildDate     string `json:"build_date,omitempty"`
 	LatestCommit  string `json:"latest_commit,omitempty"`
@@ -139,8 +131,9 @@ type versionOutput struct {
 func runVersionJSON(cmd *cobra.Command, args []string) {
 	commit := resolvedCommit()
 	out := versionOutput{
-		Version: resolvedVersion(),
-		Commit:  commit,
+		Version:      resolvedVersion(),
+		Commit:       commit,
+		Gosmopolitan: linkedForkCommit(),
 	}
 
 	if ts, ok := resolvedTimestamp(); ok {
@@ -173,6 +166,7 @@ func runVersion(cmd *cobra.Command, args []string) {
 func printVersionInfo() {
 	logger.Output("Version:     %s", resolvedVersion())
 	logger.Output("Commit:      %s", resolvedCommit())
+	logger.Output("Gosmopolitan: %s", linkedForkCommit())
 
 	if ts, ok := resolvedTimestamp(); ok {
 		logger.Output("Commit date: %s", time.Unix(ts, 0).UTC().Format(time.RFC3339))

@@ -31,6 +31,7 @@ func writeGraph(t *testing.T, dir, name, content string) string {
 }
 
 func TestLoadGraphs_ParsesAndMerges(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	g1 := writeGraph(t, dir, "g1.json", graphJSON)
 	// The later dump: pkga reappears with the SAME ActionID but unexecuted (cache-satisfied); the
@@ -58,6 +59,7 @@ func TestLoadGraphs_ParsesAndMerges(t *testing.T) {
 }
 
 func TestLoadGraphs_MergePrefersLongerExecution(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	g := writeGraph(t, dir, "g.json", `[
 		{"ID":1,"Mode":"build","Package":"p","ActionID":"cccccccccccccccccccc",
@@ -71,6 +73,7 @@ func TestLoadGraphs_MergePrefersLongerExecution(t *testing.T) {
 }
 
 func TestLoadGraphs_MissingFileIsSilent(t *testing.T) {
+	t.Serial()
 	var warn bytes.Buffer
 	actions := LoadGraphs([]string{filepath.Join(t.TempDir(), "never-written.json")}, &warn)
 	assert.Empty(t, actions)
@@ -78,6 +81,7 @@ func TestLoadGraphs_MissingFileIsSilent(t *testing.T) {
 }
 
 func TestLoadGraphs_MalformedFileWarnsAndSkips(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	bad := writeGraph(t, dir, "bad.json", "{not json[")
 	good := writeGraph(t, dir, "good.json", graphJSON)
@@ -90,6 +94,7 @@ func TestLoadGraphs_MalformedFileWarnsAndSkips(t *testing.T) {
 }
 
 func TestActionExecutedAndWall(t *testing.T) {
+	t.Serial()
 	var a Action
 	assert.False(t, a.Executed())
 	assert.Equal(t, time.Duration(0), a.Wall())

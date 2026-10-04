@@ -17,7 +17,7 @@ import (
 // TestSliceSetAnalyzer runs the fixture: every shape the check reports, and
 // every neighbouring shape it must leave alone.
 func TestSliceSetAnalyzer(t *testing.T) {
-	t.Parallel() // See TestBannedOutputAnalyzer.
+	t.Serial() // See TestBannedOutputAnalyzer.
 	testdata, err := filepath.Abs("testdata")
 	require.NoError(t, err)
 	analysistest.Run(t, testdata, SliceSetAnalyzer, "sliceset")
@@ -28,6 +28,7 @@ func TestSliceSetAnalyzer(t *testing.T) {
 // single org require away, so it fails; anywhere else the fix would add a
 // dependency the author never chose, so it warns.
 func TestSliceSetSeverityFollowsTheModule(t *testing.T) {
+	t.Serial()
 	const src = `package main
 
 import "slices"
@@ -62,6 +63,7 @@ func main() { _ = slices.Contains(known, "a") }
 // silent. Each shape reads position or repetition, or puts the slice somewhere
 // this walk cannot follow, so a set is not provably what the author meant.
 func TestSliceSetLeavesUncertainSlicesAlone(t *testing.T) {
+	t.Serial()
 	for _, c := range []struct {
 		name string
 		body string
@@ -86,6 +88,7 @@ func TestSliceSetLeavesUncertainSlicesAlone(t *testing.T) {
 // when the type checker could not resolve it.
 func runSliceSetOnSource(t *testing.T, src string, module *analysis.Module) []analysis.Diagnostic {
 	t.Helper()
+	t.Serial() // See runCommentSpanOn.
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "/consumer/main.go", src, parser.ParseComments)
 	require.NoError(t, err)

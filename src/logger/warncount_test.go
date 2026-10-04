@@ -8,9 +8,10 @@ import (
 )
 
 // TestWarnCountCountsEmittedWarnings verifies that every Warn and WarnFile
-// message that is actually emitted increments the process-wide counter, in
-// both plain and GHA annotation modes.
+// message that is emitted increments the process-wide counter, in both plain
+// and GHA annotation modes.
 func TestWarnCountCountsEmittedWarnings(t *testing.T) {
+	t.Serial()
 	ResetWarnCount()
 
 	l, _, errBuf := captureLogger(LevelInfo, false)
@@ -26,8 +27,9 @@ func TestWarnCountCountsEmittedWarnings(t *testing.T) {
 }
 
 // TestWarnCountIgnoresFilteredWarnings verifies that a Warn suppressed by the
-// level filter is not counted — the counter tracks what the user actually saw.
+// level filter is not counted — the counter tracks what the user saw.
 func TestWarnCountIgnoresFilteredWarnings(t *testing.T) {
+	t.Serial()
 	ResetWarnCount()
 
 	l, out, errBuf := captureLogger(LevelError, false)
@@ -41,6 +43,7 @@ func TestWarnCountIgnoresFilteredWarnings(t *testing.T) {
 // TestWarnCountIgnoresOtherLevels verifies that Debug/Info/Error/Output
 // emissions never move the warning counter.
 func TestWarnCountIgnoresOtherLevels(t *testing.T) {
+	t.Serial()
 	ResetWarnCount()
 
 	l, _, _ := captureLogger(LevelDebug, false)
@@ -54,6 +57,7 @@ func TestWarnCountIgnoresOtherLevels(t *testing.T) {
 // TestResetWarnCount verifies the reset helper zeroes both counters and the
 // deduplication set, so a repeat after a reset counts again.
 func TestResetWarnCount(t *testing.T) {
+	t.Serial()
 	ResetWarnCount()
 
 	l, _, _ := captureLogger(LevelInfo, false)
@@ -75,6 +79,7 @@ func TestResetWarnCount(t *testing.T) {
 // warning is retained in emission order, with WarnFile keeping its file
 // prefix, so the warnings gate can re-print exactly what it failed on.
 func TestEmittedWarningsRetainsMessages(t *testing.T) {
+	t.Serial()
 	ResetWarnCount()
 	defer ResetWarnCount()
 
@@ -96,6 +101,7 @@ func TestEmittedWarningsRetainsMessages(t *testing.T) {
 // budget. The repeats are still emitted, still totalled, and carried on the
 // retained warning so the recap can name them.
 func TestWarnCountFoldsRepeats(t *testing.T) {
+	t.Serial()
 	ResetWarnCount()
 	defer ResetWarnCount()
 
@@ -120,6 +126,7 @@ func TestWarnCountFoldsRepeats(t *testing.T) {
 // the same message about separate files distinct, and folds the same message
 // about a single file. A per-file warning names a per-file problem.
 func TestWarnFileFoldsPerFile(t *testing.T) {
+	t.Serial()
 	ResetWarnCount()
 	defer ResetWarnCount()
 
@@ -142,6 +149,7 @@ func TestWarnFileFoldsPerFile(t *testing.T) {
 // retained text, so the budget cannot be inflated by repeating a warning that
 // arrived past MaxRecordedWarnings.
 func TestWarnCountFoldsRepeatsPastRetention(t *testing.T) {
+	t.Serial()
 	ResetWarnCount()
 	defer ResetWarnCount()
 
@@ -158,8 +166,9 @@ func TestWarnCountFoldsRepeatsPastRetention(t *testing.T) {
 
 // TestEmittedWarningsExcludesFiltered verifies that a warning suppressed by
 // the log level is neither counted nor retained — the recap shows only what
-// the user actually saw.
+// the user saw.
 func TestEmittedWarningsExcludesFiltered(t *testing.T) {
+	t.Serial()
 	ResetWarnCount()
 	defer ResetWarnCount()
 
@@ -175,6 +184,7 @@ func TestEmittedWarningsExcludesFiltered(t *testing.T) {
 // counter keeps counting, so the gate can report how many it is not showing
 // instead of silently truncating.
 func TestEmittedWarningsCapped(t *testing.T) {
+	t.Serial()
 	ResetWarnCount()
 	defer ResetWarnCount()
 
@@ -191,6 +201,7 @@ func TestEmittedWarningsCapped(t *testing.T) {
 // TestResetWarnCountClearsMessages verifies the reset helper discards the
 // retained messages along with the counter.
 func TestResetWarnCountClearsMessages(t *testing.T) {
+	t.Serial()
 	ResetWarnCount()
 
 	l, _, _ := captureLogger(LevelInfo, false)

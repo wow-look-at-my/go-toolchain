@@ -10,6 +10,7 @@ import (
 )
 
 func TestTempOutputPath(t *testing.T) {
+	t.Serial()
 	for _, tc := range []struct{ final, want string }{
 		{filepath.Join("build", "mytool"), filepath.Join("build", ".tmp-mytool")},
 		{filepath.Join("build", "mytool.exe"), filepath.Join("build", ".tmp-mytool.exe")},
@@ -22,6 +23,7 @@ func TestTempOutputPath(t *testing.T) {
 }
 
 func TestCommitOutputMovesTempOntoTarget(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	final := filepath.Join(dir, "mytool")
 	require.NoError(t, os.WriteFile(TempOutputPath(final), []byte("FAT-APE"), 0o755))
@@ -35,6 +37,7 @@ func TestCommitOutputMovesTempOntoTarget(t *testing.T) {
 }
 
 func TestCommitOutputReplacesTheTargetFile(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	final := filepath.Join(dir, "mytool")
 	require.NoError(t, os.WriteFile(final, []byte("STALE"), 0o755))
@@ -48,6 +51,7 @@ func TestCommitOutputReplacesTheTargetFile(t *testing.T) {
 }
 
 func TestCommitOutputMovesSidecarsAndSticksToItsOwnShapes(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	final := filepath.Join(dir, "mytool")
 	require.NoError(t, os.WriteFile(TempOutputPath(final), []byte("APE"), 0o755))
@@ -67,6 +71,7 @@ func TestCommitOutputMovesSidecarsAndSticksToItsOwnShapes(t *testing.T) {
 }
 
 func TestCommitOutputFailsWhenTheBuildWroteNothing(t *testing.T) {
+	t.Serial()
 	final := filepath.Join(t.TempDir(), "mytool")
 
 	err := CommitOutput(final)
@@ -75,6 +80,7 @@ func TestCommitOutputFailsWhenTheBuildWroteNothing(t *testing.T) {
 }
 
 func TestDiscardOutputRemovesTheTempSpellingsOnly(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	final := filepath.Join(dir, "mytool")
 	require.NoError(t, os.WriteFile(TempOutputPath(final), []byte("PARTIAL"), 0o755))

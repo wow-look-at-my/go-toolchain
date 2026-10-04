@@ -14,6 +14,7 @@ import (
 // load -- which is how `appengine`, a tag only src/compat/go-isatty carries,
 // became a config this module was asked to vet itself under and could not.
 func TestScanSkipsNestedModules(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module outer\n\ngo 1.24\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "own.go"),

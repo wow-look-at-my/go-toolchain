@@ -13,17 +13,13 @@ import (
 	"time"
 
 	"golang.org/x/mod/modfile"
-
-	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // How long to cache "up-to-date" results before rechecking
 const upToDateCacheDuration = time.Minute
 
 // depsCache persists dependency-check results across runs, in a JSON file
-// (depscache_file.go). It is on in every binary: the store is small enough to
-// need no engine, and a build tag here would take the cache away from
-// whatever the tag excludes. Depth: docs/DEPS.md
+// (depscache_file.go).
 type depsCache interface {
 	// lookup returns the cached entry: update != "" means cached outdated (never expires); found=false means no entry.
 	lookup(path, version string) (update string, checkedAt int64, found bool)
@@ -112,12 +108,6 @@ func (dc *DepChecker) run() {
 
 		// Only check pseudo-versions
 		if !looksLikeGitVersion(dep.Version) {
-			continue
-		}
-
-		// Tracked deps are owned by UpdateTrackedBranchDeps; checking @latest here
-		// would drag such a line back onto the default branch.
-		if dep.Tracked {
 			continue
 		}
 
@@ -256,7 +246,6 @@ func escapePath(path string) (string, error) {
 type depInfo struct {
 	Path    string
 	Version string
-	Tracked bool // the line, or the replace covering it, carries a tracking marker
 }
 
 // findGoMod walks up from the current directory to find go.mod.
@@ -293,14 +282,6 @@ func listDirectDeps() ([]depInfo, error) {
 		return nil, err
 	}
 
-	// A require replaced by a tracked replacement is tracked too: the build uses the replacement's version.
-	replacedTracked := set.New[string]()
-	for _, rep := range f.Replace {
-		if isTracked(rep.Syntax) {
-			replacedTracked.Add(rep.Old.Path)
-		}
-	}
-
 	var deps []depInfo
 	for _, req := range f.Require {
 		if req.Indirect {
@@ -309,7 +290,6 @@ func listDirectDeps() ([]depInfo, error) {
 		deps = append(deps, depInfo{
 			Path:    req.Mod.Path,
 			Version: req.Mod.Version,
-			Tracked: isTracked(req.Syntax) || replacedTracked.Contains(req.Mod.Path),
 		})
 	}
 	return deps, nil
