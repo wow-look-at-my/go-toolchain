@@ -34,7 +34,7 @@ A step that merely runs a command fails on its own exit code and matches nothing
 
 The magic is the header a fat APE opens with, `MZqFpD='`. And the interpreter is `/bin/sh`. There is no APE loader to install: the header IS a shell script, so the kernel handing the file to `sh` is the whole mechanism. What it buys is a bare `execve` of an APE. Without the entry only a shell can start one, and `go run`, `go test` and any exec from a program answer.
 
-The step needs root and a mounted `/proc/sys/fs/binfmt_misc`. A host that has neither keeps working: it warns, names what is missing, and exits 0. So the entry is a capability, never a requirement, and nothing downstream may assume it — see [MATRIX.md](MATRIX.md). The step is skipped outright on macOS and Windows, which have no such mechanism.
+The step needs root and a mounted `/proc/sys/fs/binfmt_misc`. A host that has neither keeps working: it warns, names what is missing, and exits 0. So the entry is a capability, not a requirement, and nothing downstream may assume it — see [MATRIX.md](MATRIX.md). The step is skipped outright on macOS and Windows, which have no such mechanism.
 
 Registering is idempotent. An entry that is already present and enabled is left alone. One that is present and disabled is reported rather than silently counted as working, since a disabled entry execs nothing.
 
@@ -50,7 +50,7 @@ Registering is idempotent. An entry that is already present and enabled is left 
 
 The magic is the header a fat APE opens with, `MZqFpD='`, and the interpreter is `/bin/sh`. There is no APE loader to install: the header IS a shell script, so the kernel handing the file to `sh` is the whole mechanism. What it buys is a bare `execve` of an APE. Without the entry only a shell can start one. `go run`, `go test` and any exec from a program then answer `exec format error`. This repo's own CI has shipped that message for `trace.test` (see [CI.md](CI.md)).
 
-The step needs root and a mounted `/proc/sys/fs/binfmt_misc`. A host that has neither keeps working. It warns, names what is missing, and exits 0, because every caller in this org already reaches an APE through a shell. The entry is therefore a capability, never a requirement, and nothing downstream may assume it (see [MATRIX.md](MATRIX.md)). The step is skipped outright on macOS and Windows, which have no such mechanism.
+The step needs root and a mounted `/proc/sys/fs/binfmt_misc`. A host that has neither keeps working. It warns, names what is missing, and exits 0, because every caller in this org already reaches an APE through a shell. The entry is therefore a capability, not a requirement, and nothing downstream may assume it (see [MATRIX.md](MATRIX.md)). The step is skipped outright on macOS and Windows, which have no such mechanism.
 
 Registering is idempotent. An entry that is already present and enabled is left alone. One that is present and disabled is reported rather than silently counted as working, because a disabled entry execs nothing.
 

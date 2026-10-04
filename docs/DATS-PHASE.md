@@ -36,7 +36,7 @@ The positive case is covered by unit tests (`TestRunDatsOnly*`), not by `dats/cl
 
 It has to be inside the module root because dats sandboxes every suite command. A staging dir under `$TMPDIR` is invisible to every backend, and every suite fails its setup command. `build/` is gitignored in every repo go-toolchain builds, so staging there never dirties the tree.
 
-Copies, never in-place execution: the matrix cosmo artifact is a fat APE that rewrites its own file on first exec. So nothing may ever execute a `build/` artifact where it sits.
+Copies, not in-place execution: the matrix cosmo artifact is a fat APE that rewrites its own file on first exec. So nothing may ever execute a `build/` artifact where it sits.
 
 Staged names are the bare `OutputName` plus `.exe` on windows hosts. The root path stages what `runBuildPhase` built. The matrix path stages the host-named `build.BinaryName(name, hostos.GOOS(), runtime.GOARCH)` artifact. A missing host artifact is Debug-logged and skipped, so a cross-only build still runs its suites (and fails honestly if it needed one).
 
