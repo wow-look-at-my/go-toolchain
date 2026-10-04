@@ -61,15 +61,17 @@ func runDeadCode(pass *analysis.Pass) (any, error) {
 		delete(defined, canonicalize(obj))
 	}
 
-	// Remove methods that implement interfaces.
+	// Remove methods reachable through an interface.
 	if len(defined) > 0 {
 		ifaces := collectInterfaces(pass)
+		named := collectNamedTypes(pass)
+		ifaceMethods := collectUsedInterfaceMethods(pass)
 		for obj := range defined {
 			fn, ok := obj.(*types.Func)
 			if !ok {
 				continue
 			}
-			if isInterfaceMethod(fn, ifaces) {
+			if isInterfaceMethod(fn, named, ifaces, pass.Pkg) || isCalledThroughInterface(fn, ifaceMethods) {
 				delete(defined, obj)
 			}
 		}
@@ -215,37 +217,114 @@ func addInterfacesFromScope(scope *types.Scope, ifaces *[]*types.Interface) {
 	}
 }
 
-// isInterfaceMethod returns true if fn is a method whose receiver type
-// implements any of the given interfaces (checked for both T and *T).
-func isInterfaceMethod(fn *types.Func, ifaces []*types.Interface) bool {
-	sig := fn.Type().(*types.Signature)
-	recv := sig.Recv()
-	if recv == nil {
+// collectNamedTypes returns every non-interface named type declared in the
+// package, at any scope. A generic type is instantiated with its own type
+// parameters, the same form a method receiver has.
+func collectNamedTypes(pass *analysis.Pass) []*types.Named {
+	var named []*types.Named
+	for _, obj := range pass.TypesInfo.Defs {
+		tn, ok := obj.(*types.TypeName)
+		if !ok || tn.IsAlias() {
+			continue
+		}
+		n, ok := tn.Type().(*types.Named)
+		if !ok || types.IsInterface(n) {
+			continue
+		}
+		named = append(named, selfInstantiate(n))
+	}
+	return named
+}
+
+// selfInstantiate returns n instantiated with its own type parameters, or n
+// itself when it is not generic.
+func selfInstantiate(n *types.Named) *types.Named {
+	tparams := n.TypeParams()
+	if tparams.Len() == 0 {
+		return n
+	}
+	args := make([]types.Type, tparams.Len())
+	for i := range args {
+		args[i] = tparams.At(i)
+	}
+	inst, err := types.Instantiate(nil, n, args, false)
+	if err != nil {
+		panic(err)
+	}
+	return inst.(*types.Named)
+}
+
+// collectUsedInterfaceMethods returns every interface method the package
+// references: calls, method values, and method expressions.
+func collectUsedInterfaceMethods(pass *analysis.Pass) []*types.Func {
+	var methods []*types.Func
+	for _, obj := range pass.TypesInfo.Uses {
+		m, ok := obj.(*types.Func)
+		if !ok {
+			continue
+		}
+		recv := m.Type().(*types.Signature).Recv()
+		if recv == nil || !types.IsInterface(recv.Type()) {
+			continue
+		}
+		methods = append(methods, m)
+	}
+	return methods
+}
+
+// isInterfaceMethod returns true if some named type in the package has fn in
+// its method set, declared on the type itself or promoted from an embedded
+// field at any depth, and implements an interface that contains fn's name.
+// Both T and *T are checked.
+func isInterfaceMethod(fn *types.Func, named []*types.Named, ifaces []*types.Interface, pkg *types.Package) bool {
+	if fn.Type().(*types.Signature).Recv() == nil {
 		return false
 	}
-	recvType := recv.Type()
-	// Dereference pointer receiver to get the base type.
-	if ptr, ok := recvType.(*types.Pointer); ok {
-		recvType = ptr.Elem()
+	for _, n := range named {
+		if carriesInterfaceMethod(n, fn, ifaces, pkg) {
+			return true
+		}
 	}
-	ptrType := types.NewPointer(recvType)
+	return false
+}
 
+// carriesInterfaceMethod reports whether n or *n resolves fn's name to fn and
+// implements an interface that has a method of that name.
+func carriesInterfaceMethod(n *types.Named, fn *types.Func, ifaces []*types.Interface, pkg *types.Package) bool {
+	for _, t := range []types.Type{n, types.NewPointer(n)} {
+		obj, _, _ := types.LookupFieldOrMethod(t, false, pkg, fn.Name())
+		m, ok := obj.(*types.Func)
+		if !ok || m.Origin() != fn {
+			continue
+		}
+		if implementsAnyWith(t, fn, ifaces) {
+			return true
+		}
+	}
+	return false
+}
+
+// implementsAnyWith reports whether t implements one of ifaces that has a
+// method with fn's identifier.
+func implementsAnyWith(t types.Type, fn *types.Func, ifaces []*types.Interface) bool {
 	for _, iface := range ifaces {
-		if iface.NumMethods() == 0 {
+		obj, _, _ := types.LookupFieldOrMethod(iface, false, fn.Pkg(), fn.Name())
+		if obj == nil || obj.Id() != fn.Id() {
 			continue
 		}
-		// Check if fn.Name() is in the interface's method set.
-		hasMethod := false
-		for i := 0; i < iface.NumMethods(); i++ {
-			if iface.Method(i).Name() == fn.Name() {
-				hasMethod = true
-				break
-			}
+		if types.Implements(t, iface) {
+			return true
 		}
-		if !hasMethod {
-			continue
-		}
-		if types.Implements(recvType, iface) || types.Implements(ptrType, iface) {
+	}
+	return false
+}
+
+// isCalledThroughInterface reports whether the package uses an interface
+// method with fn's identifier and an identical signature. Receivers are not
+// part of the comparison.
+func isCalledThroughInterface(fn *types.Func, ifaceMethods []*types.Func) bool {
+	for _, m := range ifaceMethods {
+		if m.Id() == fn.Id() && types.Identical(m.Type(), fn.Type()) {
 			return true
 		}
 	}
