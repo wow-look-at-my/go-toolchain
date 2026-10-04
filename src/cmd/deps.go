@@ -18,19 +18,12 @@ import (
 // How long to cache "up-to-date" results before rechecking
 const upToDateCacheDuration = time.Minute
 
-// depsCache persists dependency-check results across runs. The production
-// implementation is sqlite-backed (depscache_sqlite.go); GOOS=cosmo builds
-// get a no-op cache instead (depscache_cosmo.go) because modernc.org/sqlite
-// drags in modernc.org/libc, whose per-GOOS generated code has no cosmo
-// target.
+// depsCache persists dependency-check results across runs, in a JSON file
+// (depscache_file.go).
 type depsCache interface {
-	// lookup returns the cached entry for (path, version). found=false means
-	// no entry. update != "" means the module was cached as outdated (outdated
-	// entries never expire); update == "" means it was cached as up-to-date at
-	// checkedAt (unix seconds).
+	// lookup returns the cached entry: update != "" means cached outdated (never expires); found=false means no entry.
 	lookup(path, version string) (update string, checkedAt int64, found bool)
-	// store records a check result performed at checkedAt (unix seconds);
-	// update == "" means up-to-date.
+	// store records a check result at checkedAt (unix seconds); update == "" means up-to-date.
 	store(path, version, update string, checkedAt int64)
 	close()
 }
@@ -58,8 +51,7 @@ type DepChecker struct {
 	start        time.Time     // when the check was started (for timeline)
 }
 
-// CheckOutdatedDeps starts an async check for outdated dependencies.
-// Returns a DepChecker that can be used to wait for results with progress.
+// CheckOutdatedDeps starts an async check and returns a DepChecker to poll for progress.
 func CheckOutdatedDeps() *DepChecker {
 	dc := &DepChecker{
 		doneCh: make(chan struct{}),
@@ -143,7 +135,7 @@ func (dc *DepChecker) run() {
 func (dc *DepChecker) checkDep(path, version string) (update string, needsUpdate bool, err error) {
 	now := time.Now().Unix()
 
-	// Check cache first
+	// Check the cache before asking the proxy
 	if cachedUpdate, checkedAt, found := dc.cache.lookup(path, version); found {
 		if cachedUpdate != "" {
 			// Cached as outdated - return immediately (no expiry for outdated)
@@ -175,7 +167,7 @@ func (dc *DepChecker) checkDep(path, version string) (update string, needsUpdate
 // "go list -m -u" which can be unreliable and slow in CI environments.
 func checkDepLive(path string) (update string, needsUpdate bool, err error) {
 	proxy := os.Getenv("GOPROXY")
-	// GOPROXY can be a comma-separated list; use the first proxy entry (skip "direct"/"off")
+	// GOPROXY can be a comma-separated list; use the leading proxy entry (skip "direct"/"off")
 	var found string
 	for _, entry := range strings.FieldsFunc(proxy, func(r rune) bool { return r == ',' || r == '|' }) {
 		entry = strings.TrimSpace(entry)
@@ -194,8 +186,7 @@ func checkDepLive(path string) (update string, needsUpdate bool, err error) {
 		proxy = "https://" + proxy
 	}
 
-	// Query $GOPROXY/<module>/@latest
-	// Module paths are case-encoded per https://pkg.go.dev/golang.org/x/mod/module#EscapePath
+	// Query $GOPROXY/<module>/@latest; module paths are case-encoded per module#EscapePath.
 	escapedPath, err := escapePath(path)
 	if err != nil {
 		return "", false, err
@@ -296,7 +287,10 @@ func listDirectDeps() ([]depInfo, error) {
 		if req.Indirect {
 			continue
 		}
-		deps = append(deps, depInfo{Path: req.Mod.Path, Version: req.Mod.Version})
+		deps = append(deps, depInfo{
+			Path:    req.Mod.Path,
+			Version: req.Mod.Version,
+		})
 	}
 	return deps, nil
 }
@@ -308,7 +302,7 @@ func looksLikeGitVersion(version string) bool {
 		return false
 	}
 
-	// Check if last part looks like a commit hash (12 hex chars)
+	// Check whether the trailing part looks like a short commit hash
 	lastPart := parts[len(parts)-1]
 	return len(lastPart) == 12 && isHex(lastPart)
 }

@@ -1,0 +1,262 @@
+package cmd
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
+	"github.com/wow-look-at-my/go-toolchain/src/wasmexec"
+)
+
+func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
+	t.Serial()
+	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm", "wasip1/wasm"})
+	t.Setenv("CI", "")
+
+	mock := newTestPassMock(0)
+	origHandler := mock.Handler
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if isForkBuild(cfg, fakeGoroot) {
+			writeBuildOutput(t, cfg, "WASM")
+			return runner.MockProcess(nil, nil), nil
+		}
+		return origHandler(cfg)
+	}
+
+	var runErr error
+	output := captureCombinedOutput(func() {
+		runErr = runReleaseWithRunner(mock)
+	})
+	require.NoError(t, runErr)
+
+	// Publishing requires wasm artifact support; the opt-out warning must not appear by default.
+	assert.Contains(t, output, "requires buildhost wasm artifact support")
+	assert.NotContains(t, output, "excluded from buildhost publishing")
+
+	// Wasm artifacts use buildhost's publishable os=wasm naming (order
+	// swapped, no extension) and are ordinary regular files.
+	for name, content := range map[string]string{
+		"mytool_wasm_js":     "WASM",
+		"mytool_wasm_wasip1": "WASM",
+	} {
+		info, statErr := os.Lstat(filepath.Join(outDir, name))
+		require.NoError(t, statErr, "artifact %s must exist", name)
+		assert.True(t, info.Mode().IsRegular(), "artifact %s must be a regular file", name)
+		data, readErr := os.ReadFile(filepath.Join(outDir, name))
+		require.NoError(t, readErr)
+		assert.Equal(t, content, string(data), "artifact %s content", name)
+	}
+
+	// No cosmo machinery runs for wasm targets. The manifest, not the filename, marks a cosmo build.
+	assert.NoFileExists(t, filepath.Join(outDir, buildhostManifestName),
+		"wasm targets must not produce a cosmo fat artifact")
+	assert.NoFileExists(t, filepath.Join(outDir, "mytool_linux_arm64"),
+		"no artifact may appear for a platform that was not requested")
+
+	// wasm_exec.js ships alongside the js artifact and must byte-match the toolchain that built it.
+	harness, err := os.ReadFile(filepath.Join(outDir, "wasm_exec.js"))
+	require.NoError(t, err, "wasm_exec.js must be written into the output dir for js/wasm builds")
+	assert.Equal(t, string(wasmexec.Script), string(harness))
+
+	// checksums.txt covers both wasm artifacts plus wasm_exec.js.
+	sums, err := os.ReadFile(filepath.Join(outDir, "checksums.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, 3, len(strings.Split(strings.TrimSpace(string(sums)), "\n")))
+	assert.Contains(t, string(sums), "mytool_wasm_js")
+	assert.Contains(t, string(sums), "mytool_wasm_wasip1")
+	assert.Contains(t, string(sums), "wasm_exec.js")
+
+	// Each wasm build pins GOOS/GOARCH (fork defaults to cosmo), GOTOOLCHAIN=local, GOROOT, and disables cgo.
+	seenGOOS := set.New[string]()
+	for _, cfg := range mock.Calls() {
+		if !isForkBuild(cfg, fakeGoroot) {
+			continue
+		}
+		goos, _ := cfg.Env.Get("GOOS")
+		seenGOOS.Add(goos)
+		goarch, _ := cfg.Env.Get("GOARCH")
+		assert.Equal(t, "wasm", goarch, "GOARCH must be pinned to wasm for GOOS=%s", goos)
+		toolchain, _ := cfg.Env.Get("GOTOOLCHAIN")
+		assert.Equal(t, "local", toolchain)
+		goroot, _ := cfg.Env.Get("GOROOT")
+		assert.Equal(t, fakeGoroot, goroot)
+		cgo, _ := cfg.Env.Get("CGO_ENABLED")
+		assert.Equal(t, "0", cgo)
+	}
+	assert.True(t, seenGOOS.Contains("js"), "expected a js/wasm build via the fork toolchain")
+	assert.True(t, seenGOOS.Contains("wasip1"), "expected a wasip1/wasm build via the fork toolchain")
+}
+
+func TestRunReleaseWithRunnerWasmOnlySkipsCosmoPrereqs(t *testing.T) {
+	t.Serial()
+	// Uses the canonical wasm/js spelling end to end; the js/wasm alias (other tests) produces the same artifact.
+	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"wasm/js"})
+	// --cosmo-platforms is a cosmo-only prerequisite, so an invalid value is ignored with no cosmo target requested.
+	cosmoPlatforms = []string{"not-a-pair"}
+
+	mock := newTestPassMock(0)
+	origHandler := mock.Handler
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if isForkBuild(cfg, fakeGoroot) {
+			writeBuildOutput(t, cfg, "WASM")
+			return runner.MockProcess(nil, nil), nil
+		}
+		return origHandler(cfg)
+	}
+
+	err := runReleaseWithRunner(mock)
+	require.NoError(t, err)
+	assert.FileExists(t, filepath.Join(outDir, "mytool_wasm_js"))
+	assert.NoFileExists(t, filepath.Join(outDir, buildhostManifestName))
+}
+
+func TestRunReleaseWithRunnerWasmPublishOptOut(t *testing.T) {
+	t.Serial()
+	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm"})
+	// The wasmPublishEnv opt-out falls back to the excluded .wasm-suffixed name, skipping the buildhost publish upload set.
+	t.Setenv(wasmPublishEnv, "0")
+
+	mock := newTestPassMock(0)
+	origHandler := mock.Handler
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if isForkBuild(cfg, fakeGoroot) {
+			writeBuildOutput(t, cfg, "WASM")
+			return runner.MockProcess(nil, nil), nil
+		}
+		return origHandler(cfg)
+	}
+
+	var runErr error
+	output := captureCombinedOutput(func() {
+		runErr = runReleaseWithRunner(mock)
+	})
+	require.NoError(t, runErr)
+
+	// The opt-out shape is built and checksummed; the publishable name is not produced.
+	assert.FileExists(t, filepath.Join(outDir, "mytool_js_wasm.wasm"))
+	assert.NoFileExists(t, filepath.Join(outDir, "mytool_wasm_js"))
+	sums, err := os.ReadFile(filepath.Join(outDir, "checksums.txt"))
+	require.NoError(t, err)
+	assert.Contains(t, string(sums), "mytool_js_wasm.wasm")
+
+	// The exclusion warning fires, plus the a wasm-only publish has nothing to publish.
+	assert.Contains(t, output, "excluded from buildhost publishing")
+	assert.Contains(t, output, "every target is wasm")
+	assert.NotContains(t, output, "requires buildhost wasm artifact support")
+}
+
+func TestRunReleaseWithRunnerWasmWithoutAGoCommandFailsFast(t *testing.T) {
+	t.Serial()
+	setupCosmoMatrixTest(t, []string{"wasip1/wasm"})
+	activeGoCmd = nil
+
+	mock := newTestPassMock(0)
+	err := runReleaseWithRunner(mock)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no go command")
+	// Fail-fast: the toolchain is resolved before the test phase runs.
+	for _, cfg := range mock.Calls() {
+		assert.False(t, cfg.IsCmd("go", "test"), "tests must not run without a go command")
+	}
+}
+
+// writeConstrainedMain adds a nested main package with the given build
+// constraint line ("" for unconstrained) to the module set up by
+// setupCosmoMatrixTest (which chdirs into the module root).
+func writeConstrainedMain(t *testing.T, dir, constraint string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(dir, 0755))
+	src := "package main\n\nfunc main() {}\n"
+	if constraint != "" {
+		src = constraint + "\n\n" + src
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte(src), 0644))
+}
+
+func TestRunReleaseWithRunnerPerTargetMainDiscovery(t *testing.T) {
+	t.Serial()
+	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm", "wasip1/wasm"})
+	t.Setenv("CI", "")
+	// Alongside the unconstrained root main ("mytool"): a js&&wasm-only main and a wasip1&&wasm-only main.
+	writeConstrainedMain(t, "cmd/wasmonly", "//go:build js && wasm")
+	writeConstrainedMain(t, "cmd/wasip1only", "//go:build wasip1 && wasm")
+
+	mock := newTestPassMock(0)
+	origHandler := mock.Handler
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if isForkBuild(cfg, fakeGoroot) {
+			writeBuildOutput(t, cfg, "WASM")
+			return runner.MockProcess(nil, nil), nil
+		}
+		return origHandler(cfg)
+	}
+
+	err := runReleaseWithRunner(mock)
+	require.NoError(t, err)
+
+	// Each target builds exactly the mains visible under ITS build context.
+	for _, name := range []string{
+		"mytool_wasm_js", "wasmonly_wasm_js", // js/wasm: unconstrained + js&&wasm
+		"mytool_wasm_wasip1", "wasip1only_wasm_wasip1", // wasip1/wasm: unconstrained + wasip1&&wasm
+	} {
+		assert.FileExists(t, filepath.Join(outDir, name), "expected artifact %s", name)
+	}
+	for _, name := range []string{
+		"wasip1only_wasm_js",   // wasip1-only main leaks nowhere else
+		"wasmonly_wasm_wasip1", // js-only main is never attempted for wasip1
+	} {
+		assert.NoFileExists(t, filepath.Join(outDir, name), "artifact %s must not be built", name)
+	}
+}
+
+func TestRunReleaseWithRunnerTargetWithoutMainsSkipped(t *testing.T) {
+	t.Serial()
+	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm", "wasip1/wasm"})
+	t.Setenv("CI", "")
+	// A wasip1-only root main leaves js/wasm with no main packages, skipped with a warning; wasip1/wasm still builds.
+	require.NoError(t, os.Remove("main.go"))
+	writeConstrainedMain(t, ".", "//go:build wasip1 && wasm")
+
+	mock := newTestPassMock(0)
+	origHandler := mock.Handler
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if isForkBuild(cfg, fakeGoroot) {
+			writeBuildOutput(t, cfg, "WASM")
+			return runner.MockProcess(nil, nil), nil
+		}
+		return origHandler(cfg)
+	}
+
+	var runErr error
+	output := captureCombinedOutput(func() {
+		runErr = runReleaseWithRunner(mock)
+	})
+	require.NoError(t, runErr)
+
+	assert.Contains(t, output, "no main packages found under GOOS=js GOARCH=wasm")
+	assert.FileExists(t, filepath.Join(outDir, "mytool_wasm_wasip1"))
+	assert.NoFileExists(t, filepath.Join(outDir, "mytool_wasm_js"))
+	// No js artifact was built, so the harness is not shipped either.
+	assert.NoFileExists(t, filepath.Join(outDir, "wasm_exec.js"))
+}
+
+func TestRunReleaseWithRunnerNoMainsForAnyTargetFails(t *testing.T) {
+	t.Serial()
+	_, _ = setupCosmoMatrixTest(t, []string{"js/wasm"})
+	// Only a linux-guarded main: the js/wasm-only target list has nothing to build anywhere, which errors.
+	require.NoError(t, os.Remove("main.go"))
+	writeConstrainedMain(t, ".", "//go:build linux")
+
+	mock := newTestPassMock(0)
+	var runErr error
+	captureCombinedOutput(func() {
+		runErr = runReleaseWithRunner(mock)
+	})
+	require.Error(t, runErr)
+	assert.Contains(t, runErr.Error(), "no main packages found to build")
+}

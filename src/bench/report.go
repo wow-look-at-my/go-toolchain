@@ -35,8 +35,8 @@ type testEvent struct {
 	Output  string `json:"Output"`
 }
 
-// benchPattern matches benchmark output lines:
-// BenchmarkFoo-8     10000    123456 ns/op    1234 B/op    56 allocs/op
+// benchPattern matches benchmark output lines: BenchmarkFoo-<cpus> <iters>
+// <ns> ns/op <bytes> B/op <allocs> allocs/op
 var benchPattern = regexp.MustCompile(
 	`^(Benchmark\S+)\s+(\d+)\s+([\d.]+)\s+ns/op(?:\s+(\d+)\s+B/op)?(?:\s+(\d+)\s+allocs/op)?`,
 )
@@ -134,7 +134,7 @@ func (r *BenchmarkReport) Print() {
 	logger.Info("        time/op      alloc/op   allocs/op  name")
 	for _, pkg := range pkgNames {
 		results := r.Packages[pkg]
-		// Sort by ns/op (fastest first)
+		// Sort by ns/op, fastest at the top
 		sort.Slice(results, func(i, j int) bool {
 			return results[i].NsPerOp < results[j].NsPerOp
 		})
@@ -190,7 +190,7 @@ func (r *BenchmarkReport) ToBenchstat() string {
 		})
 
 		for _, b := range results {
-			// Format: BenchmarkName-N    iterations    ns/op    B/op    allocs/op
+			// Format: BenchmarkName-N iterations ns/op B/op allocs/op
 			sb.WriteString(fmt.Sprintf("%s\t%d\t%.2f ns/op", b.Name, b.Iterations, b.NsPerOp))
 			if b.BytesPerOp > 0 || b.AllocsPerOp > 0 {
 				sb.WriteString(fmt.Sprintf("\t%d B/op\t%d allocs/op", b.BytesPerOp, b.AllocsPerOp))

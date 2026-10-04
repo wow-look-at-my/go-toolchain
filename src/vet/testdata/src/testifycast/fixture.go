@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"testifycast/modes"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,6 +25,11 @@ func getUint() uint       { return 0 }
 // getDuration returns a named numeric type defined in another package, so the
 // conversion must be spelled with the file's import qualifier (time.Duration).
 func getDuration() time.Duration { return 0 }
+
+// getMode returns a named numeric type from a package that notimported.go
+// (which asserts on it) does NOT import — the conversion inserted there must
+// also add the modes import.
+func getMode() modes.Mode { return 0 }
 
 // Celsius is a numeric named type (same kind as float64).
 type Celsius float64

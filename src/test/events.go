@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"gotest.tools/gotestsum/testjson"
 )
@@ -25,17 +26,28 @@ type coverageHandler struct {
 	verbose     bool
 	out         io.Writer
 	testOutput  map[string][]string // buffer output per test/package until we know pass/fail
-	failedTest  map[string]bool     // tests/packages that failed
-	timedOut    map[string]bool     // tests that timed out
-	onOutput    func()              // called before the first visible output
-	stderrLines []string            // build errors and panics from stderr
-	testCases   []TestCaseResult    // per-test results for CI summary
-	timeline    TimelineRecorder    // pipeline timeline for per-test spans
+	failedTest  set.Set[string]     // tests/packages that failed
+	timedOut    set.Set[string]     // tests that timed out
+	onOutput    func()              // called before any visible output
+	stderrLines []string            // panics and other stderr noise
+	// buildOutput holds compiler/linker diagnostics from empty-Package build-output events (unmatched otherwise).
+	buildOutput []string
+	testCases   []TestCaseResult // per-test results for CI summary
+	timeline    TimelineRecorder // pipeline timeline for per-test spans
 	fastCount   int
 	fastElapsed float64
 }
 
 func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Execution) error {
+	// Build diagnostics lead, ahead of any test event: keep them in
+	// emission order, and show them live in verbose mode like test output.
+	if event.Action == testjson.ActionBuild && event.Output != "" {
+		h.buildOutput = append(h.buildOutput, event.Output)
+		if h.verbose {
+			logger.Output("%s", strings.TrimRight(event.Output, "\n"))
+		}
+		return nil
+	}
 	if event.Action == testjson.ActionOutput && event.Output != "" {
 		if h.verbose {
 			logger.Output("%s", strings.TrimRight(event.Output, "\n"))
@@ -51,7 +63,7 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 		// Detect test timeout from panic output
 		if event.Test != "" && strings.Contains(event.Output, "panic: test timed out") {
 			key := event.Package + "/" + event.Test
-			h.timedOut[key] = true
+			h.timedOut.Add(key)
 		}
 		if matches := coverageRe.FindStringSubmatch(event.Output); len(matches) == 2 {
 			cov, _ := strconv.ParseFloat(matches[1], 32)
@@ -59,12 +71,12 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 		}
 	}
 	// Track failed tests and packages
-	if event.Action == testjson.ActionFail && h.failedTest != nil {
+	if event.Action == testjson.ActionFail {
 		key := event.Package
 		if event.Test != "" {
 			key += "/" + event.Test
 		}
-		h.failedTest[key] = true
+		h.failedTest.Add(key)
 	}
 
 	// Capture per-test results for CI summary
@@ -88,7 +100,7 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 			})
 		}
 
-		// Record per-test timeline entries for OTEL trace spans
+		// Record per-test timeline entries for the step summary and the Chrome trace.
 		if h.timeline != nil && event.Elapsed >= 0.1 {
 			switch event.Action {
 			case testjson.ActionPass, testjson.ActionFail, testjson.ActionSkip:
@@ -120,7 +132,7 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 			}
 			key := event.Package + "/" + event.Test
 			status := "failed!"
-			if h.timedOut[key] {
+			if h.timedOut.Contains(key) {
 				status = "timed out!"
 			}
 			elapsed := event.Elapsed
@@ -160,15 +172,24 @@ func (h *coverageHandler) printFastSummary() {
 	h.fastElapsed = 0
 }
 
+// FailureOutput is everything worth showing about a failed run, in the order
+// a reader needs it: what went wrong, then the per-test detail. The
+// compiler's own diagnostics lead -- a summary that arrives before the error
+// it summarizes is how "[build failed]" becomes the only thing anybody sees.
 func (h *coverageHandler) FailureOutput() string {
 	var result string
-	// Include stderr (build errors, panics) first
+	// Build/link diagnostics: the actual error behind "[build failed]".
+	for _, line := range h.buildOutput {
+		result += line
+	}
+	// Then stderr (panics and anything the go command wrote outside the
+	// JSON stream).
 	for _, line := range h.stderrLines {
 		result += line + "\n"
 	}
 	// Then include buffered test/package output for failed items
 	for key, lines := range h.testOutput {
-		if h.failedTest[key] {
+		if h.failedTest.Contains(key) {
 			for _, line := range lines {
 				result += line
 			}

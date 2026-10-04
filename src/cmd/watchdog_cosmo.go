@@ -12,24 +12,21 @@ import (
 // GOOS=cosmo (gosmopolitan) counts as `unix`, but golang.org/x/sys/unix has
 // no cosmo port, so this file mirrors watchdog_unix.go using the fork's
 // stdlib syscall package instead: the cosmo port exposes Dup, Dup2 (via
-// Dup3), and Close directly. Keep the two implementations in sync.
+// Dup3), and Close directly. Keep both implementations in sync.
 
-// startWatchdog replaces fd 1 (stdout) and fd 2 (stderr) with pipes,
-// forwarding all output to the original file descriptors while monitoring
-// for stalls. Returns nil if setup fails (non-fatal; build continues without monitoring).
+// startWatchdog replaces the stdout and stderr descriptors with pipes,
+// forwarding all output to the file descriptors while monitoring for stalls.
+// Returns nil if setup fails (non-fatal; build continues without monitoring).
 func startWatchdog(threshold time.Duration) *outputWatchdog {
-	if watchdogDisabled() {
-		return nil
-	}
 	// Save original file descriptors
 	origStdoutFd, err := syscall.Dup(1)
 	if err != nil {
-		return nil
+		return watchdogOff("setup failed: %v", err)
 	}
 	origStderrFd, err := syscall.Dup(2)
 	if err != nil {
 		syscall.Close(origStdoutFd)
-		return nil
+		return watchdogOff("setup failed: %v", err)
 	}
 
 	// Create pipes for stdout and stderr
@@ -37,7 +34,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 	if err != nil {
 		syscall.Close(origStdoutFd)
 		syscall.Close(origStderrFd)
-		return nil
+		return watchdogOff("pipe for stdout: %v", err)
 	}
 	stderrR, stderrW, err := os.Pipe()
 	if err != nil {
@@ -45,10 +42,10 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 		stdoutW.Close()
 		syscall.Close(origStdoutFd)
 		syscall.Close(origStderrFd)
-		return nil
+		return watchdogOff("pipe for stderr: %v", err)
 	}
 
-	// Replace fd 1 and 2 with pipe write-ends
+	// Replace the stdout and stderr descriptors with pipe write-ends
 	if err := syscall.Dup2(int(stdoutW.Fd()), 1); err != nil {
 		stdoutR.Close()
 		stdoutW.Close()
@@ -56,7 +53,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 		stderrW.Close()
 		syscall.Close(origStdoutFd)
 		syscall.Close(origStderrFd)
-		return nil
+		return watchdogOff("dup2 onto fd 1: %v", err)
 	}
 	if err := syscall.Dup2(int(stderrW.Fd()), 2); err != nil {
 		// Restore stdout before bailing
@@ -67,20 +64,12 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 		stderrW.Close()
 		syscall.Close(origStdoutFd)
 		syscall.Close(origStderrFd)
-		return nil
+		return watchdogOff("dup2 onto fd 2: %v", err)
 	}
 
-	// The existing os.Stdout / os.Stderr *os.File values already have
-	// Fd() == 1 / 2, so the Dup2 above is enough — writes through them
-	// now reach the pipe. Do NOT reassign via os.NewFile(1, …): that
-	// attaches a close-on-GC finalizer, and repeated watchdog cycles
-	// (e.g. TestWatchdogStop*'s 200-iteration loop) leave behind enough
-	// wrappers that their finalizers eventually close the real
-	// stdout/stderr out from under later runtime code — notably the
-	// -coverpkg atexit profile writer, which then silently fails the
-	// whole package.
+	// Never reassign os.Stdout/Stderr via os.NewFile: piled-up finalizers eventually close real stdio out from under later code.
 
-	// Close the extra write-end file handles; fd 1 and 2 are copies now
+	// Close the extra write-end file handles; the stdio descriptors are copies now
 	stdoutW.Close()
 	stderrW.Close()
 
@@ -115,17 +104,12 @@ func (w *outputWatchdog) stop() {
 	os.Stdout.Sync()
 	os.Stderr.Sync()
 
-	// Restore original file descriptors. Dup2 drops the last writer refcount on
-	// each pipe, so forward() will drain the kernel buffer and return on EOF.
+	// Dup2 drops the last writer refcount on each pipe, so forward() drains the kernel buffer and returns on EOF.
 	syscall.Dup2(int(w.origStdout.Fd()), 1)
 	syscall.Dup2(int(w.origStderr.Fd()), 2)
-	// No os.NewFile reassignment needed: os.Stdout/os.Stderr already
-	// reference fd 1/2, which now point back to the original stdio.
-	// Avoid it for the same finalizer-accumulation reason noted in
-	// startWatchdog.
+	// No os.NewFile reassignment needed here either -- avoid it for the same finalizer-accumulation reason as startWatchdog.
 
-	// Must wait for forward() before closing read-ends; otherwise buffered
-	// output in the pipe (e.g. the final coverage block) is discarded.
+	// Wait for forward() before closing read-ends, or buffered pipe output (e.g. the final coverage block) is discarded.
 	w.fwdWG.Wait()
 	w.stdoutR.Close()
 	w.stderrR.Close()

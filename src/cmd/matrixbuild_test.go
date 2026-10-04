@@ -4,62 +4,163 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
+// hostLinkName spells a link the way this host runs it: NT needs the .exe suffix.
+func hostLinkName(name string) string {
+	if hostos.GOOS() == "windows" {
+		return name + ".exe"
+	}
+	return name
+}
+
+// wasmJob is a build job runBuild accepts, for tests about everything other
+// than which targets are allowed (that is TestRunBuildRefusesAnythingButThePortableTargets).
+func wasmJob(t *testing.T, outputPath string) buildJob {
+	t.Helper()
+	return buildJob{
+		goos:       "wasip1",
+		goarch:     wasmArch,
+		srcPath:    ".",
+		outputPath: outputPath,
+		goCmd:      []string{filepath.Join(t.TempDir(), "go")},
+		goroot:     filepath.Join(t.TempDir(), "fork-goroot"),
+	}
+}
+
+// cosmoJob is the fat-APE counterpart of wasmJob: the shipped target, whose
+// bytes every host has to agree on.
+func cosmoJob(t *testing.T, outputPath string) buildJob {
+	t.Helper()
+	job := wasmJob(t, outputPath)
+	job.goos = cosmoOS
+	job.goarch = ""
+	return job
+}
+
+// tmpOut names a build output in a fresh directory.
+func tmpOut(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(t.TempDir(), "out")
+}
+
 func TestRunBuildCapturesStderr(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.IsCmd("go", "build") {
+		if isGoBuild(cfg) {
 			return runner.MockProcessWithStderr(nil, []byte("./main.go:5:3: undefined: foo\n"), fmt.Errorf("exit status 1")), nil
 		}
 		return nil, nil
 	}
 
-	job := buildJob{
-		goos:       "linux",
-		goarch:     "amd64",
-		srcPath:    ".",
-		outputPath: "/tmp/test",
-	}
-
-	err := runBuild(mock, job, nil)
+	err := runBuild(mock, wasmJob(t, tmpOut(t)), nil)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "exit status 1")
 	assert.Contains(t, err.Error(), "undefined: foo")
 }
 
 func TestRunBuildNoStderrOnSuccess(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
-	job := buildJob{
-		goos:       "linux",
-		goarch:     "amd64",
-		srcPath:    ".",
-		outputPath: "/tmp/test",
+	// The mocked compiler obeys a real compiler's contract: a successful go build
+	// materializes its -o target.
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		writeMockBuildOutput(cfg, "bin")
+		return runner.MockProcess(nil, nil), nil
 	}
+	job := wasmJob(t, tmpOut(t))
 
 	err := runBuild(mock, job, nil)
 	assert.Nil(t, err)
+	assert.FileExists(t, job.outputPath, "the commit moved the build onto the target name")
+}
+
+// The compiler is the go link to this binary, so the command line runBuild
+// starts is the job's go command followed by the build.
+func TestRunBuildStartsTheGoCommandOfTheJob(t *testing.T) {
+	t.Serial()
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		writeMockBuildOutput(cfg, "bin")
+		return runner.MockProcess(nil, nil), nil
+	}
+	job := wasmJob(t, tmpOut(t))
+
+	require.NoError(t, runBuild(mock, job, nil))
+	calls := mock.Calls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, job.goCmd[0], calls[0].Name)
+	assert.Equal(t, "build", calls[0].Args[0])
+}
+
+// The APE claims to run on every host, and that claim is honest only if every
+// host builds the same bytes. What differs between runners is where the source
+// is checked out and which fork build compiled it. Both reach the output
+// through the build-ID notes, and each flag closes its own channel, so a build
+// missing either still leaves the hosts disagreeing.
+func TestRunBuildIsReproducibleAcrossHosts(t *testing.T) {
+	t.Serial()
+	for _, job := range []buildJob{wasmJob(t, tmpOut(t)), cosmoJob(t, tmpOut(t))} {
+		t.Run(job.goos, func(t *testing.T) {
+			mock := runner.NewMock()
+			mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+				writeMockBuildOutput(cfg, "bin")
+				return runner.MockProcess(nil, nil), nil
+			}
+
+			require.NoError(t, runBuild(mock, job, nil))
+			calls := mock.Calls()
+			require.Len(t, calls, 1)
+			assert.Contains(t, calls[0].Args, "-trimpath",
+				"every build goes through runBuild, so a target missing -trimpath ships a binary carrying the path it was built at")
+			assert.Contains(t, calls[0].Args, reproducibleLDFlags,
+				"without an emptied build ID the note records which fork build compiled this, and no two hosts share one")
+		})
+	}
+}
+
+// An explicit ldflags survives, and the reproducibility flag still wins:
+// dropping it silently would give up cross-host identity without saying so.
+func TestRunBuildKeepsCallerLDFlagsAndStillEmptiesTheBuildID(t *testing.T) {
+	t.Serial()
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		writeMockBuildOutput(cfg, "bin")
+		return runner.MockProcess(nil, nil), nil
+	}
+	job := cosmoJob(t, tmpOut(t))
+	job.ldflags = "-X main.version=test"
+
+	require.NoError(t, runBuild(mock, job, nil))
+	calls := mock.Calls()
+	require.Len(t, calls, 1)
+
+	var got string
+	for i, arg := range calls[0].Args {
+		if arg == "-ldflags" && i+1 < len(calls[0].Args) {
+			got = calls[0].Args[i+1]
+		}
+	}
+	assert.Equal(t, "-X main.version=test "+reproducibleLDFlags, got,
+		"the caller's flags survive and the build-ID flag comes last, where the linker reads it as authoritative")
 }
 
 func TestRunBuild(t *testing.T) {
-	oldCgo := cgoEnabled
-	cgoEnabled = false
-	defer func() { cgoEnabled = oldCgo }()
-
+	t.Serial()
 	mock := runner.NewMock()
-	job := buildJob{
-		goos:       "linux",
-		goarch:     "amd64",
-		srcPath:    ".",
-		outputPath: "/tmp/test",
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		writeMockBuildOutput(cfg, "bin")
+		return runner.MockProcess(nil, nil), nil
 	}
+	job := wasmJob(t, tmpOut(t))
 
 	err := runBuild(mock, job, nil)
 	assert.Nil(t, err)
@@ -72,75 +173,86 @@ func TestRunBuild(t *testing.T) {
 	cfg := calls[0]
 	goos, _ := cfg.Env.Get("GOOS")
 	goarch, _ := cfg.Env.Get("GOARCH")
-	cgo, _ := cfg.Env.Get("CGO_ENABLED")
-	assert.Equal(t, "linux", goos)
-	assert.Equal(t, "amd64", goarch)
-	assert.Equal(t, "0", cgo)
+	goroot, _ := cfg.Env.Get("GOROOT")
+	assert.Equal(t, "wasip1", goos)
+	assert.Equal(t, wasmArch, goarch)
+	assert.Equal(t, job.goroot, goroot)
 
-	// Verify -o flag
+	// -o is the .tmp- spelling, never the target file itself.
 	hasOutput := false
 	for i, arg := range cfg.Args {
 		if arg == "-o" && i+1 < len(cfg.Args) {
-			hasOutput = strings.Contains(cfg.Args[i+1], "/tmp/test")
+			hasOutput = cfg.Args[i+1] == build.TempOutputPath(job.outputPath)
 		}
 	}
 	assert.True(t, hasOutput)
 }
 
-func TestRunBuildWithCgoEnabled(t *testing.T) {
-	oldCgo := cgoEnabled
-	cgoEnabled = true
-	defer func() { cgoEnabled = oldCgo }()
+// CGO_ENABLED is assigned, never inherited: --cgo turns it on for the APE,
+// whose C the fork compiles with cosmocc, and wasm has no cgo either way.
+func TestRunBuildAssignsCGOEnabled(t *testing.T) {
+	t.Serial()
+	for _, tc := range []struct {
+		name string
+		job  func(*testing.T, string) buildJob
+		flag bool
+		want string
+	}{
+		{"wasm without --cgo", wasmJob, false, "0"},
+		{"wasm with --cgo", wasmJob, true, "0"},
+		{"cosmo without --cgo", cosmoJob, false, "0"},
+		{"cosmo with --cgo", cosmoJob, true, "1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			oldCgo := cgoEnabled
+			cgoEnabled = tc.flag
+			defer func() { cgoEnabled = oldCgo }()
 
-	mock := runner.NewMock()
-	job := buildJob{
-		goos:       "linux",
-		goarch:     "amd64",
-		srcPath:    ".",
-		outputPath: "/tmp/test",
+			mock := runner.NewMock()
+			mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+				writeMockBuildOutput(cfg, "bin")
+				return runner.MockProcess(nil, nil), nil
+			}
+			require.NoError(t, runBuild(mock, tc.job(t, tmpOut(t)), nil))
+
+			calls := mock.Calls()
+			require.Len(t, calls, 1)
+			cgo, ok := calls[0].Env.Get("CGO_ENABLED")
+			assert.True(t, ok, "CGO_ENABLED must be assigned, not inherited")
+			assert.Equal(t, tc.want, cgo)
+		})
 	}
-
-	err := runBuild(mock, job, nil)
-	assert.Nil(t, err)
-
-	calls := mock.Calls()
-	assert.Equal(t, 1, len(calls))
-
-	cfg := calls[0]
-	goos2, _ := cfg.Env.Get("GOOS")
-	goarch2, _ := cfg.Env.Get("GOARCH")
-	assert.Equal(t, "linux", goos2)
-	assert.Equal(t, "amd64", goarch2)
-	hasCgo := cfg.Env.Contains("CGO_ENABLED")
-	assert.False(t, hasCgo, "CGO_ENABLED should not be set when --cgo is used")
 }
 
+// The APE already occupies the bare name, so only the _host convenience link
+// is created. Overwriting the bare name would delete the artifact itself.
 func TestCreateHostSymlinks(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	targets := []build.Target{
 		{ImportPath: "./cmd/mytool", OutputName: "mytool"},
 	}
 
-	// Create a fake host binary
-	hostBinary := fmt.Sprintf("mytool_%s_%s", runtime.GOOS, runtime.GOARCH)
-	os.WriteFile(filepath.Join(tmpDir, hostBinary), []byte("binary"), 0755)
+	ape := filepath.Join(tmpDir, "mytool")
+	require.NoError(t, os.WriteFile(ape, []byte("APE"), 0755))
 
-	err := createHostSymlinks(targets, tmpDir)
-	assert.Nil(t, err)
+	require.NoError(t, createHostSymlinks(targets, tmpDir))
 
-	// Check _host symlink
-	linkTarget, err := os.Readlink(filepath.Join(tmpDir, "mytool_host"))
+	linkTarget, err := os.Readlink(filepath.Join(tmpDir, hostLinkName("mytool_host")))
 	assert.Nil(t, err)
-	assert.Equal(t, hostBinary, linkTarget)
+	assert.Equal(t, "mytool", linkTarget)
 
-	// Check bare symlink
-	linkTarget, err = os.Readlink(filepath.Join(tmpDir, "mytool"))
-	assert.Nil(t, err)
-	assert.Equal(t, hostBinary, linkTarget)
+	st, err := os.Lstat(ape)
+	require.NoError(t, err)
+	assert.Zero(t, st.Mode()&os.ModeSymlink, "the APE must stay a real file")
+	body, err := os.ReadFile(ape)
+	require.NoError(t, err)
+	assert.Equal(t, "APE", string(body))
 }
 
 func TestCreateHostSymlinksSkipsMissing(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	targets := []build.Target{
@@ -159,24 +271,82 @@ func TestCreateHostSymlinksSkipsMissing(t *testing.T) {
 }
 
 func TestCreateHostSymlinksReplacesStale(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	targets := []build.Target{
 		{ImportPath: "./cmd/mytool", OutputName: "mytool"},
 	}
 
-	hostBinary := fmt.Sprintf("mytool_%s_%s", runtime.GOOS, runtime.GOARCH)
-	os.WriteFile(filepath.Join(tmpDir, hostBinary), []byte("binary"), 0755)
+	// A previous run's APE, and a stale link left over from before it existed.
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "mytool"), []byte("APE"), 0755))
+	require.NoError(t, os.Symlink("old_target", filepath.Join(tmpDir, hostLinkName("mytool_host"))))
 
-	// Create stale symlinks pointing elsewhere
-	os.Symlink("old_target", filepath.Join(tmpDir, "mytool_host"))
-	os.Symlink("old_target", filepath.Join(tmpDir, "mytool"))
+	require.NoError(t, createHostSymlinks(targets, tmpDir))
 
-	err := createHostSymlinks(targets, tmpDir)
-	assert.Nil(t, err)
+	linkTarget, err := os.Readlink(filepath.Join(tmpDir, hostLinkName("mytool_host")))
+	require.NoError(t, err)
+	assert.Equal(t, "mytool", linkTarget)
+}
 
-	linkTarget, _ := os.Readlink(filepath.Join(tmpDir, "mytool_host"))
-	assert.Equal(t, hostBinary, linkTarget)
-	linkTarget, _ = os.Readlink(filepath.Join(tmpDir, "mytool"))
-	assert.Equal(t, hostBinary, linkTarget)
+// TestRunBuildMovesOutputIntoPlace pins the write-then-move contract from
+// outside runBuild: the -o arg carries the .tmp- spelling, the result ends up
+// on the target file, and the temp name is gone.
+func TestRunBuildMovesOutputIntoPlace(t *testing.T) {
+	t.Serial()
+	final := filepath.Join(t.TempDir(), "mytool")
+	var built string
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		for i, arg := range cfg.Args {
+			if arg == "-o" && i+1 < len(cfg.Args) {
+				built = cfg.Args[i+1]
+			}
+		}
+		require.Equal(t, build.TempOutputPath(final), built, "-o must carry the temp spelling")
+		require.NoError(t, os.WriteFile(built, []byte("BIN"), 0o755))
+		return runner.MockProcess(nil, nil), nil
+	}
+
+	require.NoError(t, runBuild(mock, wasmJob(t, final), nil))
+
+	body, err := os.ReadFile(final)
+	require.NoError(t, err)
+	assert.Equal(t, "BIN", string(body), "the target file holds what the build wrote")
+	assert.NoFileExists(t, build.TempOutputPath(final), "the temp spelling must not survive the commit")
+}
+
+// TestRunBuildDeletesTempOutputOnFailure: a failed build leaves nothing —
+// what the compiler already wrote under the temp spelling is removed, and the
+// target file never appears.
+func TestRunBuildDeletesTempOutputOnFailure(t *testing.T) {
+	t.Serial()
+	final := filepath.Join(t.TempDir(), "mytool")
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if isGoBuild(cfg) {
+			writeMockBuildOutput(cfg, "PARTIAL")
+			return runner.MockProcessWithStderr(nil, []byte("./main.go:5:3: undefined: foo\n"), fmt.Errorf("exit status 1")), nil
+		}
+		return nil, nil
+	}
+
+	err := runBuild(mock, wasmJob(t, final), nil)
+	require.NotNil(t, err)
+	assert.Contains(t, err.Error(), "undefined: foo")
+	assert.NoFileExists(t, build.TempOutputPath(final), "the failed build's temp output must be deleted")
+	assert.NoFileExists(t, final, "a failed build must not produce the target file")
+}
+
+// TestRunBuildRefusesToCommitMissingOutput: go build reporting success without
+// producing its -o target is not shippable — the run fails loudly instead of
+// reporting a build whose output nobody can find.
+func TestRunBuildRefusesToCommitMissingOutput(t *testing.T) {
+	t.Serial()
+	final := filepath.Join(t.TempDir(), "mytool")
+	// A build that "succeeds" but writes nothing, unlike a real compiler.
+	mock := runner.NewMock()
+
+	assert.Error(t, runBuild(mock, wasmJob(t, final), nil))
+	assert.NoFileExists(t, final)
 }

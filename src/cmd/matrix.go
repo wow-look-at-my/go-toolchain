@@ -1,7 +1,9 @@
 package cmd
 
 import (
-	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -9,48 +11,35 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
-	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 )
 
 var (
-	matrixOS        []string
-	matrixArch      []string
 	matrixTargets   []string
-	cosmoSlots      []string
+	cosmoPlatforms  []string
 	releaseParallel int
-)
-
-var (
-	DefaultOS   = []string{"linux", "darwin", "windows"}
-	DefaultArch = []string{"amd64", "arm64"}
 )
 
 func init() {
 	matrixCmd := &cobra.Command{
 		Use:   "matrix",
-		Short: "Cross-compile for multiple platforms",
-		Long: `Builds binaries for multiple GOOS/GOARCH combinations in parallel.
+		Short: "Build the release APE (and optional wasm targets)",
+		Long: `Builds ONE fat Actually Portable Executable: the org's only native release
+output (see docs/MATRIX.md).
 
-Targets are the cartesian product of --os and --arch, unless --targets is set,
-in which case exactly the listed targets are built. Each --targets entry is an
-os/arch pair (e.g. darwin/amd64) or the special value "cosmo": one fat
-Actually Portable Executable built with the gosmopolitan Go fork, covering
-Linux, macOS and Windows in a single binary (artifact <name>_cosmo_fat). After
-a cosmo build the fat APE is also copied to the per-platform artifact names
-listed in --cosmo-slots, so per-platform consumers keep working; an explicit
-native target in --targets wins over a slot copy of the same name.
+By default the build produces a single cosmo APE (artifact <name>) covering
+--cosmo-platforms: linux/amd64, darwin/arm64 and windows/amd64. One file runs
+on all three.
 
 The WebAssembly targets wasm/js (browser/Node.js) and wasm/wasip1 (WASI) are
-also built with the gosmopolitan fork toolchain (it carries the org's wasm
-runtime fixes); the GOOS-order spellings js/wasm and wasip1/wasm are accepted
-as compatibility aliases for the same targets, and the cartesian flags accept
-the pairing too (--os wasm combines only with --arch js/wasip1 and yields the
-identical targets). Their artifacts use
-buildhost's publishable wasm naming (<name>_wasm_js, <name>_wasm_wasip1 —
-os=wasm with arch=js/wasip1, no file extension); publishing them requires a
-buildhost with wasm artifact support. Set GO_TOOLCHAIN_WASM_PUBLISH=0 to use
-the excluded <name>_<goos>_wasm.wasm naming instead, which never reaches the
-buildhost publish upload set.`,
+built with the gosmopolitan fork toolchain (it carries the org's wasm runtime
+fixes) and opted into with --targets, e.g. --targets cosmo,wasm/js to build
+both, or --targets wasm/js,wasm/wasip1 for wasm alone. The GOOS-order
+spellings js/wasm and wasip1/wasm are accepted as compatibility aliases for
+the same targets. Their artifacts use buildhost's publishable wasm naming
+(<name>_wasm_js, <name>_wasm_wasip1 — os=wasm with arch=js/wasip1, no file
+extension); publishing them requires a buildhost with wasm artifact support.
+Set GO_TOOLCHAIN_WASM_PUBLISH=0 to use the excluded <name>_<goos>_wasm.wasm
+naming instead, which never reaches the buildhost publish upload set.`,
 		SilenceUsage: true,
 		RunE:         runRelease,
 	}
@@ -66,10 +55,8 @@ buildhost publish upload set.`,
 // addMatrixTargetFlags registers the target-selection flags shared by the
 // matrix command and release --build.
 func addMatrixTargetFlags(cmd *cobra.Command) {
-	cmd.Flags().StringSliceVar(&matrixOS, "os", DefaultOS, "Target operating systems")
-	cmd.Flags().StringSliceVar(&matrixArch, "arch", DefaultArch, "Target architectures")
-	cmd.Flags().StringSliceVar(&matrixTargets, "targets", nil, `Exact build targets as os/arch pairs (incl. wasm/js and wasm/wasip1, built with the gosmopolitan toolchain) plus the special value "cosmo" (a gosmopolitan fat APE); replaces the --os x --arch product`)
-	cmd.Flags().StringSliceVar(&cosmoSlots, "cosmo-slots", DefaultCosmoSlots, `Per-platform artifact names that receive a copy of the cosmo fat APE ("none" disables slot mapping)`)
+	cmd.Flags().StringSliceVar(&matrixTargets, "targets", nil, `Wasm targets to add (wasm/js, wasm/wasip1, built with the gosmopolitan toolchain) plus the special value "cosmo" (a gosmopolitan fat APE); default is "cosmo" alone`)
+	cmd.Flags().StringSliceVar(&cosmoPlatforms, "cosmo-platforms", DefaultCosmoPlatforms, `Host platforms the cosmo fat APE must cover, as os/arch pairs ("all" covers every platform the fork can emit)`)
 }
 
 type buildJob struct {
@@ -77,11 +64,18 @@ type buildJob struct {
 	goarch     string
 	srcPath    string
 	outputPath string
-	ldflags    string
-	// forkGoroot is the gosmopolitan toolchain GOROOT for jobs built with the
-	// fork: GOOS=cosmo fat-APE jobs and wasm (js/wasm, wasip1/wasm) jobs.
-	// Empty for normal jobs, which build with the go on PATH.
-	forkGoroot string
+	// ldflags is the revision stamp plus whatever the caller put in GOFLAGS; runBuild appends its own.
+	ldflags string
+	// goCmd starts the go command that compiles the job.
+	goCmd []string
+	// goroot is the GOROOT that go command reads.
+	goroot string
+	// apeAppend is a file the linker appends past the APE's load span, empty for none.
+	apeAppend string
+	// cosmoPlatforms is GOCOSMOPLATFORMS for a fat-APE job; empty leaves it unset (the fork's everything-default).
+	cosmoPlatforms string
+	// selfHosted marks this pipeline's own binary, which is built in passes and carries its standard library.
+	selfHosted bool
 }
 
 type buildResult struct {
@@ -90,16 +84,74 @@ type buildResult struct {
 	duration time.Duration
 }
 
+// runMatrixModules cross-compiles every module in the tree, the way the
+// default pipeline gates every module.
+func runMatrixModules(r runner.CommandRunner) error {
+	return runMatrixModulesInto(r, nil)
+}
+
+// runMatrixModulesInto is runMatrixModules recording each module's test phase into sd when it is not nil.
+func runMatrixModulesInto(r runner.CommandRunner, sd *summary.SummaryData) error {
+	modules := findGoModules()
+	if len(modules) == 0 {
+		// Suites without a module are the whole run, as in the default
+		// pipeline: the CLI a suite drives does not have to be Go.
+		if hasDatsSuites(".") {
+			return runDatsOnly()
+		}
+		return fmt.Errorf("no go.mod and no dats/ suites found — initialize a module with: go mod init <module-path>")
+	}
+
+	startDir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	defer os.Chdir(startDir)
+
+	libraryModulesAllowed = len(modules) > 1
+	matrixBuiltBinaries = 0
+
+	for i, modDir := range modules {
+		if len(modules) > 1 {
+			if i > 0 {
+				logger.Info("")
+			}
+			logger.Info("⇒ Module: %s", modDir)
+		}
+		if modDir != "." {
+			if err := os.Chdir(filepath.Join(startDir, modDir)); err != nil {
+				return fmt.Errorf("failed to enter %s: %w", modDir, err)
+			}
+		}
+		if err := runReleaseInto(r, sd); err != nil {
+			return err
+		}
+	}
+
+	// Every module was a library. The command exists to produce binaries, so
+	// a run that produced none is a failure, not a quiet success.
+	if matrixBuiltBinaries == 0 {
+		return fmt.Errorf("no main packages found to build in any of the %d modules", len(modules))
+	}
+	return nil
+}
+
 func runRelease(cmd *cobra.Command, args []string) error {
 	InitTimeline()
-	// Collect per-action build profiles for every cross-compile target. The
-	// matrix path has no Chrome trace, but the deferred capture still parses
-	// and stashes the graphs so printCacheStats can emit the final report.
+	// A dependency's generated output enters through the compiler, so it lands
+	// before the toolchain is built, as on the root path.
+	if err := generateForDeps(approvedGenerateHash()); err != nil {
+		return err
+	}
+	if err := reexecUnderOwnBuild(); err != nil {
+		return err
+	}
+	// Collects per-action build profiles; no Chrome trace here, but the deferred capture still parses graphs for emitBuildProfile.
 	initBuildProfile()
 	defer captureProfileTrace()
 	r := runner.New()
-	err := runReleaseWithRunner(r)
-	if err != nil {
+	var sd summary.SummaryData
+	if err := runMatrixModulesInto(r, &sd); err != nil {
 		return err
 	}
 
@@ -109,21 +161,12 @@ func runRelease(cmd *cobra.Command, args []string) error {
 
 	// Write GitHub Step Summary with timeline
 	if tl := GetTimeline(); tl != nil {
-		sd := summary.SummaryData{Timeline: tl.Entries()}
+		sd.Timeline = tl.Entries()
 		if writeErr := summary.Write(&sd); writeErr != nil {
 			logger.Warn("⇒ Warning: failed to write step summary: %v", writeErr)
 		}
-
-		// Export OTel traces (no-op if OTEL_EXPORTER_OTLP_ENDPOINT is unset).
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := gotrace.Export(ctx, sd.Timeline); err != nil {
-			logger.Warn("⇒ Warning: failed to export traces: %v", err)
-		}
 	}
 
-	// Warnings budget: fail the run — after every phase has completed and
-	// every warning has been printed — when it emitted more than maxWarnings
-	// warnings (same gate as the default pipeline).
+	// Fails the run after every phase has printed if warnings exceed maxWarnings (same gate as the default pipeline).
 	return checkWarningsGate()
 }

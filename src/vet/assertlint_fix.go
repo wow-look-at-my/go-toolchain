@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -64,7 +65,7 @@ func generateASTFix(pass *analysis.Pass, ifStmt *ast.IfStmt, assertPkg, assertFu
 		}
 
 		// General case: extract init statement
-		newNodes := []ast.Node{ifStmt.Init, assertStmt}
+		newNodes := []ast.Node{hoistableInit(pass, ifStmt), assertStmt}
 		prepareFixNodes(newNodes, ifStmt.Pos())
 		return &ASTFix{
 			OldNode:  ifStmt,
@@ -79,6 +80,38 @@ func generateASTFix(pass *analysis.Pass, ifStmt *ast.IfStmt, assertPkg, assertFu
 		OldNode:  ifStmt,
 		NewNodes: newNodes,
 	}
+}
+
+// hoistableInit returns the if's init clause in a form legal outside the if.
+//
+// An init clause declares into the if's scope, so `if _, err := f();` is legal even where err already
+// exists -- it shadows it. Lifting it verbatim into the enclosing block loses that shadow: if every
+// name is already defined there, Go rejects the bare `:=` with "no new variables on left side of :=".
+func hoistableInit(pass *analysis.Pass, ifStmt *ast.IfStmt) ast.Stmt {
+	assign, ok := ifStmt.Init.(*ast.AssignStmt)
+	if !ok || assign.Tok != token.DEFINE {
+		return ifStmt.Init
+	}
+	// Scopes[ifStmt] is the scope the init declares into; its parent is where the statement lands.
+	ifScope := pass.TypesInfo.Scopes[ifStmt]
+	if ifScope == nil || ifScope.Parent() == nil {
+		return ifStmt.Init // no type info.
+	}
+	for _, lhs := range assign.Lhs {
+		ident, ok := lhs.(*ast.Ident)
+		if !ok {
+			return ifStmt.Init // not a plain name list; do not touch it
+		}
+		if ident.Name == "_" {
+			continue
+		}
+		if _, obj := ifScope.Parent().LookupParent(ident.Name, ifStmt.Pos()); obj == nil {
+			return ifStmt.Init // a new name is introduced, so := is legal
+		}
+	}
+	hoisted := *assign
+	hoisted.Tok = token.ASSIGN
+	return &hoisted
 }
 
 // makeSelector creates a pkg.method selector expression.
@@ -194,7 +227,7 @@ func buildBinaryAssert(pass *analysis.Pass, bin *ast.BinaryExpr, tVar, assertPkg
 		return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), bin.X, bin.Y)
 	}
 
-	// Default: two args
+	// Default: the plain argument pair
 	return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), bin.X, bin.Y)
 }
 
@@ -203,7 +236,7 @@ func buildBinaryAssert(pass *analysis.Pass, bin *ast.BinaryExpr, tVar, assertPkg
 // on stale position information when AST nodes are reused in a different context
 // (e.g., extracting condition operands from an if statement into assert call arguments).
 func clearNodePositions(node ast.Node) {
-	ast.Inspect(node, func(n ast.Node) bool {
+	InspectNode(node, func(n ast.Node) bool {
 		if n == nil {
 			return false
 		}
@@ -246,7 +279,7 @@ func clearNodePositions(node ast.Node) {
 	})
 }
 
-// prepareFixNodes clears stale positions from all new nodes and sets the first
+// prepareFixNodes clears stale positions from all new nodes and sets the leading
 // token position to pos, so the Go printer flushes leading comments correctly.
 func prepareFixNodes(nodes []ast.Node, pos token.Pos) {
 	for _, node := range nodes {
@@ -257,11 +290,11 @@ func prepareFixNodes(nodes []ast.Node, pos token.Pos) {
 	}
 }
 
-// setFirstTokenPos walks the AST depth-first and sets the position of the first
+// setFirstTokenPos walks the AST depth-wise and sets the position of the leading
 // positioned token (Ident or BasicLit) to pos.
 func setFirstTokenPos(node ast.Node, pos token.Pos) {
 	done := false
-	ast.Inspect(node, func(n ast.Node) bool {
+	InspectNode(node, func(n ast.Node) bool {
 		if done || n == nil {
 			return false
 		}
@@ -283,14 +316,14 @@ func setFirstTokenPos(node ast.Node, pos token.Pos) {
 // Only returns basic types that don't require imports.
 func castableType(lit *ast.BasicLit, targetType string) string {
 	// Only cast to simple builtin types (no package imports needed)
-	basicTypes := map[string]bool{
-		"int": true, "int8": true, "int16": true, "int32": true, "int64": true,
-		"uint": true, "uint8": true, "uint16": true, "uint32": true, "uint64": true,
-		"float32": true, "float64": true,
-		"byte": true, "rune": true,
-	}
+	basicTypes := set.Of(
+		"int", "int8", "int16", "int32", "int64",
+		"uint", "uint8", "uint16", "uint32", "uint64",
+		"float32", "float64",
+		"byte", "rune",
+	)
 
-	if !basicTypes[targetType] {
+	if !basicTypes.Contains(targetType) {
 		return "" // Skip complex types that would require imports
 	}
 

@@ -13,6 +13,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wow-look-at-my/go-containers/set"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
@@ -21,13 +24,15 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/vet"
 )
 
+// vetRunFunc is the vet phase, as a seam. Why: docs/CI.md.
+var vetRunFunc = vet.RunWithProgress
+
 // RunTestsWithCoverage runs go mod tidy, go vet, tests with coverage, and
 // checks coverage against the threshold. Used by both the default command
 // and the matrix command.
 // Returns (filesChanged, testResult, error) where filesChanged indicates if vet applied any fixes.
 func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.TestResult, error) {
-	// Fix any v0.0.0 dependencies before go mod tidy
-	if err := FixBogusDepsVersions(r); err != nil {
+	if err := checkOrgPins(moduleRoot()); err != nil {
 		return false, nil, err
 	}
 
@@ -36,13 +41,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	if vanityErr != nil {
 		return false, nil, fmt.Errorf("vanity URL handling failed: %w", vanityErr)
 	}
-	// Remove the injected vanity replace directives (and restore go.sum) when
-	// this function returns, however it returns — including the early returns
-	// when `go mod tidy` fails below. Registering the cleanup here, rather than
-	// after tidy, is what guarantees a failed tidy cannot leave the injected
-	// GitHub/GitLab mirror replaces festering in the user's go.mod. The replaces
-	// stay active for tidy, generate, vet, tests, and build (all run before this
-	// function returns).
+	// Removes the injected vanity replaces on every return path.
 	defer func() {
 		_ = removeVanityReplaces(vanity)
 	}()
@@ -56,14 +55,13 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		if !quiet {
 			genStep = logStep("go generate ./...")
 		}
-		if err := runGenerate(quiet, generateHash); err != nil {
+		if err := runGenerate(quiet, approvedGenerateHash()); err != nil {
 			return false, nil, fmt.Errorf("go generate failed: %w", err)
 		}
 		if genStep != nil {
 			genStep.noteOutput() // generate always prints directives
 			genStep.done()
 		}
-		// Run tidy again after generate in case new imports were added
 		var tidyStep2 *step
 		if !quiet {
 			tidyStep2 = logStep("go mod tidy (post-generate)")
@@ -84,6 +82,8 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		}
 	}
 
+	waitForCommentScan()
+
 	var vetStep *step
 	if !quiet {
 		vetStep = logStep("go vet ./...")
@@ -100,16 +100,12 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		}
 		vetPhaseStep = logSubStep("vet: "+phase, "main")
 	}
-	// On CI (CI=true) run the fixers in check-only mode: vet never writes, and
-	// any change it would make — gofmt, a wow-look-at-my/testify fork or
-	// gotest.tools import migration, or a testify cross-type cast — becomes a
-	// hard error, so a non-canonical tree fails CI instead of passing green.
-	// Locally (CI unset) the fixers rewrite the tree as before.
+	// On CI (CI=true) fixers run check-only: any change (gofmt, import migration, testify cast) is a hard error, not an auto-fix.
 	fix := os.Getenv("CI") == ""
-	filesChanged, err := vet.RunWithProgress(fix, vetProgress)
+	filesChanged, err := vetRunFunc(fix, vetProgress)
 	if err != nil {
-		// If in-process vet fails due to Go version mismatch (e.g. binary built
-		// with Go 1.24 but project requires Go 1.25), fall back to external go vet
+		// If in-process vet fails due to a Go version mismatch (a binary built
+		// with an older Go than the project requires), fall back to external go vet
 		// which uses the bootstrapped Go version.
 		if strings.Contains(err.Error(), "package requires newer Go version") {
 			if vetPhaseStep != nil {
@@ -137,13 +133,10 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		vetStep.done()
 	}
 
-	// Vet is the last stage that can modify files (auto-fix). Fail fast here
-	// rather than after the full test run.
-	if err := checkDirtyInCI(); err != nil {
+	// Vet is the last file-modifying stage; fail fast here.
+	if err := checkDirtyInCIWithVanityRestored(vanity); err != nil {
 		return false, nil, err
 	}
-
-	printCacheStats(false)
 
 	if dupcode {
 		runDuplicateCheck()
@@ -158,15 +151,21 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	var testStep *step
 	if !quiet {
 		testStep = logStep("Running tests with coverage")
+		// The compile ahead of the first test can run for minutes, and this step printed nothing until it ended.
+		testStep.heartbeat(nil)
 	}
 
-	// Use a process-unique path to avoid collisions when tests call
-	// RunTestsWithCoverage with mock runners — they write and then delete
-	// this file, which would corrupt the outer go test's coverprofile.
-	// With -count=1 already disabling test-result caching, cache-key
-	// stability from a deterministic path is no longer required.
-	coverDir := filepath.Join(os.TempDir(), "go-toolchain-cov")
-	os.MkdirAll(coverDir, 0o755)
+	// A process-unique path avoids collisions with mock-runner tests that write and delete this file.
+	coverDir := filepath.Join(argListTempDir(hostos.GOOS()), "go-toolchain-cov")
+	// Report the mkdir. Dropping it made the test phase fail later on the
+	// coverage file instead, which names a missing path and not the reason
+	// it is missing.
+	if err := os.MkdirAll(coverDir, 0o755); err != nil {
+		if testStep != nil {
+			testStep.failed()
+		}
+		return false, nil, fmt.Errorf("coverage directory %s: %w", coverDir, err)
+	}
 	coverFile := filepath.Join(coverDir, fmt.Sprintf("coverage-%d.out", os.Getpid()))
 	defer os.Remove(coverFile)
 
@@ -189,19 +188,18 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 
 	// Record per-test events in the trace.
 	if activeTrace != nil && result != nil {
-		// Build set of tests that have subtests so we only trace leaf tests
-		// (parent durations include children and would overlap).
-		hasSubtest := make(map[string]bool)
+		// Only leaf tests are traced; parent durations include children and would overlap.
+		hasSubtest := set.New[string]()
 		for _, tc := range result.TestCases {
 			if i := strings.LastIndex(tc.Test, "/"); i > 0 {
-				hasSubtest[tc.Package+"."+tc.Test[:i]] = true
+				hasSubtest.Add(tc.Package + "." + tc.Test[:i])
 			}
 		}
 		for _, tc := range result.TestCases {
 			if tc.Elapsed <= 0 || tc.End.IsZero() {
 				continue
 			}
-			if hasSubtest[tc.Package+"."+tc.Test] {
+			if hasSubtest.Contains(tc.Package + "." + tc.Test) {
 				continue // skip parent, children cover the time
 			}
 			dur := time.Duration(tc.Elapsed * float64(time.Second))
@@ -245,7 +243,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		logger.Output("\n⇒ Total coverage: %s", colorPct(ColorPct{Pct: report.Total, Format: "%.1f%%"}))
 	}
 
-	// Coverage enforcement: default 80%, or watermark-2.5% if lower.
+	// Coverage enforcement: the default minimum below, or the watermark's grace floor if lower.
 	var effectiveMin float32 = 80.0
 	wm, wmExists, wmErr := gotest.GetWatermark(".")
 	if wmErr != nil {
@@ -286,11 +284,23 @@ var errFound = fmt.Errorf("found")
 
 // needsGenerate returns true if any .go file contains a //go:generate directive.
 func needsGenerate() bool {
+	// A dependency that ships a directive and not its output needs the phase as
+	// much as this tree does. See depgenerate.go.
+	if deps, err := depGenerateDirectives(); err == nil && len(pendingDepDirectives(deps)) > 0 {
+		return true
+	}
 	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || !strings.HasSuffix(path, ".go") {
+		if d.IsDir() {
+			// Another module's directives are its own pipeline's.
+			if d.Name() == "vendor" || gomod.IsNestedModule(path) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") {
 			return nil
 		}
 		f, err := os.Open(path)

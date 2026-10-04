@@ -6,13 +6,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 func TestParseVanityModulesFromSum(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	gosum := `github.com/spf13/cobra v1.10.2 h1:abc123=
 github.com/spf13/cobra v1.10.2/go.mod h1:def456=
@@ -29,24 +29,22 @@ gopkg.in/yaml.v3 v3.0.1 h1:ggg=
 	modules, err := parseVanityModulesFromSum()
 	require.Nil(t, err)
 
-	// Should include vanity hosts: gotest.tools, modernc.org, dario.cat
-	// Should exclude: github.com, golang.org, gopkg.in
+	// Includes vanity hosts (gotest.tools, modernc.org, dario.cat), excludes github.com/golang.org/gopkg.in.
 	assert.Equal(t, 3, len(modules))
 
-	hosts := map[string]bool{}
+	hosts := set.New[string]()
 	for _, m := range modules {
-		hosts[m.Host] = true
+		hosts.Add(m.Host)
 	}
-	assert.True(t, hosts["gotest.tools"])
-	assert.True(t, hosts["modernc.org"])
-	assert.True(t, hosts["dario.cat"])
+	assert.True(t, hosts.Contains("gotest.tools"))
+	assert.True(t, hosts.Contains("modernc.org"))
+	assert.True(t, hosts.Contains("dario.cat"))
 }
 
 func TestParseVanityModulesFromSumNoFile(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	modules, err := parseVanityModulesFromSum()
 	assert.NotNil(t, err)
@@ -55,10 +53,9 @@ func TestParseVanityModulesFromSumNoFile(t *testing.T) {
 }
 
 func TestParseVanityModulesFromSumDedup(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	// Same module appears in both hash and go.mod hash lines
 	gosum := `gotest.tools/gotestsum v1.13.0 h1:aaa=
@@ -74,6 +71,7 @@ gotest.tools/gotestsum v1.13.0/go.mod h1:bbb=
 }
 
 func TestVcsURLToModulePath(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		url  string
 		want string
@@ -89,6 +87,7 @@ func TestVcsURLToModulePath(t *testing.T) {
 }
 
 func TestParseGoImportMeta(t *testing.T) {
+	t.Serial()
 	html := `<!DOCTYPE html>
 <html><head>
 <meta name="go-import" content="gotest.tools/gotestsum git https://github.com/gotestyourself/gotestsum">
@@ -101,6 +100,7 @@ func TestParseGoImportMeta(t *testing.T) {
 }
 
 func TestParseGoImportMetaPrefixMatch(t *testing.T) {
+	t.Serial()
 	// Module path is longer than the prefix in the meta tag
 	html := `<meta name="go-import" content="gotest.tools git https://github.com/gotestyourself/gotest.tools">`
 
@@ -111,16 +111,16 @@ func TestParseGoImportMetaPrefixMatch(t *testing.T) {
 }
 
 func TestParseGoImportMetaNotFound(t *testing.T) {
+	t.Serial()
 	html := `<html><head><title>Nothing here</title></head></html>`
 	_, _, err := parseGoImportMeta(html, "example.com/foo")
 	assert.NotNil(t, err)
 }
 
 func TestWellKnownHostsExcluded(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	gosum := `github.com/foo/bar v1.0.0 h1:aaa=
 gitlab.com/baz/qux v2.0.0 h1:bbb=
@@ -132,11 +132,7 @@ google.golang.org/grpc v1.80.0 h1:ggg=
 `
 	os.WriteFile("go.sum", []byte(gosum), 0644)
 
-	// google.golang.org is a well-known host: its modules (genproto, grpc,
-	// protobuf, ...) always resolve via the Go proxy, so they must never be
-	// treated as rewritable vanity modules. Treating them as vanity caused a
-	// stale build to mis-rewrite them onto GitHub mirrors when a slow network
-	// made the reachability probe time out.
+	// google.golang.org is well-known: its modules must never be treated as rewritable vanity modules.
 	modules, err := parseVanityModulesFromSum()
 	require.Nil(t, err)
 	assert.Equal(t, 0, len(modules))

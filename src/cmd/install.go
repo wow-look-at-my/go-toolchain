@@ -25,8 +25,7 @@ func Register(root *cobra.Command) {
 	root.AddCommand(installCmd)
 	root.AddCommand(benchCmd)
 
-	// Silent aliases — these accept "go-toolchain build" and "go-toolchain test"
-	// without error, mapping them to the default pipeline behavior.
+	// Silent aliases: accept "go-toolchain build"/"test", mapped to the default pipeline.
 	for _, name := range []string{"build", "test"} {
 		root.AddCommand(&cobra.Command{
 			Use:    name,
@@ -41,7 +40,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 }
 
 func runInstallImpl() error {
-	// Source is the currently running binary
+	// Source is the running binary
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to find current executable: %w", err)
@@ -131,7 +130,7 @@ func installStatus() string {
 		return fmt.Sprintf("Install status: %s -> %s (points elsewhere)", installedPath, target)
 	}
 
-	// Regular file — compare SHA-256
+	// Regular file — compare the sha256 digests
 	currentHash, err := fileHash(currentPath)
 	if err != nil {
 		return fmt.Sprintf("Install status: %s (cannot hash current binary)", installedPath)

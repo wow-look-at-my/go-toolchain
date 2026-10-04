@@ -32,16 +32,32 @@ func withMockBuildhost(t *testing.T, server *httptest.Server) func() {
 // releaseServer serves rel at /releases/latest and 404s elsewhere.
 func releaseServer(t *testing.T, rel buildhostRelease) *httptest.Server {
 	t.Helper()
+	return releaseServerWithList(t, rel, nil)
+}
+
+// releaseServerWithList serves both endpoints the check uses: the latest
+// release, and the newest-at-the-head listing it identifies THIS binary from. A nil
+// list answers not-found, which is the "lookup failed" path.
+func releaseServerWithList(t *testing.T, rel buildhostRelease, list []buildhostRelease) *httptest.Server {
+	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasSuffix(r.URL.Path, "/releases/latest") {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
+			_ = json.NewEncoder(w).Encode(rel)
+		case strings.HasSuffix(r.URL.Path, "/releases"):
+			if list == nil {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(list)
+		default:
 			w.WriteHeader(http.StatusNotFound)
-			return
 		}
-		_ = json.NewEncoder(w).Encode(rel)
 	}))
 }
 
 func TestFetchLatestBuildhostRelease(t *testing.T) {
+	t.Serial()
 	pub := time.Date(2026, 6, 14, 5, 4, 25, 0, time.UTC)
 	want := buildhostRelease{
 		Version: "202", VersionNum: 202, GitCommit: "6d7723427895dc2e", GitBranch: "v1",
@@ -61,6 +77,7 @@ func TestFetchLatestBuildhostRelease(t *testing.T) {
 }
 
 func TestFetchLatestBuildhostReleaseHTTPError(t *testing.T) {
+	t.Serial()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
@@ -73,6 +90,7 @@ func TestFetchLatestBuildhostReleaseHTTPError(t *testing.T) {
 }
 
 func TestComputeUpdateWarning_UpToDate(t *testing.T) {
+	t.Serial()
 	defer setVCS(t, "6d7723427895dc2eff7313e610fdb316a1bd5836", "2026-06-14T05:04:19Z")()
 
 	pub := time.Date(2026, 6, 14, 5, 4, 25, 0, time.UTC) // published after our commit
@@ -88,6 +106,7 @@ func TestComputeUpdateWarning_UpToDate(t *testing.T) {
 }
 
 func TestComputeUpdateWarning_OutOfDate(t *testing.T) {
+	t.Serial()
 	defer setVCS(t, "0000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "2024-01-01T00:00:00Z")()
 
 	pub := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC) // newer than our build
@@ -98,13 +117,48 @@ func TestComputeUpdateWarning_OutOfDate(t *testing.T) {
 	defer srv.Close()
 	defer withMockBuildhost(t, srv)()
 
+	// With no listing to identify this build, its commit stands in for the version it cannot know.
 	msg := computeUpdateWarning(context.Background())
 	assert.Contains(t, msg, "out of date")
-	assert.Contains(t, msg, "v202")
-	assert.Contains(t, msg, "0000000") // short form of our commit
+	assert.Contains(t, msg, "0000000 < v202")
+}
+
+// TestComputeUpdateWarning_IsOneLineWithBothVersions pins the whole message:
+// how far behind, mine, latest. Nothing else -- a reader deciding whether to
+// update needs both versions and the distance, and every extra word is a word
+// they have to skip past on every build.
+func TestComputeUpdateWarning_IsOneLineWithBothVersions(t *testing.T) {
+	t.Serial()
+	const myCommit = "0000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	built := time.Date(2024, 5, 29, 0, 0, 0, 0, time.UTC)
+	defer setVCS(t, myCommit, built.Format(time.RFC3339))()
+
+	pub := built.Add(3 * 24 * time.Hour)
+	latest := buildhostRelease{
+		Version: "345", VersionNum: 345, GitCommit: "ffffff222222222222222222222222222222ffff",
+		Published: true, PublishedAt: &pub,
+	}
+	mine := buildhostRelease{Version: "123", GitCommit: myCommit, Published: true, PublishedAt: &built}
+
+	srv := releaseServerWithList(t, latest, []buildhostRelease{latest, mine})
+	defer srv.Close()
+	defer withMockBuildhost(t, srv)()
+
+	msg := stripANSI(computeUpdateWarning(context.Background()))
+	assert.Equal(t, "⇒ go-toolchain is 3 days out of date: v123 < v345", msg)
+}
+
+// stripANSI removes the color escapes so a test can assert the exact line a
+// reader sees.
+func stripANSI(s string) string {
+	for _, code := range []string{colorYellow, colorReset} {
+		s = strings.ReplaceAll(s, code, "")
+	}
+	return s
 }
 
 func TestComputeUpdateWarning_AheadOfPublished(t *testing.T) {
+	t.Serial()
 	// Our build is newer than the latest published release: stay quiet.
 	defer setVCS(t, "aaaaaaaa1111111111111111111111111111aaaa", "2025-01-01T00:00:00Z")()
 
@@ -120,12 +174,14 @@ func TestComputeUpdateWarning_AheadOfPublished(t *testing.T) {
 }
 
 func TestComputeUpdateWarning_DevBuild(t *testing.T) {
+	t.Serial()
 	defer setVCS(t, "", "")() // no revision/time -> resolvedCommit() == "unknown"
 	// No server needed: it must return before any network call.
 	assert.Equal(t, "", computeUpdateWarning(context.Background()))
 }
 
 func TestComputeUpdateWarning_FetchError(t *testing.T) {
+	t.Serial()
 	defer setVCS(t, "abc1234def", "2024-01-01T00:00:00Z")()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +195,7 @@ func TestComputeUpdateWarning_FetchError(t *testing.T) {
 }
 
 func TestComputeUpdateWarning_CreatedAtFallback(t *testing.T) {
+	t.Serial()
 	// No published_at -> fall back to created_at for the recency comparison.
 	defer setVCS(t, "1111111aaaa", "2024-01-01T00:00:00Z")()
 
@@ -153,6 +210,7 @@ func TestComputeUpdateWarning_CreatedAtFallback(t *testing.T) {
 }
 
 func TestCommitsMatch(t *testing.T) {
+	t.Serial()
 	cases := []struct {
 		a, b string
 		want bool
@@ -170,9 +228,10 @@ func TestCommitsMatch(t *testing.T) {
 }
 
 func TestStartUpdateCheckCannotBeDisabled(t *testing.T) {
+	t.Serial()
 	t.Cleanup(func() { activeUpdateCheck = nil })
 	activeUpdateCheck = nil
-	// There is no opt-out: even the old disable env var must not stop it.
+	// There is no opt-out: even the disable env var must not stop it.
 	t.Setenv("GO_TOOLCHAIN_NO_UPDATE_CHECK", "1")
 
 	srv := releaseServer(t, buildhostRelease{Version: "1", GitCommit: "abc", Published: true})
@@ -185,6 +244,7 @@ func TestStartUpdateCheckCannotBeDisabled(t *testing.T) {
 }
 
 func TestReportUpdateCheckNoOp(t *testing.T) {
+	t.Serial()
 	t.Cleanup(func() { activeUpdateCheck = nil })
 	activeUpdateCheck = nil
 	// Safe no-op when nothing was started.
@@ -192,6 +252,7 @@ func TestReportUpdateCheckNoOp(t *testing.T) {
 }
 
 func TestReportUpdateCheck_PrintsWhenReady(t *testing.T) {
+	t.Serial()
 	t.Cleanup(func() { activeUpdateCheck = nil })
 	defer setVCS(t, "0000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "2024-01-01T00:00:00Z")()
 
@@ -207,9 +268,7 @@ func TestReportUpdateCheck_PrintsWhenReady(t *testing.T) {
 	require.NotNil(t, activeUpdateCheck)
 	<-activeUpdateCheck.done // wait so Report takes the "ready" branch
 
-	// The staleness notice is a logger.Warn, which under GITHUB_ACTIONS=true
-	// routes to stdout as a ::warning annotation; pin non-GHA mode so it lands
-	// on stderr for capture.
+	// logger.Warn routes to stdout as a ::warning annotation under GITHUB_ACTIONS=true; pin non-GHA mode for stderr capture.
 	t.Setenv("GITHUB_ACTIONS", "")
 	out := captureStderr(t, ReportUpdateCheck)
 	assert.Contains(t, out, "out of date")
@@ -217,6 +276,7 @@ func TestReportUpdateCheck_PrintsWhenReady(t *testing.T) {
 }
 
 func TestReportUpdateCheck_KillsWhenSlow(t *testing.T) {
+	t.Serial()
 	t.Cleanup(func() { activeUpdateCheck = nil })
 	defer setVCS(t, "abc1234def", "2024-01-01T00:00:00Z")()
 
@@ -233,8 +293,7 @@ func TestReportUpdateCheck_KillsWhenSlow(t *testing.T) {
 	StartUpdateCheck()
 	require.NotNil(t, activeUpdateCheck)
 
-	// Report must return promptly (kill the in-flight check), never block on the
-	// slow server.
+	// Report must return promptly (kill the in-flight check), never block on the slow server.
 	returned := make(chan struct{})
 	go func() { ReportUpdateCheck(); close(returned) }()
 	select {

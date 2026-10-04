@@ -4,6 +4,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 )
 
 func TestFixFileUnusedRangeVars_NoRangeStatements(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	os.WriteFile(src, []byte("package main\n\nfunc main() {\n\tx := 1\n\t_ = x\n}\n"), 0644)
@@ -22,6 +24,7 @@ func TestFixFileUnusedRangeVars_NoRangeStatements(t *testing.T) {
 }
 
 func TestFixFileUnusedRangeVars_UnusedKey(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	code := `package main
@@ -34,8 +37,7 @@ func main() {
 	}
 }
 `
-	// The 'i' is only used as _ = i, but the range key 'i' IS referenced
-	// in the body, so it should NOT be replaced.
+	// 'i' is referenced in the body via _ = i, so it should not be replaced.
 	os.WriteFile(src, []byte(code), 0644)
 
 	fixed, err := fixFileUnusedRangeVars(src)
@@ -45,6 +47,7 @@ func main() {
 }
 
 func TestFixFileUnusedRangeVars_TrulyUnusedKey(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	code := `package main
@@ -57,9 +60,7 @@ func main() {
 	_ = i
 }
 `
-	// Note: 'i' is used OUTSIDE the range body (which means the code wouldn't
-	// compile, but the AST analysis only looks inside the range body).
-	// But this actually won't compile. Let me use a version that will parse.
+	// 'i' is used outside the range body; AST parsing does not require the code to compile.
 	code = `package main
 
 func main() {
@@ -70,9 +71,7 @@ func main() {
 	_ = k
 }
 `
-	// Actually k is used outside the loop body so AST-wise it's not used inside.
-	// But this code wouldn't compile either. Let me just test the core:
-	// range key not used inside body → replaced with _
+	// Testing the core case: a range key unused inside the body gets replaced with _.
 	code = `package main
 
 func foo() {
@@ -95,6 +94,7 @@ func foo() {
 }
 
 func TestFixFileUnusedRangeVars_UnusedValue(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	code := `package main
@@ -118,6 +118,7 @@ func foo() {
 }
 
 func TestFixFileUnusedRangeVars_BothUsed(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	code := `package main
@@ -137,6 +138,7 @@ func foo() {
 }
 
 func TestFixFileUnusedRangeVars_AlreadyUnderscore(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	code := `package main
@@ -156,6 +158,7 @@ func foo() {
 }
 
 func TestFixFileUnusedRangeVars_ParseError(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "bad.go")
 	os.WriteFile(src, []byte("this is not valid go {{{"), 0644)
@@ -165,6 +168,7 @@ func TestFixFileUnusedRangeVars_ParseError(t *testing.T) {
 }
 
 func TestCheckFileCommittedExec_Clean(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	os.WriteFile(src, []byte("package main\n"), 0644)
@@ -175,6 +179,7 @@ func TestCheckFileCommittedExec_Clean(t *testing.T) {
 }
 
 func TestCheckFileCommittedExec_Dirty(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	os.WriteFile(src, []byte("package main\n"), 0644)
@@ -189,6 +194,7 @@ func TestCheckFileCommittedExec_Dirty(t *testing.T) {
 }
 
 func TestCheckFileCommittedExec_NotARepo(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	os.WriteFile(src, []byte("package main\n"), 0644)
@@ -199,6 +205,7 @@ func TestCheckFileCommittedExec_NotARepo(t *testing.T) {
 }
 
 func TestCheckFileCommittedGoGit_Clean(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	os.WriteFile(src, []byte("package main\n"), 0644)
@@ -209,6 +216,7 @@ func TestCheckFileCommittedGoGit_Clean(t *testing.T) {
 }
 
 func TestCheckFileCommittedGoGit_Dirty(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	os.WriteFile(src, []byte("package main\n"), 0644)
@@ -217,24 +225,17 @@ func TestCheckFileCommittedGoGit_Dirty(t *testing.T) {
 	os.WriteFile(src, []byte("package main\n\nfunc foo() {}\n"), 0644)
 
 	err := checkFileCommittedGoGit(src)
-	assert.Error(t, err)
+	require.Error(t, err) // require, or the next line dereferences nil and the panic buries the real failure
 	assert.Contains(t, err.Error(), "uncommitted changes")
 }
 
-// TestCheckFileCommittedByName_ManyFilesIndex pins support for repos whose
-// index was written under feature.manyFiles. On git >= 2.40 feature.manyFiles
-// implies index.skipHash, which writes .git/index with an all-zero trailer
-// hash; go-git v5 cannot read such an index (Status fails with "invalid
-// checksum" — the upstream fix, go-git#2181, is merged on the v6/main line
-// only and unreleased), so on modern git this exercises the
-// go-git-fails -> git-CLI-fallback path of checkFileCommittedByName end to
-// end: that fallback is the load-bearing support for feature.manyFiles.
-// index.skipHash is ALSO set explicitly: manyFiles is the user's real config,
-// and the explicit key guarantees the zero-hash trailer on any git >= 2.40
-// regardless of how the feature macro expands. On older gits that know
-// neither key the index stays normal and go-git succeeds directly — the
-// production contract asserted here holds either way.
+// Pins support for repos whose index was written under feature.manyFiles, which on a recent git implies
+// index.skipHash and writes an empty index trailer hash that go-git v5 cannot read ("invalid checksum";
+// unreleased upstream fix https://github.com/go-git/go-git/pull/2181). This exercises checkFileCommittedByName's go-git-fails -> git-CLI
+// fallback path, which is load-bearing here. index.skipHash is set explicitly too, so the trigger holds
+// regardless of git version; on an older git the index stays normal and go-git succeeds directly.
 func TestCheckFileCommittedByName_ManyFilesIndex(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	require.NoError(t, os.WriteFile(src, []byte("package main\n"), 0644))
@@ -253,9 +254,65 @@ func TestCheckFileCommittedByName_ManyFilesIndex(t *testing.T) {
 	assert.Contains(t, err.Error(), "uncommitted changes")
 }
 
+// A linked worktree is where the org keeps a branch, at <repo>/.claude/worktrees/<branch>.
+// go-git v5 calls a committed file there dirty where git calls the tree clean, so the
+// verdict is confirmed against the CLI and a committed file passes.
+// worktreeWithAddedFile builds <repo>/.claude/worktrees/branch and commits a
+// file that exists only on the branch, which is the case that failed. It
+// answers that file's path.
+func worktreeWithAddedFile(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0644))
+	initGitRepo(t, dir)
+
+	tree := filepath.Join(dir, ".claude", "worktrees", "branch")
+	run := func(wd string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = wd
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+	run(dir, "worktree", "add", "-b", "branch", tree)
+
+	added := filepath.Join(tree, "added.go")
+	require.NoError(t, os.WriteFile(added, []byte("package main\n\nfunc added() {}\n"), 0644))
+	run(tree, "add", "added.go")
+	run(tree, "commit", "-m", "add")
+	return added
+}
+
+func TestCheckFileCommittedByName_LinkedWorktree(t *testing.T) {
+	t.Serial()
+	added := worktreeWithAddedFile(t)
+
+	assert.NoError(t, checkFileCommittedByName(added), "git reports this file clean")
+
+	// The control: a real edit is still caught.
+	require.NoError(t, os.WriteFile(added, []byte("package main\n\nfunc added() { _ = 1 }\n"), 0644))
+	err := checkFileCommittedByName(added)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "uncommitted changes")
+}
+
+// The library path alone, in the worktree layout the org uses. Whether go-git
+// answers here decides whether the git CLI has to be asked at all.
+func TestCheckFileCommittedGoGit_LinkedWorktree(t *testing.T) {
+	t.Serial()
+	added := worktreeWithAddedFile(t)
+
+	assert.NoError(t, checkFileCommittedGoGit(added), "git reports this file clean")
+
+	require.NoError(t, os.WriteFile(added, []byte("package main\n\nfunc added() { _ = 1 }\n"), 0644))
+	err := checkFileCommittedGoGit(added)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "uncommitted changes")
+}
+
 func TestCheckFileCommittedFallback(t *testing.T) {
-	// checkFileCommitted should succeed even in a repo where go-git might struggle,
-	// as long as git CLI works. We test the happy path here — both paths agree.
+	t.Serial()
+	// Happy path: both the go-git and git-CLI paths agree when git CLI works.
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	os.WriteFile(src, []byte("package main\n"), 0644)

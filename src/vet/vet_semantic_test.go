@@ -14,6 +14,7 @@ import (
 )
 
 func TestRemoveImport(t *testing.T) {
+	t.Serial()
 	fset := token.NewFileSet()
 	f, _ := parser.ParseFile(fset, "test.go", `package main
 
@@ -45,6 +46,7 @@ func main() { fmt.Println("hi") }
 }
 
 func TestGenerateReplacementFallback(t *testing.T) {
+	t.Serial()
 	// Test the fallback path with a complex expression
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "main_test.go")
@@ -54,6 +56,7 @@ func TestGenerateReplacementFallback(t *testing.T) {
 import "testing"
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	x := []int{1, 2, 3}
 	if len(x) > 0 {
 		t.Error("should be empty")
@@ -63,9 +66,7 @@ func TestFoo(t *testing.T) {
 	os.WriteFile(testFile, []byte(code), 0644)
 	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module testmod\n\ngo 1.21\n"), 0644)
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	// Run to exercise the path
 	_, err := vetSemantic("./...", NewEditor(false), nil)
@@ -73,6 +74,7 @@ func TestFoo(t *testing.T) {
 }
 
 func TestRunWithGoMod(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	code := `package main
@@ -84,15 +86,14 @@ func main() {
 	os.WriteFile(filepath.Join(dir, "main.go"), []byte(code), 0644)
 	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module testmod\n\ngo 1.21\n"), 0644)
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	_, err := Run(false)
 	assert.Nil(t, err)
 }
 
 func TestVetSemanticWithDiagnostics(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	// Create test file that will trigger assertlint
@@ -101,6 +102,7 @@ func TestVetSemanticWithDiagnostics(t *testing.T) {
 import "testing"
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	err := error(nil)
 	if err != nil {
 		t.Error("oops")
@@ -110,9 +112,7 @@ func TestFoo(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "main_test.go"), []byte(code), 0644)
 	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module testmod\n\ngo 1.21\n"), 0644)
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	// Should find issues and return error with diagnostics
 	_, err := vetSemantic("./...", NewEditor(false), nil)
@@ -121,6 +121,7 @@ func TestFoo(t *testing.T) {
 }
 
 func TestIsRedundantCastChar(t *testing.T) {
+	t.Serial()
 	// Test char literal cases
 	assert.True(t, isRedundantCast("rune", &ast.BasicLit{Kind: token.CHAR, Value: "'a'"}))
 	assert.True(t, isRedundantCast("int32", &ast.BasicLit{Kind: token.CHAR, Value: "'a'"}))
@@ -129,9 +130,8 @@ func TestIsRedundantCastChar(t *testing.T) {
 }
 
 func TestVetSemanticWithFixRecursive(t *testing.T) {
-	// assertlint will add a stretchr/testify import; resolve it to the local
-	// stub via a replace so the go mod tidy the fix triggers needs no network
-	// (the per-package test timeout is tight).
+	t.Serial()
+	// Resolve testify to the local stub so the fix's go mod tidy needs no network.
 	stub, err := filepath.Abs(filepath.Join("testdata", "src", "testifystub"))
 	require.NoError(t, err)
 
@@ -144,6 +144,7 @@ func TestVetSemanticWithFixRecursive(t *testing.T) {
 import "testing"
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	x := 5
 	if x != 5 {
 		t.Error("x should be 5")
@@ -155,9 +156,7 @@ func TestFoo(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644)
 
 	// Initialize git repo and commit the file (required by checkFileCommitted)
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	// Initialize git repo
 	initGitRepo(t, dir)
@@ -170,4 +169,63 @@ func TestFoo(t *testing.T) {
 	// Verify the fix was applied (should use assert.Equal)
 	content, _ := os.ReadFile(filepath.Join(dir, "main_test.go"))
 	assert.Contains(t, string(content), "assert.Equal")
+}
+
+// TestVetSemanticCastAddsMissingImport is a regression test for the testify
+// cast fixer wedging a tree: converting a bare permission literal compared
+// against an os.FileMode operand inserts fs.FileMode(...) — os.FileMode is an
+// alias for io/fs.FileMode, so the conversion is spelled with the io/fs
+// package even when the file only imports os. The fixer must add the io/fs
+// import alongside the cast; without it the rewritten file fails to load
+// (undefined: fs) and every later vet run — including the fix's own verify
+// re-run — dies at the type-check with a package load error before any fixer
+// runs, so the tree can never converge.
+func TestVetSemanticCastAddsMissingImport(t *testing.T) {
+	t.Serial()
+	// Resolve testify to the local stub so the fixture type-checks hermetically.
+	stub, err := filepath.Abs(filepath.Join("testdata", "src", "testifystub"))
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+
+	// info.Mode()'s type is the origin io/fs.FileMode, not the os.FileMode
+	// alias, so the conversion must be spelled through the io/fs package.
+	code := `package main
+
+import (
+	"os"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestMode(t *testing.T) {
+	t.Serial()
+	info, _ := os.Stat(".")
+	assert.NotEqual(t, 0, info.Mode()&os.ModeSymlink)
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main_test.go"), []byte(code), 0644))
+	// This go directive matches the stub's; an older directive fails the load pre-analyzer.
+	gomod := "module testmod\n\ngo 1.24\n\nrequire github.com/stretchr/testify v1.9.0\n\nreplace github.com/stretchr/testify => " + stub + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644))
+
+	t.Chdir(dir)
+
+	initGitRepo(t, dir)
+
+	// The internal verify re-run must load the rewritten file cleanly.
+	changed, err := vetSemantic("./...", NewEditor(true), nil)
+	require.NoError(t, err)
+	assert.True(t, changed)
+
+	content, err := os.ReadFile(filepath.Join(dir, "main_test.go"))
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "assert.NotEqual(t, fs.FileMode(0), info.Mode()&os.ModeSymlink)")
+	assert.Contains(t, string(content), `"io/fs"`)
+
+	// The repeat run: the rewritten tree is canonical — it must load and no-op.
+	changed, err = vetSemantic("./...", NewEditor(true), nil)
+	require.NoError(t, err)
+	assert.False(t, changed)
 }

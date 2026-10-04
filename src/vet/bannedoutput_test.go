@@ -12,10 +12,10 @@ import (
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
-// TestBannedOutputAnalyzer runs the bannedoutput analyzer over its fixture:
-// direct fmt/log stdio writes must be reported, while Sprintf-style calls,
-// Fprint* to non-stdio writers, and writers held in variables must not.
+// TestBannedOutputAnalyzer checks the fixture: direct fmt/log stdio writes
+// report, Sprintf-style calls and non-stdio Fprint* writers must not.
 func TestBannedOutputAnalyzer(t *testing.T) {
+	t.Serial() // analysistest chdirs into the fixture, so this cannot share the process.
 	testdata, err := filepath.Abs("testdata")
 	require.Nil(t, err)
 	analysistest.Run(t, testdata, BannedOutputAnalyzer, "bannedoutput")
@@ -28,6 +28,7 @@ func TestBannedOutputAnalyzer(t *testing.T) {
 // without module info, e.g. analysistest GOPATH fixtures) keeps the ban
 // active.
 func TestBannedOutputModuleScoping(t *testing.T) {
+	t.Serial()
 	const src = `package main
 
 import "fmt"

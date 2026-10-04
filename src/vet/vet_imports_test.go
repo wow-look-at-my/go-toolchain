@@ -10,46 +10,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/tools/go/packages"
 )
 
-func TestImportName(t *testing.T) {
-	tests := []struct {
-		name     string
-		imp      *ast.ImportSpec
-		expected string
-	}{
-		{
-			name: "named import",
-			imp: &ast.ImportSpec{
-				Name: &ast.Ident{Name: "foo"},
-				Path: &ast.BasicLit{Value: `"bar/baz"`},
-			},
-			expected: "foo",
-		},
-		{
-			name: "unnamed import",
-			imp: &ast.ImportSpec{
-				Path: &ast.BasicLit{Value: `"bar/baz"`},
-			},
-			expected: "baz",
-		},
-		{
-			name: "nested path",
-			imp: &ast.ImportSpec{
-				Path: &ast.BasicLit{Value: `"github.com/foo/bar"`},
-			},
-			expected: "bar",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, importName(tt.imp))
-		})
-	}
-}
-
 func TestIsRedundantCast(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		typeName string
 		litKind  token.Token
@@ -75,6 +40,7 @@ func TestIsRedundantCast(t *testing.T) {
 }
 
 func TestNodeText(t *testing.T) {
+	t.Serial()
 	fset := token.NewFileSet()
 	f, _ := parser.ParseFile(fset, "test.go", `package main; var x = 42`, 0)
 
@@ -91,6 +57,7 @@ func TestNodeText(t *testing.T) {
 }
 
 func TestVetSemanticLoadError(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	// Create invalid Go code (syntax error)
@@ -103,16 +70,75 @@ func main() {
 	os.WriteFile(filepath.Join(dir, "main.go"), []byte(code), 0644)
 	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module testmod\n\ngo 1.21\n"), 0644)
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	_, err := vetSemantic("./...", NewEditor(false), nil)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "package load errors")
 }
 
+func TestLoadErrorMessages(t *testing.T) {
+	t.Serial()
+	perr := func(pos, msg string) packages.Error { return packages.Error{Pos: pos, Msg: msg} }
+	embed := perr("oci.go:26:12", "pattern x: no matching files found")
+
+	// A directory's test variants are separate root packages carrying the same
+	// Errors, so the same broken file reports repeatedly.
+	pkgs := []*packages.Package{
+		{PkgPath: "m/api", Errors: []packages.Error{embed}},
+		{PkgPath: "m/api [m/api.test]", Errors: []packages.Error{embed}},
+		{PkgPath: "m/api.test", Errors: []packages.Error{
+			embed,
+			perr("-", "m/api: package requires newer Go version 1.99"),
+			perr("-", "packages being source-processing packages"),
+			perr("other.go:3:1", "undefined: Nope"),
+		}},
+	}
+
+	assert.Equal(t, []string{
+		"oci.go:26:12: pattern x: no matching files found",
+		"other.go:3:1: undefined: Nope",
+	}, loadErrorMessages(pkgs))
+
+	assert.Nil(t, loadErrorMessages(nil))
+}
+
+// TestLoadErrorMessagesReportsDependencyErrors: a package that fails to load
+// records the cause on ITS OWN Errors and still hands its importers a type
+// under whatever name go list reported, so the roots carry only the downstream
+// `undefined:` cascade. Reading roots alone dropped the only line that named
+// the broken package. A dependency reached by several paths reports a single time.
+func TestLoadErrorMessagesReportsDependencyErrors(t *testing.T) {
+	t.Serial()
+	perr := func(pos, msg string) packages.Error { return packages.Error{Pos: pos, Msg: msg} }
+
+	broken := &packages.Package{
+		PkgPath: "go.opentelemetry.io/otel/attribute",
+		Errors:  []packages.Error{perr("-", "could not import go.opentelemetry.io/otel/attribute (no export data)")},
+	}
+	mid := &packages.Package{
+		PkgPath: "go.opentelemetry.io/otel",
+		Imports: map[string]*packages.Package{"go.opentelemetry.io/otel/attribute": broken},
+	}
+	pkgs := []*packages.Package{
+		{
+			PkgPath: "m/trace",
+			Errors:  []packages.Error{perr("trace.go:9:2", "undefined: attribute.KeyValue")},
+			Imports: map[string]*packages.Package{
+				"go.opentelemetry.io/otel":           mid,
+				"go.opentelemetry.io/otel/attribute": broken,
+			},
+		},
+	}
+
+	assert.Equal(t, []string{
+		"trace.go:9:2: undefined: attribute.KeyValue",
+		"-: could not import go.opentelemetry.io/otel/attribute (no export data)",
+	}, loadErrorMessages(pkgs))
+}
+
 func TestGenerateBinaryReplacementCompound(t *testing.T) {
+	t.Serial()
 	// Test for && and || operators
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "main_test.go")
@@ -122,6 +148,7 @@ func TestGenerateBinaryReplacementCompound(t *testing.T) {
 import "testing"
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	x := true
 	y := false
 	if x && y {
@@ -132,17 +159,16 @@ func TestFoo(t *testing.T) {
 	os.WriteFile(testFile, []byte(code), 0644)
 	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module testmod\n\ngo 1.21\n"), 0644)
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
-	// Just run it to exercise the compound condition path
+	// Run it to exercise the compound condition path
 	_, err := vetSemantic("./...", NewEditor(false), nil)
 	// It should find an issue
 	assert.NotNil(t, err)
 }
 
 func TestGenerateImportEdit(t *testing.T) {
+	t.Serial()
 	fset := token.NewFileSet()
 
 	// Test with existing imports
@@ -165,6 +191,7 @@ func main() {}
 }
 
 func TestSourceLocationShortLocWithError(t *testing.T) {
+	t.Serial()
 	// Test when filepath.Rel fails (shouldn't happen in practice, but for coverage)
 	loc := SourceLocation{File: "/some/path/file.go", Line: 1}
 	short := loc.ShortLoc()

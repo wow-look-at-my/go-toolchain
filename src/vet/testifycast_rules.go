@@ -1,8 +1,12 @@
 package vet
 
 import (
+	"bytes"
 	"go/ast"
 	"go/constant"
+	"go/parser"
+	"go/printer"
+	"go/token"
 	"go/types"
 	"math"
 	"os"
@@ -11,7 +15,9 @@ import (
 
 	ansi "github.com/wow-look-at-my/ansi-writer"
 	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/go/ast/astutil"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
@@ -27,7 +33,7 @@ func constRepresentable(v constant.Value, b *types.Basic) bool {
 	case b.Info()&types.IsInteger != 0:
 		iv := constant.ToInt(v)
 		if iv.Kind() != constant.Int {
-			return false // not an integral value (e.g. 1.5)
+			return false // not an integral value (a fraction)
 		}
 		return intInRange(iv, b.Kind())
 	case b.Info()&types.IsFloat != 0:
@@ -49,7 +55,7 @@ func constRepresentable(v constant.Value, b *types.Basic) bool {
 }
 
 // intInRange reports whether the integer constant v fits in the integer basic
-// kind k. types.Int/Uint/Uintptr are treated as 64-bit, matching the analysis
+// kind k. types.Int/Uint/Uintptr are treated as word-width, matching the analysis
 // host and the platforms go-toolchain targets.
 func intInRange(v constant.Value, k types.BasicKind) bool {
 	switch k {
@@ -99,9 +105,7 @@ func warnElementMismatch(pass *analysis.Pass, call *ast.CallExpr, name string, c
 	if elem == nil {
 		return
 	}
-	// For collection-vs-collection assertions (ElementsMatch/Subset/NotSubset)
-	// the second operand is itself a collection, so compare its element type;
-	// for value-in-collection (Contains) the second operand is a scalar value.
+	// For collection-vs-collection asserts, compare element types; for value-in-collection, the member operand is a scalar.
 	cmpType := types.Default(valTV.Type)
 	if e2 := elementType(valTV.Type); e2 != nil {
 		cmpType = types.Default(e2)
@@ -171,6 +175,44 @@ func (c *CastEdits) rendered(src []byte) []byte {
 	return out
 }
 
+// neededImports returns the sorted union of the import paths the edits require
+// (recorded per edit when a conversion names a package the file doesn't import).
+func (c *CastEdits) neededImports() []string {
+	seen := set.New[string]()
+	var paths []string
+	for _, e := range c.Edits {
+		for _, p := range e.AddImports {
+			if seen.Add(p) {
+				paths = append(paths, p)
+			}
+		}
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+// addImportsToSource returns src with the given import paths added to its
+// import declaration. Without the import an inserted conversion like
+// wrapping an untyped constant in fs.FileMode would not compile, and the load
+// error blocks every later vet run. This reprints the whole file (parse, astutil.AddImport,
+// go/printer), so like every AST-reprinting fixer it emits through
+// canonicalizeGoSource.
+func addImportsToSource(src []byte, filename string, paths []string) ([]byte, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, filename, src, parser.ParseComments)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range paths {
+		astutil.AddImport(fset, f, p)
+	}
+	var buf bytes.Buffer
+	if err := printer.Fprint(&buf, fset, f); err != nil {
+		return nil, err
+	}
+	return canonicalizeGoSource(buf.Bytes()), nil
+}
+
 // Apply routes the file with all edits applied through ed: a fix-mode editor
 // rewrites it on disk (and a fix line is printed per edit), a check-mode (CI)
 // editor records a violation. testifycast emits no analyzer diagnostic of its
@@ -180,7 +222,14 @@ func (c *CastEdits) Apply(ed Editor) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	wrote, err := ed.Require(c.Filename, c.rendered(src), "testify Equal/NotEqual/Greater/Less needs explicit type conversions for upstream testify")
+	want := c.rendered(src)
+	if paths := c.neededImports(); len(paths) > 0 {
+		want, err = addImportsToSource(want, c.Filename, paths)
+		if err != nil {
+			return false, err
+		}
+	}
+	wrote, err := ed.Require(c.Filename, want, "testify Equal/NotEqual/Greater/Less needs explicit type conversions for upstream testify")
 	if err != nil {
 		return false, err
 	}

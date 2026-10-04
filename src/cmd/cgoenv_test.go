@@ -11,34 +11,30 @@ import (
 )
 
 func TestAddPkgConfigPath_Empty(t *testing.T) {
-	old := os.Getenv("PKG_CONFIG_PATH")
-	defer os.Setenv("PKG_CONFIG_PATH", old)
-
-	os.Setenv("PKG_CONFIG_PATH", "")
+	t.Serial()
+	t.Setenv("PKG_CONFIG_PATH", "")
 	addPkgConfigPath("/usr/lib/pkgconfig")
 	assert.Equal(t, "/usr/lib/pkgconfig", os.Getenv("PKG_CONFIG_PATH"))
 }
 
 func TestAddPkgConfigPath_Existing(t *testing.T) {
-	old := os.Getenv("PKG_CONFIG_PATH")
-	defer os.Setenv("PKG_CONFIG_PATH", old)
-
-	os.Setenv("PKG_CONFIG_PATH", "/existing/path")
+	t.Serial()
+	t.Setenv("PKG_CONFIG_PATH", "/existing/path")
 	addPkgConfigPath("/new/path")
 	assert.Equal(t, "/new/path:/existing/path", os.Getenv("PKG_CONFIG_PATH"))
 }
 
 func TestAddPkgConfigPath_AlreadyPresent(t *testing.T) {
-	old := os.Getenv("PKG_CONFIG_PATH")
-	defer os.Setenv("PKG_CONFIG_PATH", old)
-
-	os.Setenv("PKG_CONFIG_PATH", "/some/path:/other/path")
+	t.Serial()
+	t.Setenv("PKG_CONFIG_PATH", "/some/path:/other/path")
 	addPkgConfigPath("/some/path")
 	// Should not duplicate
 	assert.Equal(t, "/some/path:/other/path", os.Getenv("PKG_CONFIG_PATH"))
 }
 
 func TestCachedOpenCVPkgConfig_NoCache(t *testing.T) {
+	t.Serial()
+	// Not parallel: goCacheDirFunc is a package global, and a sibling's assignment would win.
 	dir := t.TempDir()
 	oldFunc := goCacheDirFunc
 	goCacheDirFunc = func() (string, error) { return dir, nil }
@@ -49,6 +45,8 @@ func TestCachedOpenCVPkgConfig_NoCache(t *testing.T) {
 }
 
 func TestCachedOpenCVPkgConfig_Found(t *testing.T) {
+	t.Serial()
+	// Not parallel: goCacheDirFunc is a package global, and a sibling's assignment would win.
 	dir := t.TempDir()
 	oldFunc := goCacheDirFunc
 	goCacheDirFunc = func() (string, error) { return dir, nil }
@@ -65,6 +63,8 @@ func TestCachedOpenCVPkgConfig_Found(t *testing.T) {
 }
 
 func TestCachedOpenCVPkgConfig_FoundInLib64(t *testing.T) {
+	t.Serial()
+	// Not parallel: goCacheDirFunc is a package global, and a sibling's assignment would win.
 	dir := t.TempDir()
 	oldFunc := goCacheDirFunc
 	goCacheDirFunc = func() (string, error) { return dir, nil }
@@ -81,16 +81,15 @@ func TestCachedOpenCVPkgConfig_FoundInLib64(t *testing.T) {
 }
 
 func TestSetupCGOEnvironment_Disabled(t *testing.T) {
+	t.Serial()
 	oldCGO := cgoEnabled
 	cgoEnabled = false
 	defer func() { cgoEnabled = oldCGO }()
 
-	// Reset sync.Once so it can run
+	// Reset sync.a single time so it can run
 	setupCGOOnce = sync.Once{}
 
-	old := os.Getenv("PKG_CONFIG_PATH")
-	defer os.Setenv("PKG_CONFIG_PATH", old)
-	os.Setenv("PKG_CONFIG_PATH", "")
+	t.Setenv("PKG_CONFIG_PATH", "")
 
 	setupCGOEnvironment()
 	// PKG_CONFIG_PATH should not change

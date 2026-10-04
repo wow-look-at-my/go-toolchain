@@ -6,14 +6,14 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wow-look-at-my/go-toolchain/src/cache"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 )
 
 func TestAddTraceEvents_LanesAndArgs(t *testing.T) {
+	t.Serial()
 	t0 := time.Date(2026, 7, 4, 10, 0, 0, 0, time.UTC)
 	actions := []Action{
-		// Two overlapping compiles → two lanes; a third after both → lane 1 reused.
+		// Overlapping compiles each take a lane; a later compile reuses a freed lane.
 		{Mode: "build", Package: "example.com/m/a", ActionID: "aaaaaaaaaaaaaaaaaaaa",
 			TimeStart: t0, TimeDone: t0.Add(2 * time.Second)},
 		{Mode: "build", Package: "example.com/m/b", ActionID: "bbbbbbbbbbbbbbbbbbbb",
@@ -23,12 +23,9 @@ func TestAddTraceEvents_LanesAndArgs(t *testing.T) {
 		// Never executed: no event.
 		{Mode: "build", Package: "example.com/m/skip", ActionID: "dddddddddddddddddddd"},
 	}
-	outcomes := map[string]cache.ActionOutcome{
-		"aaaaaaaaaaaaaaaaaaaa": {Get: "miss", Put: true},
-	}
 
 	tr := gotrace.NewTrace()
-	AddTraceEvents(tr, actions, outcomes)
+	AddTraceEvents(tr, actions)
 	events := tr.Events()
 	require.Len(t, events, 3)
 
@@ -41,18 +38,15 @@ func TestAddTraceEvents_LanesAndArgs(t *testing.T) {
 	assert.Equal(t, "go actions #02", b.Thread, "overlapping actions must land on distinct lanes")
 	assert.Equal(t, "go actions #01", link.Thread, "a later action reuses the freed lane")
 	assert.Equal(t, "action", a.Category)
-	assert.Equal(t, "miss+put", a.Args["cache"])
 	assert.Equal(t, "example.com/m/a", a.Args["package"])
 	assert.Equal(t, "aaaaaaaaaaaaaaaaaaaa", a.Args["action_id"])
-	_, hasCache := b.Args["cache"]
-	assert.False(t, hasCache, "no observed outcome: no cache arg")
 }
 
 func TestAddTraceEvents_NilTraceAndLaneSpill(t *testing.T) {
-	AddTraceEvents(nil, testActions(), nil) // must not panic
+	t.Serial()
+	AddTraceEvents(nil, testActions()) // must not panic
 
-	// More concurrent actions than lanes: all still recorded, spilling onto
-	// the earliest-free lane.
+	// More concurrent actions than lanes: all recorded, spilling onto the earliest-free lane.
 	t0 := time.Date(2026, 7, 4, 10, 0, 0, 0, time.UTC)
 	var actions []Action
 	for i := 0; i < maxTraceLanes+5; i++ {
@@ -63,7 +57,7 @@ func TestAddTraceEvents_NilTraceAndLaneSpill(t *testing.T) {
 		})
 	}
 	tr := gotrace.NewTrace()
-	AddTraceEvents(tr, actions, nil)
+	AddTraceEvents(tr, actions)
 	events := tr.Events()
 	assert.Len(t, events, maxTraceLanes+5)
 	lanes := map[string]bool{}
@@ -74,6 +68,7 @@ func TestAddTraceEvents_NilTraceAndLaneSpill(t *testing.T) {
 }
 
 func TestTraceName(t *testing.T) {
+	t.Serial()
 	assert.Equal(t, "pkga", traceName(Action{Mode: "build", Package: "example.com/m/pkga"}))
 	assert.Equal(t, "m (link)", traceName(Action{Mode: "link", Package: "example.com/m"}))
 	assert.Equal(t, "go build", traceName(Action{Mode: "go build"}))
