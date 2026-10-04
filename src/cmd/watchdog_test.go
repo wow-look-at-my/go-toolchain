@@ -15,26 +15,75 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// TestWatchdogDisabledByEnv pins the GO_TOOLCHAIN_NO_WATCHDOG off-switch:
-// startWatchdog must decline to touch stdout/stderr and return nil (the build then
-// runs on its real stdio). Only the exact value the test sets disables it.
-func TestWatchdogDisabledByEnv(t *testing.T) {
+// TestWatchdogStartsOnEveryRun pins that nothing in the environment can
+// decline stall monitoring.
+func TestWatchdogStartsOnEveryRun(t *testing.T) {
 	t.Serial()
-	t.Setenv("GO_TOOLCHAIN_NO_WATCHDOG", "1")
-	require.True(t, watchdogDisabled())
-	require.Nil(t, startWatchdog(time.Second))
+	wd := startWatchdog(time.Second)
+	require.NotNil(t, wd)
+	wd.stop()
+}
 
-	t.Setenv("GO_TOOLCHAIN_NO_WATCHDOG", "")
-	require.False(t, watchdogDisabled())
-	t.Setenv("GO_TOOLCHAIN_NO_WATCHDOG", "0")
-	require.False(t, watchdogDisabled())
+// TestWatchdogWarnsWhileTheBuildIsSilent covers the watchdog's whole reason to
+// exist, which nothing asserted: a phase that prints nothing past the threshold
+// has to produce the STALLED banner on the real stderr. A test phase went quiet
+// for 200s against a 5s threshold and no banner appeared, and there was no test
+// that would have caught it.
+func TestWatchdogWarnsWhileTheBuildIsSilent(t *testing.T) {
+	t.Serial()
+
+	savedStdoutFd, err := unix.Dup(1)
+	require.NoError(t, err, "dup saved stdout")
+	savedStderrFd, err := unix.Dup(2)
+	require.NoError(t, err, "dup saved stderr")
+	savedStdout, savedStderr := os.Stdout, os.Stderr
+	t.Cleanup(func() {
+		unix.Dup2(savedStdoutFd, 1)
+		unix.Dup2(savedStderrFd, 2)
+		unix.Close(savedStdoutFd)
+		unix.Close(savedStderrFd)
+		os.Stdout = savedStdout
+		os.Stderr = savedStderr
+	})
+
+	outR, outW, err := os.Pipe()
+	require.NoError(t, err, "pipe out")
+	errR, errW, err := os.Pipe()
+	require.NoError(t, err, "pipe err")
+
+	require.NoError(t, unix.Dup2(int(outW.Fd()), 1), "dup2 out")
+	require.NoError(t, unix.Dup2(int(errW.Fd()), 2), "dup2 err")
+	outW.Close()
+	errW.Close()
+
+	watchdog := startWatchdog(200 * time.Millisecond)
+	require.NotNil(t, watchdog, "startWatchdog returned nil")
+	watchdog.setStep("Running tests with coverage")
+
+	// Print nothing at all: this is the silent compile the banner is for.
+	time.Sleep(2 * time.Second)
+	watchdog.stop()
+
+	unix.Dup2(savedStdoutFd, 1)
+	unix.Dup2(savedStderrFd, 2)
+	os.Stdout = savedStdout
+	os.Stderr = savedStderr
+
+	var gotOut, gotErr bytes.Buffer
+	io.Copy(&gotOut, outR)
+	outR.Close()
+	io.Copy(&gotErr, errR)
+	errR.Close()
+
+	require.Contains(t, gotErr.String(), "STALLED", "no stall banner after 2s of silence at a 200ms threshold")
+	require.Contains(t, gotErr.String(), "Running tests with coverage", "the banner did not name the running step")
 }
 
 // TestWatchdogStopDoesNotDropBufferedOutput is a regression test for the pipe
-// drain race at shutdown: output written just before wd.stop() must still make
-// it through to the original stdout. Without the forward-goroutine wait in
-// stop(), stdoutR.Close() discarded any bytes forward() hadn't read yet,
-// causing the coverage block to vanish intermittently.
+// drain race at shutdown: output written before wd.stop() must still make it
+// through to the stdout. Without the forward-goroutine wait in stop(),
+// stdoutR.Close() discarded any bytes forward() hadn't read yet, causing the
+// coverage block to vanish intermittently.
 func TestWatchdogStopDoesNotDropBufferedOutput(t *testing.T) {
 	t.Serial()
 	// Forces single-threaded scheduling so forward() and main compete for the same P; otherwise the race rarely triggers.

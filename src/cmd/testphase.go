@@ -151,6 +151,8 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	var testStep *step
 	if !quiet {
 		testStep = logStep("Running tests with coverage")
+		// The compile ahead of the first test can run for minutes, and this step printed nothing until it ended.
+		testStep.heartbeat(nil)
 	}
 
 	// A process-unique path avoids collisions with mock-runner tests that write and delete this file.

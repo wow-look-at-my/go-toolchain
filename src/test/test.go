@@ -136,7 +136,7 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 	runs := make([]configRun, len(discovery.Configs))
 	var wg sync.WaitGroup
 	for i, tagCfg := range discovery.Configs {
-		// Coverage is collected only on the default config; extra configs still run and can fail, just uncovered.
+		// Coverage is collected only on the default config; extra configs still run and can fail, uncovered.
 		cf := coverFile
 		cb := onOutput
 		var only []string
@@ -193,9 +193,9 @@ func mergeTestResults(acc, next *TestResult) *TestResult {
 	return acc
 }
 
-// verifyTagCoverage asks the go tool which files each configuration actually
-// builds, and fails when a build-tagged file was compiled by none of them. This
-// is the guarantee that a tag cannot hide a test: the check is on the real file
+// verifyTagCoverage asks the go tool which files each configuration builds,
+// and fails when a build-tagged file was compiled by none of them. This is
+// the guarantee that a tag cannot hide a test: the check is on the real file
 // set the toolchain saw, not on the enumeration that produced the tag sets.
 func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 	if len(d.Gated) == 0 {
@@ -245,8 +245,9 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 }
 
 // perRunEnv names the GitHub Actions variables that differ between runs of the same commit's tests.
+// GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT stay: a CI go command refuses to build without them.
 var perRunEnv = []string{
-	"GITHUB_SHA", "GITHUB_REF", "GITHUB_REF_NAME", "GITHUB_RUN_ID", "GITHUB_RUN_NUMBER", "GITHUB_RUN_ATTEMPT",
+	"GITHUB_SHA", "GITHUB_REF", "GITHUB_REF_NAME", "GITHUB_RUN_NUMBER",
 	"GITHUB_STEP_SUMMARY", "GITHUB_OUTPUT", "GITHUB_ENV", "GITHUB_PATH", "GITHUB_STATE",
 }
 
@@ -269,7 +270,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 		}
 	}
 	if coverFile != "" {
-		// A cached result replays its cover profile fragment, keyed by the covered packages' build IDs.
+		// No -count: the fork keys the coverprofile on the coverage metadata, so a cached run cannot replay a stale profile.
 		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...")
 	}
 	switch {

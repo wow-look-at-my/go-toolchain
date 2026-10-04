@@ -81,21 +81,14 @@ const (
 	docQuoteRight = "\u201d" // gofmt synthesizes this from a doubled apostrophe
 )
 
-// revertDocCommentSmartQuotes reverts gofmt's smart-quote substitution back to
-// the ASCII digraphs, restoring U+201C to a doubled backtick and U+201D to a
-// doubled apostrophe wherever they appear inside a Go comment. This is curative,
-// not merely preventive: gofmt's doc-comment formatter is the ONLY thing that
-// produces these runes in Go source, and only inside comments, so a curly quote
-// in a comment is always a gofmt artifact -- no author types it there by hand.
-// It therefore also heals comments that an earlier, unfixed run already
-// corrupted, not just the file currently being formatted.
-//
-// The revert is scoped to comment spans via a parse of the (gofmt-valid) source,
-// so curly quotes inside string or rune literals -- where they are real program
-// data, not prose -- are left untouched. A fast path skips the parse entirely for
-// the overwhelming majority of files, which contain no curly quotes at all; an
-// unparseable input is returned unchanged rather than risk a blind global
-// replace that could reach a literal.
+// revertDocCommentSmartQuotes reverts gofmt's smart-quote substitution back
+// to the ASCII digraphs, restoring U+201C to a doubled backtick and U+201D to
+// a doubled apostrophe wherever they appear inside a Go comment. This is
+// curative, not merely preventive: gofmt's doc-comment formatter is the ONLY
+// thing that produces these runes in Go source, and only inside comments, so
+// a curly quote in a comment is always a gofmt artifact -- no author types it
+// there by hand. It therefore also heals comments that an earlier, unfixed
+// run already corrupted, not the file being formatted.
 func revertDocCommentSmartQuotes(formatted []byte) []byte {
 	left, right := []byte(docQuoteLeft), []byte(docQuoteRight)
 	if !bytes.Contains(formatted, left) && !bytes.Contains(formatted, right) {

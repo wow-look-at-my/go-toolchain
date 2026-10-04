@@ -8,14 +8,14 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// a direct download: pipe falls back on any error, comma only on not-found. A
-// trailing ",direct" is upgraded; any other "direct" value is untouched.
+// ensureDirectFallback appends ",direct" so a module the proxy does not carry
+// still resolves.
 func ensureDirectFallback(goproxy string) string {
-	if strings.HasSuffix(goproxy, ",direct") {
-		return strings.TrimSuffix(goproxy, ",direct") + "|direct"
+	if strings.HasSuffix(goproxy, "|direct") {
+		return strings.TrimSuffix(goproxy, "|direct") + ",direct"
 	}
 	if !strings.Contains(goproxy, "direct") {
-		return goproxy + "|direct"
+		return goproxy + ",direct"
 	}
 	return goproxy
 }
@@ -30,8 +30,7 @@ const PublicSumDB = "sum.golang.org"
 // public checksum database ITSELF. GOSUMDB is "<name>", "<name>+<key>", or
 // "<name>+<key> <url>"; only the URL form redirects lookups elsewhere, so
 // sum.golang.org named WITH a proxy URL (the org's "<proxy>/sumdb/<name>"
-// mirror) stays allowed. Refused: the bare name, or a URL pointing back at
-// the public host anyway.
+// mirror) stays allowed.
 func usesPublicSumDB(gosumdb string) bool {
 	fields := strings.Fields(gosumdb)
 	if len(fields) == 0 {
@@ -100,8 +99,7 @@ func configureGoEnv() {
 		return
 	}
 
-	// A GOSUMDB this run declined still sits in the environment every child
-	// reads, so it goes rather than staying as the setting nobody chose.
+	// A GOSUMDB this run declined still sits in the environment every child reads.
 	os.Unsetenv("GOSUMDB")
 	// GONOSUMDB, not GOSUMDB=off, so toolchain auto-downloads still work.
 	os.Setenv("GONOSUMDB", "*")

@@ -105,15 +105,33 @@ func defaultCCBody(pkg, pkgConfig, ccName, cxxName string) string {
 	return buf.String()
 }
 
-// defaultCCFunc is a single compiler-picking function of a zdefaultcc.go.
+// defaultCCFunc is a single compiler-picking function of a zdefaultcc.go. A
+// cosmo port always gets its cosmocc driver, as the fork's cmd/dist writes it.
 func defaultCCFunc(name, clang, gcc string) string {
 	var buf strings.Builder
 	fmt.Fprintf(&buf, "func %s(goos, goarch string) string {\n", name)
 	buf.WriteString("\tswitch goos+`/`+goarch {\n\t}\n")
+	buf.WriteString("\tswitch goos+`/`+goarch {\n")
+	for _, port := range []string{"cosmo/amd64", "cosmo/arm64"} {
+		fmt.Fprintf(&buf, "\tcase %q:\n\t\treturn %q\n", port, cosmoDefaultCC(name, port))
+	}
+	buf.WriteString("\t}\n")
 	buf.WriteString("\tswitch goos {\n")
 	fmt.Fprintf(&buf, "\tcase \"darwin\", \"ios\", \"freebsd\", \"openbsd\":\n\t\treturn %q\n\t}\n", clang)
 	fmt.Fprintf(&buf, "\treturn %q\n}\n", gcc)
 	return buf.String()
+}
+
+// cosmoDefaultCC names the cosmocc driver of one cosmo port; a CXX function gets the C++ driver.
+func cosmoDefaultCC(name, port string) string {
+	prefix := "x86_64"
+	if port == "cosmo/arm64" {
+		prefix = "aarch64"
+	}
+	if strings.HasSuffix(name, "CXX") {
+		return prefix + "-unknown-cosmo-c++"
+	}
+	return prefix + "-unknown-cosmo-cc"
 }
 
 // tzdataBody is time/tzdata/zzipdata.go: the zoneinfo zip as a string,

@@ -231,7 +231,7 @@ func TestStartUpdateCheckCannotBeDisabled(t *testing.T) {
 	t.Serial()
 	t.Cleanup(func() { activeUpdateCheck = nil })
 	activeUpdateCheck = nil
-	// There is no opt-out: even the old disable env var must not stop it.
+	// There is no opt-out: even the disable env var must not stop it.
 	t.Setenv("GO_TOOLCHAIN_NO_UPDATE_CHECK", "1")
 
 	srv := releaseServer(t, buildhostRelease{Version: "1", GitCommit: "abc", Published: true})

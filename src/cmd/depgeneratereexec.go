@@ -9,9 +9,9 @@ import (
 // Set on the child, so the rebuild runs at most a single time per run.
 const depGenerateReexecEnv = "GO_TOOLCHAIN_DEPGEN_REEXEC"
 
-// reexecAfterDepGenerate hands the run to a build that links what the generate
-// step just wrote, since the tables enter through the compiler. It exits with
-// that build's status, and returns when this process already reads them.
+// reexecAfterDepGenerate hands the run to a build that links what the
+// generate step wrote, since the tables enter through the compiler. It exits
+// with that build's status, and returns when this process already reads them.
 func reexecAfterDepGenerate() error {
 	if os.Getenv(depGenerateReexecEnv) != "" {
 		// The rebuild already happened, and its child reads the tables.
@@ -30,8 +30,7 @@ func reexecAfterDepGenerate() error {
 		return err
 	}
 	st.done()
-	// The rebuilt binary is the fixed point, so the child skips that re-exec too.
-	code := runSelfWith(bin, depGenerateReexecEnv, selfReexecEnv)
+	code := runSelfWith(bin, depGenerateReexecEnv)
 	_ = os.RemoveAll(dir)
 	os.Exit(code)
 	return nil

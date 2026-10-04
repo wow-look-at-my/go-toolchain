@@ -125,6 +125,39 @@ tests:
 		stdout:
 			- "Build successful"
 
+	# cgo through the shipped APE: the standard library it carries holds
+	# runtime/cgo for both architectures, and cosmocc on this host compiles the
+	# module's C. The built APE runs here and answers from C.
+	- desc: a cgo module builds as a fat APE on this host and runs
+	  cmd: 'mkdir -p "$HOME"; cd "$(dirname {inputs.go.mod})"; export PATH="/opt/cosmocc/bin:$PATH"; {shared.gt-ape.exe} matrix --cgo --no-benchmark && ./build/cgosmoke'
+	  timeout: 20m
+	  inputs:
+		env:
+			HOME: "{outputs.home}"
+			CI: ""
+		files:
+			go.mod: |
+				module example.com/cgosmoke
+
+				go 1.24
+			main.go: |
+				// Package main answers from C through cgo.
+				package main
+
+				/*
+				static int triple(int n) { return 3 * n; }
+				*/
+				import "C"
+
+				import "fmt"
+
+				func main() {
+					fmt.Println("c says", int(C.triple(14)))
+				}
+	  outputs:
+		stdout:
+			- "c says 42"
+
 	# A directory that is neither a module nor a suite tree is the shipped
 	# artifact's own refusal, and it has to arrive before any toolchain is
 	# fetched for it. Pairing with uname keeps this test on every host.

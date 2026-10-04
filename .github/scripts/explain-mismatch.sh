@@ -1,5 +1,4 @@
-# Explains why APEs differ: sizes, how many bytes differ, and the bytes
-# around the earliest differences, so a red identical job says where to look.
+# Explains why APEs differ: sizes, how many bytes differ, and the bytes around the earliest differences.
 set -uo pipefail
 
 a="$1"

@@ -26,8 +26,7 @@ var datsRunFunc = dats.Run
 // datsBuildDirEnv names the env var pointing suite commands at the staged binaries dir.
 const datsBuildDirEnv = "GO_TOOLCHAIN_DATS_BUILD_DIR"
 
-// datsForkCommitEnv names the env var carrying the gosmopolitan commit the
-// run's build linked, empty outside this module.
+// datsForkCommitEnv names the env var carrying the gosmopolitan commit the run's build linked.
 const datsForkCommitEnv = "GO_TOOLCHAIN_DATS_GOSMOPOLITAN"
 
 // datsArtifact names a built binary to hand to dats suites.
@@ -167,10 +166,11 @@ func datsSandbox() dats.Sandbox {
 }
 
 // runDatsPhase runs the module's dats suites (if any) against the binaries
-// just built, in this process: go-toolchain links the dats library, so the
+// built, in this process: go-toolchain links the dats library, so the
 // suite-presence gate is the only thing standing between a module and its
-// suites — no download, no cache, no dats version to drift from the linked-in copy.
-// Modules without a dats/ directory pay nothing and print nothing.
+// suites — no download, no cache, no dats version to drift from the
+// linked-in copy. Modules without a dats/ directory pay nothing and print
+// nothing.
 //
 // dats itself always runs every discovered test — there is deliberately no
 // filtering, selection, or skip mechanism at either layer. Failures fail the

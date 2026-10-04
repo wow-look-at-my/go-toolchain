@@ -32,11 +32,9 @@ func checkDirtyInCI() error {
 	return fmt.Errorf("working tree is dirty in CI (run `go-toolchain` locally, review the diff, commit, and push)")
 }
 
-// dropForkGitlink removes the fork submodule's own status line. syncForkSource
-// puts the checkout on the fork branch named like this, or on its default
-// branch, so the gitlink moves whenever the fork does. That is the build
-// following the fork, never an uncommitted change, and the recorded commit is
-// only a starting point for the earliest clone. Every other dirty path survives.
+// dropForkGitlink removes the fork submodule's own status line.
+// syncForkSource puts the checkout on the fork branch named like this, or on
+// its default branch, so the gitlink moves whenever the fork does.
 func dropForkGitlink(files string) string {
 	var kept []string
 	for line := range strings.SplitSeq(files, "\n") {
@@ -56,7 +54,6 @@ func dropForkGitlink(files string) string {
 // any whose content still matches. git status trusts that stat cache, so a
 // rewrite producing the same bytes otherwise reads as an edit. A real change
 // survives the refresh, which is why this only removes false alarms.
-// It returns what git said about the paths that did change.
 func refreshGitIndex(dir string) string {
 	cmd := exec.Command("git", "update-index", "--refresh")
 	cmd.Dir = dir

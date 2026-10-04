@@ -161,7 +161,7 @@ func TestFoo(t *testing.T) {
 
 	t.Chdir(dir)
 
-	// Just run it to exercise the compound condition path
+	// Run it to exercise the compound condition path
 	_, err := vetSemantic("./...", NewEditor(false), nil)
 	// It should find an issue
 	assert.NotNil(t, err)

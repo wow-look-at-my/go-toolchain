@@ -107,11 +107,11 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	args = append(args, "-ldflags", ldflags)
 	// -o is the temp spelling; the commit below is what makes the target exist.
 	args = append(args, "-o", build.TempOutputPath(job.outputPath), job.srcPath)
-	// An ambient GOOS is the last way to ask for a native binary, so every variable below is assigned. No output has cgo.
+	// An ambient GOOS is the last way to ask for a native binary, so every variable below is assigned.
 	cmd := runner.Cmd(job.goCmd[0], args...).
 		WithEnv("GOTOOLCHAIN", "local").
 		WithEnv("GOROOT", job.goroot).
-		WithEnv("CGO_ENABLED", "0")
+		WithEnv("CGO_ENABLED", cgoEnabledValue(job.goos))
 	if job.goos == cosmoOS {
 		// "fat" is a pseudo-arch, and an inherited GOCOSMOFAT would silently
 		// produce a thin binary, so each is cleared.

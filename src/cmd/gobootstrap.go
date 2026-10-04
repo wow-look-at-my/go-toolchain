@@ -170,8 +170,8 @@ func requiredGoVersion() (string, error) {
 	return normalizeGoVersion(goVer), nil
 }
 
-// normalizeGoVersion appends a missing patch component: a release archive is named
-// "goX.Y.Z", so a bare "X.Y" must gain a patch component for the download URL.
+// normalizeGoVersion appends a missing patch component: a release archive is
+// named "goX.Y.Z".
 func normalizeGoVersion(v string) string {
 	parts := strings.Split(v, ".")
 	if len(parts) == 2 {

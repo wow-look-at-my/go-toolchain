@@ -117,6 +117,47 @@ type step struct {
 	noisy  bool
 	sub    bool // sub-step: indented output, no "⇒" prefix
 	once   sync.Once
+	stopHB chan struct{}
+	hbOnce sync.Once
+}
+
+// heartbeatEvery is how often a step with no output of its own says it is still running.
+const heartbeatEvery = 20 * time.Second
+
+// heartbeat starts reporting elapsed time until the step finishes. detail
+// answers what the step is doing now, or "" when it has nothing to add.
+func (s *step) heartbeat(detail func() string) {
+	s.stopHB = make(chan struct{})
+	go func() {
+		t := time.NewTicker(heartbeatEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-s.stopHB:
+				return
+			case <-t.C:
+				s.noteOutput()
+				line := ""
+				if detail != nil {
+					line = detail()
+				}
+				if line != "" {
+					line = ": " + line
+				}
+				fmt.Fprintf(os.Stdout, "    %s still running%s %s\n", s.label, line, fmtDuration(time.Since(s.start)))
+			}
+		}
+	}()
+}
+
+// stopHeartbeat ends the reporting started by heartbeat. It is safe to call
+// when none was started, and safe to call twice.
+func (s *step) stopHeartbeat() {
+	s.hbOnce.Do(func() {
+		if s.stopHB != nil {
+			close(s.stopHB)
+		}
+	})
 }
 
 // logStep prints "⇒ label..." without a newline and returns a step
@@ -159,6 +200,7 @@ func fmtDuration(d time.Duration) string {
 
 // finish prints the completion message with elapsed time and a status word.
 func (s *step) finish(status string) {
+	s.stopHeartbeat()
 	end := time.Now()
 	d := end.Sub(s.start)
 	if s.sub {
@@ -190,8 +232,7 @@ func (s *step) failed() {
 	s.finish(colorRed + "failed!" + colorReset)
 }
 
-// timedLineWriter appends elapsed time to each line. A line's newline is
-// deferred until the next content, reflecting the gap until it appeared.
+// timedLineWriter appends elapsed time to each line.
 type timedLineWriter struct {
 	target      io.Writer
 	buf         bytes.Buffer
@@ -220,7 +261,7 @@ func (w *timedLineWriter) Write(p []byte) (int, error) {
 			w.buf.Write(line)
 			break
 		}
-		// Complete line found. Close any previously open line before writing.
+		// Complete line found. Close any open line before writing.
 		if w.awaitingEnd {
 			w.closeLine()
 		}
@@ -233,9 +274,8 @@ func (w *timedLineWriter) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-// closeLine finishes the current open line: " <elapsed>\n" when the gap
-// since its content was written reaches timedLineMinDuration, otherwise
-// just "\n".
+// closeLine finishes the current open line: " <elapsed>\n" when the gap since
+// its content was written reaches timedLineMinDuration, otherwise "\n".
 func (w *timedLineWriter) closeLine() {
 	if elapsed := time.Since(w.lineEnd); elapsed >= timedLineMinDuration {
 		fmt.Fprintf(w.target, " %s\n", fmtDuration(elapsed))

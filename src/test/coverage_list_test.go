@@ -176,7 +176,7 @@ func TestColorGain(t *testing.T) {
 	low := colorGain(0.1)
 	assert.Contains(t, low, " 0.1%")
 
-	// Very high gain gets capped at red
+	// High gain gets capped at red
 	capped := colorGain(5.0)
 	assert.Contains(t, capped, " 5.0%")
 }

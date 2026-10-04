@@ -15,9 +15,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// fakeAPE is what a test writes where a real build leaves a fat APE. It
-// carries the magic, because the manifest and buildhost both decide APE-ness
-// by reading it: a stand-in without it is a stand-in for a library module.
+// fakeAPE is what a test writes where a real build leaves a fat APE.
 const fakeAPE = apeMagic + "FAT-APE"
 
 func TestApeManifestEntries(t *testing.T) {
@@ -42,8 +40,8 @@ func TestApeManifestEntries(t *testing.T) {
 
 // A module with no main package still leaves a build/<name>. Naming it claims
 // it runs on every platform in the set, and buildhost refuses the upload:
-// "declares N platforms but is not an Actually Portable Executable". Every
-// library module in the org failed its publish that way.
+// "declares N platforms but is not an Portable Executable". Every library
+// module in the org failed its publish that way.
 func TestApeManifestEntriesSkipsWhatIsNotAnAPE(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()
@@ -220,7 +218,7 @@ func TestCosmoPlatformsAllLeavesEnvUnset(t *testing.T) {
 	platforms, _ := cosmoCfg.Env.Get(cosmoPlatformsEnv)
 	assert.Equal(t, "", platforms)
 
-	// The manifest still states where the binary runs, using the coverage a full APE actually has.
+	// The manifest still states where the binary runs, using the coverage a full APE has.
 	raw, err := os.ReadFile(filepath.Join(outDir, buildhostManifestName))
 	require.NoError(t, err)
 	var m buildhostManifest

@@ -29,7 +29,7 @@ type outputWatchdog struct {
 
 const colorBoldRed = "\033[1;38;2;255;0;0m"
 
-// setStep records the name of the currently running build step.
+// setStep records the name of the running build step.
 func (w *outputWatchdog) setStep(name string) {
 	if w != nil {
 		w.stepName.Store(name)

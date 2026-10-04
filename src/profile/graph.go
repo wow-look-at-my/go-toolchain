@@ -11,10 +11,6 @@ import (
 // Action is a row of cmd/go's -debug-actiongraph JSON dump. Only the fields
 // the profiler consumes are declared; unknown fields are ignored and absent
 // fields stay empty, so parsing stays compatible across cmd/go versions.
-//
-// ActionID is the truncated base64.RawURLEncoding form of the wire action ID
-// (see truncateActionID), byte-identical to what the cacheprog stat events emit --
-// the join key between "what did the build do" and "what did the cache do".
 type Action struct {
 	ID        int       `json:"ID"`
 	Mode      string    `json:"Mode"`
@@ -76,9 +72,8 @@ func loadGraphFile(path string) ([]Action, error) {
 }
 
 // mergeActions dedupes rows by ActionID, preferring the instance that
-// actually executed (and, among executed instances, the longest —
-// the run that did the work). Rows without an ActionID cannot alias and are
-// kept as-is.
+// executed (and, among executed instances, the longest — the run that did
+// the work). Rows without an ActionID cannot alias and are kept as-is.
 func mergeActions(all []Action) []Action {
 	out := make([]Action, 0, len(all))
 	byID := make(map[string]int, len(all))
