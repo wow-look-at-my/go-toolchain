@@ -7,8 +7,8 @@ on:
 
 # A push supersedes the branch's running build, except on master, where run_id makes every run its own group so none is ever cancelled.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/master' && github.run_id || 'branch' }}
-  cancel-in-progress: true
+  group: gha_${{ github.repository }}_${{ github.workflow }}_${{ github.ref != 'refs/heads/master' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 permissions:
   contents: write
