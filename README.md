@@ -76,7 +76,7 @@ The action fetches secrets, configures the Go proxy and private repo access, and
 |---------------------|----------|------------|----------------------------------------------------------|
 | `json`              | string   | `false`    | Output coverage report as JSON                           |
 | `generate`          | string   | `''`       | Run `go:generate` directives matching this hash          |
-| `working-directory` | string   | `.`        | Working directory for the build                          |
+| `working-directory` | string   | `.`        | Working directory for the build. A run builds every module below its directory, except a nested module that a go-toolchain step in any workflow names as its working-directory: that step builds it, with its own inputs |
 | `binary`            | string   | `''`       | Path to a pre-built go-toolchain binary (skips release download) |
 | `targets`           | string   | `''`       | Comma-separated wasm targets to add (`wasm/js`, `wasm/wasip1`), plus the special value `cosmo`. Empty (the default) builds the APE alone |
 | `cosmo-platforms`   | string   | `linux/amd64,darwin/arm64,windows/amd64` | Platforms the one fat APE covers. `all` covers everything the fork can emit |

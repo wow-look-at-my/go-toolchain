@@ -195,7 +195,10 @@ func run(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 
-	modules := findGoModules()
+	modules, err := sweptModules()
+	if err != nil {
+		return err
+	}
 	if len(modules) == 0 {
 		// A repo can own dats suites with no go.mod (the tested CLI need not
 		// be Go); the suites ARE the run then.
