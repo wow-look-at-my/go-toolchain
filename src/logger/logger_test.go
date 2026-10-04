@@ -28,6 +28,7 @@ func captureLogger(level Level, gha bool) (*Logger, *strings.Builder, *strings.B
 // TestLevelFiltering verifies that messages below the configured level are
 // suppressed, and messages at or above the level are emitted.
 func TestLevelFiltering(t *testing.T) {
+	t.Serial()
 	l, out, errBuf := captureLogger(LevelInfo, false)
 
 	l.Debug("should be hidden")
@@ -47,6 +48,7 @@ func TestLevelFiltering(t *testing.T) {
 
 // TestDebugLevel verifies all messages appear when level is Debug.
 func TestDebugLevel(t *testing.T) {
+	t.Serial()
 	l, out, errBuf := captureLogger(LevelDebug, false)
 
 	l.Debug("debug msg")
@@ -59,6 +61,7 @@ func TestDebugLevel(t *testing.T) {
 
 // TestWarnLevel verifies that at LevelWarn, Debug and Info are suppressed.
 func TestWarnLevel(t *testing.T) {
+	t.Serial()
 	l, out, errBuf := captureLogger(LevelWarn, false)
 
 	l.Debug("hidden debug")
@@ -74,6 +77,7 @@ func TestWarnLevel(t *testing.T) {
 
 // TestSilentLevel verifies that at LevelSilent only Output is visible.
 func TestSilentLevel(t *testing.T) {
+	t.Serial()
 	l, out, errBuf := captureLogger(LevelSilent, false)
 
 	l.Debug("no")
@@ -93,6 +97,7 @@ func TestSilentLevel(t *testing.T) {
 
 // TestOutputAlwaysPrints verifies Output ignores level filtering entirely.
 func TestOutputAlwaysPrints(t *testing.T) {
+	t.Serial()
 	l, out, _ := captureLogger(LevelSilent, false)
 	l.Output("unconditional")
 	assert.Contains(t, out.String(), "unconditional")
@@ -101,6 +106,7 @@ func TestOutputAlwaysPrints(t *testing.T) {
 
 // TestSubsystemPrefix verifies that WithSubsystem prepends the prefix.
 func TestSubsystemPrefix(t *testing.T) {
+	t.Serial()
 	l, out, errBuf := captureLogger(LevelDebug, false)
 	sub := l.WithSubsystem("cache")
 
@@ -114,6 +120,7 @@ func TestSubsystemPrefix(t *testing.T) {
 
 // TestStdoutVsStderrRouting confirms Info/Output go to Stdout, Debug/Warn/Error go to Stderr.
 func TestStdoutVsStderrRouting(t *testing.T) {
+	t.Serial()
 	l, out, errBuf := captureLogger(LevelDebug, false)
 
 	l.Debug("stderr-debug")
@@ -136,6 +143,7 @@ func TestStdoutVsStderrRouting(t *testing.T) {
 
 // TestGHAAnnotations verifies GHA mode emits ::warning and ::error on stdout.
 func TestGHAAnnotations(t *testing.T) {
+	t.Serial()
 	l, out, errBuf := captureLogger(LevelDebug, true)
 
 	l.Warn("something went wrong")
@@ -151,6 +159,7 @@ func TestGHAAnnotations(t *testing.T) {
 
 // TestGHAFileAnnotations verifies WarnFile/ErrorFile include the file= attribute.
 func TestGHAFileAnnotations(t *testing.T) {
+	t.Serial()
 	l, out, _ := captureLogger(LevelDebug, true)
 
 	l.WarnFile("foo.go", "lint issue")
@@ -164,6 +173,7 @@ func TestGHAFileAnnotations(t *testing.T) {
 
 // TestParseLevel confirms ParseLevel handles valid and invalid inputs.
 func TestParseLevel(t *testing.T) {
+	t.Serial()
 	cases := []struct {
 		input string
 		want  Level
@@ -192,6 +202,7 @@ func TestParseLevel(t *testing.T) {
 // TestDefaultLogger checks that the default logger is lazily initialized and
 // can be replaced by Init.
 func TestDefaultLogger(t *testing.T) {
+	t.Serial()
 	// Save and restore the global default so this test is hermetic.
 	defaultMu.Lock()
 	saved := defaultLogger
@@ -230,6 +241,7 @@ func TestDefaultLogger(t *testing.T) {
 // stderr and never emits GHA annotations on stdout, even when
 // GITHUB_ACTIONS=true — stdout may be a protocol channel (e.g. GOCACHEPROG).
 func TestInitSubprocess(t *testing.T) {
+	t.Serial()
 	// Save and restore the global default so this test is hermetic.
 	defaultMu.Lock()
 	saved := defaultLogger
@@ -279,6 +291,7 @@ func TestInitSubprocess(t *testing.T) {
 
 // TestTrailingNewline checks that messages always end with a single newline.
 func TestTrailingNewline(t *testing.T) {
+	t.Serial()
 	l, out, _ := captureLogger(LevelInfo, false)
 	l.Info("no newline in message")
 	s := out.String()

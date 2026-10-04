@@ -9,6 +9,7 @@ import (
 
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
+	"github.com/wow-look-at-my/go-toolchain/src/wasmexec"
 )
 
 // cosmoOS/cosmoFatArch: the pseudo-target for the fat APE, not a normal GOOS/GOARCH pair.
@@ -164,10 +165,6 @@ func resolveMatrixPlatforms() ([]buildPlatform, error) {
 // context, so a "//go:build js && wasm" main builds only for js/wasm
 // targets. A platform with no main packages is skipped with a warning
 // rather than failing the build.
-//
-// Discovery skips gomod.MemLimitGuardFileName, so the memlimit guard
-// injected into host-context main dirs cannot make a host-only dir look
-// like a main package under another target's context.
 func resolvePlatformTargets(platforms []buildPlatform, hostTargets []build.Target) (map[buildPlatform][]build.Target, bool, error) {
 	perPlatform := make(map[buildPlatform][]build.Target, len(platforms))
 	anyMains := false
@@ -199,19 +196,16 @@ func resolvePlatformTargets(platforms []buildPlatform, hostTargets []build.Targe
 	return perPlatform, anyMains, nil
 }
 
-// copyWasmExecJS copies the fork toolchain's lib/wasm/wasm_exec.js (the JS
-// harness that loads and runs a GOOS=js wasm binary in a browser or Node)
-// into the output directory. The harness MUST byte-match the toolchain that
-// built the wasm artifact, which is why the build ships it rather than
-// leaving consumers to find a compatible copy.
-func copyWasmExecJS(forkGoroot, outDir string) (string, error) {
-	src := filepath.Join(forkGoroot, "lib", "wasm", "wasm_exec.js")
+// writeWasmExecJS writes the fork's lib/wasm/wasm_exec.js (the JS harness
+// that loads and runs a GOOS=js wasm binary in a browser or Node) into the
+// output directory.
+func writeWasmExecJS(outDir string) (string, error) {
 	dst := filepath.Join(outDir, "wasm_exec.js")
 	// Replace any stale copy (possibly a symlink) with a fresh real file.
 	if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
 		return "", err
 	}
-	if err := copyFile(src, dst); err != nil {
+	if err := os.WriteFile(dst, wasmexec.Script, 0o644); err != nil {
 		return "", err
 	}
 	return dst, nil

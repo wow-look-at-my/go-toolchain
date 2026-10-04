@@ -27,7 +27,7 @@ const writeRunFree = 2
 // writeRunWarned records each warning's file:line, so the package variants that walk the same file warn per site.
 var writeRunWarned sync.Map
 
-// resetWriteRunWarnings forgets the previous run's warnings, so a re-run after a fix reports its sites again.
+// resetWriteRunWarnings forgets the run's warnings, so a re-run after a fix reports its sites again.
 func resetWriteRunWarnings() { writeRunWarned.Clear() }
 
 // writeMethods are the writer methods that put text into the output.

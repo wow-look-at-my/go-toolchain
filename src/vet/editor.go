@@ -12,11 +12,7 @@ import (
 	"github.com/wow-look-at-my/go-containers/set"
 )
 
-// Editor is the single sink for vet's autofixes. It is built from whether
-// go-toolchain may rewrite the tree (locally) or must only verify it (CI), so
-// individual fixers never branch on CI themselves: they compute the canonical
-// bytes for a file and hand them to the Editor, which either applies the change
-// or reports it. This is the only place the apply-vs-report decision lives.
+// Editor is the sink for vet's autofixes.
 type Editor interface {
 	// Require writes canonical content locally, or records a CI violation; use when this is the issue's only detector.
 	Require(path string, want []byte, reason string) (wrote bool, err error)
@@ -72,9 +68,9 @@ func (a *applyEditor) Wrote(path string) bool {
 	return a.written.Contains(editorKey(path))
 }
 
-func (applyEditor) Err() error { return nil }
+func (*applyEditor) Err() error { return nil }
 
-func (applyEditor) Writes() bool { return true }
+func (*applyEditor) Writes() bool { return true }
 
 // editorKey normalizes a path, so a file recorded under either spelling
 // answers Wrote alike.

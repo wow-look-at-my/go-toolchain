@@ -12,6 +12,7 @@ const testModule = "github.com/wow-look-at-my/agentic-loop/go"
 // A lone main directly below the module root is named after the module,
 // which is what makes `src/` build to the repository's own name.
 func TestNameTargetsUsesTheModuleNameForALoneMain(t *testing.T) {
+	t.Serial()
 	targets, err := nameTargets([]string{testModule + "/src"}, testModule)
 	require.NoError(t, err)
 	require.Len(t, targets, 1)
@@ -23,6 +24,7 @@ func TestNameTargetsUsesTheModuleNameForALoneMain(t *testing.T) {
 // success, so a contested name goes to nobody: each falls back to its own
 // directory.
 func TestNameTargetsFallsBackToTheDirectoryOnACollision(t *testing.T) {
+	t.Serial()
 	targets, err := nameTargets([]string{testModule + "/cli", testModule + "/todo_driver"}, testModule)
 	require.NoError(t, err)
 
@@ -36,6 +38,7 @@ func TestNameTargetsFallsBackToTheDirectoryOnACollision(t *testing.T) {
 
 // The deeper packages already name themselves, so nothing moves.
 func TestNameTargetsLeavesDeeperPackagesAlone(t *testing.T) {
+	t.Serial()
 	targets, err := nameTargets([]string{testModule + "/cmd/cai", testModule + "/cmd/todo_driver"}, testModule)
 	require.NoError(t, err)
 
@@ -50,6 +53,7 @@ func TestNameTargetsLeavesDeeperPackagesAlone(t *testing.T) {
 // module -- but if it ever is, the build says so instead of
 // dropping a binary.
 func TestNameTargetsRefusesAnUnbreakableCollision(t *testing.T) {
+	t.Serial()
 	_, err := nameTargets([]string{testModule + "/a/cai", testModule + "/b/cai"}, testModule)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "a/cai")

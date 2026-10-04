@@ -444,7 +444,7 @@ func fixesNameSetPackage(fixes []ASTFix) bool {
 	found := false
 	for _, fix := range fixes {
 		for _, node := range fix.NewNodes {
-			ast.Inspect(node, func(n ast.Node) bool {
+			InspectNode(node, func(n ast.Node) bool {
 				sel, ok := n.(*ast.SelectorExpr)
 				if !ok {
 					return !found

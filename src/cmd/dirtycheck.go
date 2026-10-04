@@ -5,21 +5,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
-
-	"github.com/wow-look-at-my/go-toolchain/src/memlimit"
 )
 
 // checkDirtyInCI returns an error if running in CI with a dirty working
 // tree, so binaries are never shipped built from uncommitted changes.
-//
-// Excluded: the transient GOMEMLIMIT guard in any state (added, modified,
-// deleted -- it is generated for the build and removed after, so it must
-// never count), and a branch-tracked pin's version token moving to its
-// branch's current commit (a cache of the last resolution, not something a
-// human commits). Anything else in go.mod, and any go.sum line for a module
-// that did not move, still counts as dirty.
 func checkDirtyInCI() error {
 	if os.Getenv("CI") == "" {
 		return nil
@@ -29,7 +19,7 @@ func checkDirtyInCI() error {
 	if err != nil {
 		return nil
 	}
-	files := dirtyFilesExcludingToolchainWrites(string(out))
+	files := dropForkGitlink(strings.TrimSpace(string(out)))
 	if files == "" {
 		return nil
 	}
@@ -42,11 +32,28 @@ func checkDirtyInCI() error {
 	return fmt.Errorf("working tree is dirty in CI (run `go-toolchain` locally, review the diff, commit, and push)")
 }
 
+// dropForkGitlink removes the fork submodule's own status line.
+// syncForkSource puts the checkout on the fork branch named like this, or on
+// its default branch, so the gitlink moves whenever the fork does.
+func dropForkGitlink(files string) string {
+	var kept []string
+	for line := range strings.SplitSeq(files, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if isForkSubmodulePath(fields[len(fields)-1]) {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
+}
+
 // refreshGitIndex re-stats the tracked files and drops the modified mark from
 // any whose content still matches. git status trusts that stat cache, so a
 // rewrite producing the same bytes otherwise reads as an edit. A real change
 // survives the refresh, which is why this only removes false alarms.
-// It returns what git said about the paths that did change.
 func refreshGitIndex(dir string) string {
 	cmd := exec.Command("git", "update-index", "--refresh")
 	cmd.Dir = dir
@@ -119,102 +126,4 @@ func dirtyDiffPaths(files string) []string {
 		}
 	}
 	return paths
-}
-
-// dirtyFilesExcludingToolchainWrites returns the trimmed `git status --short`
-// lines that represent real uncommitted changes, dropping the GOMEMLIMIT
-// guard and a branch-tracked pin following its branch. An empty result means
-// the tree is clean apart from those.
-func dirtyFilesExcludingToolchainWrites(statusOut string) string {
-	pins := trackedPinMoves(statusOut)
-	var kept []string
-	for _, line := range strings.Split(statusOut, "\n") {
-		if strings.TrimSpace(line) == "" || statusLineIsToolchainWrite(line, pins) {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	return strings.Join(kept, "\n")
-}
-
-// statusLineIsToolchainWrite reports whether a `git status --short` porcelain
-// line refers to a file this run rewrote on its own authority. The format is
-// "XY <path>" (or "XY <old> -> <new>" for renames); the GOMEMLIMIT guard is
-// matched by base name so it is ignored in any package directory, while the
-// go.mod and go.sum cases are decided per module directory from pins.
-func statusLineIsToolchainWrite(line string, pins map[string][]string) bool {
-	path := statusLinePath(line)
-	if path == "" {
-		return false
-	}
-	if filepath.Base(path) == memlimit.GuardFileName {
-		return true
-	}
-	// A tracked pin's new commit, and the go.sum hashes that follow it. pins
-	// holds a directory only when its go.mod changed in no other way.
-	if moved, ok := pins[filepath.Dir(path)]; ok {
-		switch filepath.Base(path) {
-		case "go.mod":
-			return true
-		case "go.sum":
-			return goSumFollowsPins(path, moved)
-		}
-	}
-	// A .gitignore diff that only drops the stale guard line is toolchain migration cleanup, not a developer edit.
-	if filepath.Base(path) == ".gitignore" && gitignoreChangeOnlyDropsGuard(path) {
-		return true
-	}
-	return false
-}
-
-// statusLinePath extracts the path from a `git status --short` line ("XY
-// <path>", or a rename's new name). Returns "" for a line too short to carry a path.
-func statusLinePath(line string) string {
-	if len(line) < 4 {
-		return ""
-	}
-	path := strings.TrimSpace(line[3:])
-	if i := strings.Index(path, " -> "); i != -1 {
-		path = path[i+len(" -> "):]
-	}
-	return strings.Trim(path, "\"")
-}
-
-// gitignoreChangeOnlyDropsGuard reports whether the working-tree change to the
-// .gitignore at path, relative to HEAD, is solely the removal of the GOMEMLIMIT
-// guard line.
-func gitignoreChangeOnlyDropsGuard(path string) bool {
-	out, err := exec.Command("git", "diff", "HEAD", "--", path).Output()
-	if err != nil {
-		return false
-	}
-	return diffOnlyDropsGuard(string(out))
-}
-
-// diffOnlyDropsGuard parses a unified diff and reports whether every content
-// change is the removal of the guard line: a guard line removed, no
-// additions, and nothing else removed (blank-line churn aside). It is split out
-// from the git invocation so it can be unit-tested without a repository.
-func diffOnlyDropsGuard(diff string) bool {
-	sawGuardRemoval := false
-	for _, line := range strings.Split(diff, "\n") {
-		switch {
-		case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
-			// file headers, not content
-		case strings.HasPrefix(line, "+"):
-			if strings.TrimSpace(line[1:]) != "" {
-				return false // a real addition
-			}
-		case strings.HasPrefix(line, "-"):
-			content := strings.TrimSpace(line[1:])
-			if content == "" {
-				continue // removed blank line: cosmetic
-			}
-			if content != memlimit.GuardFileName {
-				return false // removed something other than the guard
-			}
-			sawGuardRemoval = true
-		}
-	}
-	return sawGuardRemoval
 }

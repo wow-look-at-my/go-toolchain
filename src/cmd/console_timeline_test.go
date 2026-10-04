@@ -8,6 +8,7 @@ import (
 )
 
 func TestInitTimeline(t *testing.T) {
+	t.Serial()
 	old := pipelineTimeline
 	defer func() { pipelineTimeline = old }()
 
@@ -19,6 +20,7 @@ func TestInitTimeline(t *testing.T) {
 }
 
 func TestGetTimelineReturnsNilBeforeInit(t *testing.T) {
+	t.Serial()
 	old := pipelineTimeline
 	defer func() { pipelineTimeline = old }()
 
@@ -27,6 +29,7 @@ func TestGetTimelineReturnsNilBeforeInit(t *testing.T) {
 }
 
 func TestGetTimelineReturnsSameInstance(t *testing.T) {
+	t.Serial()
 	old := pipelineTimeline
 	defer func() { pipelineTimeline = old }()
 

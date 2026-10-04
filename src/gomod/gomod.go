@@ -12,9 +12,9 @@ import (
 	"strings"
 )
 
-// ReadModulePath reads the module path from go.mod in the current directory.
-func ReadModulePath() string {
-	f, err := os.Open("go.mod")
+// ReadModulePath reads the module path from go.mod under root.
+func ReadModulePath(root string) string {
+	f, err := os.Open(filepath.Join(root, "go.mod"))
 	if err != nil {
 		return ""
 	}
@@ -24,6 +24,10 @@ func ReadModulePath() string {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "module ") {
+			// A trailing comment is not part of the path.
+			if at := strings.Index(line, "//"); at >= 0 {
+				line = line[:at]
+			}
 			return strings.TrimSpace(strings.TrimPrefix(line, "module"))
 		}
 	}
@@ -35,67 +39,81 @@ func skipDir(name string) bool {
 	return strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata" || name == "node_modules"
 }
 
-// IsNestedModule reports whether dir holds its own go.mod. Walkers must skip these dirs:
-// their files are not part of this module's build.
+// IsNestedModule reports whether dir holds its own go.mod or is another
+// repository's working tree.
 func IsNestedModule(dir string) bool {
 	if dir == "." {
 		return false
+	}
+	if IsGitSubmodule(dir) {
+		return true
 	}
 	_, err := os.Stat(filepath.Join(dir, "go.mod"))
 	return err == nil
 }
 
-// MemLimitGuardFileName names the transient memlimit guard; discovery skips it by name.
-const MemLimitGuardFileName = "gomemlimit_gen.go"
+// IsGitSubmodule reports whether dir is a git submodule's working tree.
+func IsGitSubmodule(dir string) bool {
+	if dir == "." {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(dir, ".git"))
+	return err == nil && info.Mode().IsRegular()
+}
 
 // FindMainPackages returns import paths of all main packages, found by walking the module
-// tree, under the host build context.
-func FindMainPackages() ([]string, error) {
-	return findMainPackages(matchFile)
+// tree under root, under the host build context.
+func FindMainPackages(root string) ([]string, error) {
+	return findMainPackages(root, matchFile)
 }
 
 // FindMainPackagesForTarget is FindMainPackages evaluated under an explicit GOOS/GOARCH
 // context, matching what `go build` would compile for that target.
-func FindMainPackagesForTarget(goos, goarch string) ([]string, error) {
+func FindMainPackagesForTarget(root, goos, goarch string) ([]string, error) {
 	ctx := build.Default
 	ctx.GOOS = goos
 	ctx.GOARCH = goarch
-	return findMainPackages(ctx.MatchFile)
+	return findMainPackages(root, ctx.MatchFile)
 }
 
 // findMainPackages is the shared walk behind FindMainPackages and
 // FindMainPackagesForTarget; match evaluates build constraints for the
 // desired context.
-func findMainPackages(match func(dir, name string) (bool, error)) ([]string, error) {
-	modPath := ReadModulePath()
+func findMainPackages(root string, match func(dir, name string) (bool, error)) ([]string, error) {
+	modPath := ReadModulePath(root)
 	if modPath == "" {
 		return nil, nil
 	}
 
 	var pkgs []string
-	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil // skip unreadable dirs
 		}
 		if !d.IsDir() {
 			return nil
 		}
+		// The walk is reported against root; the import path is what lies below it.
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return nil
+		}
 		// Skip hidden dirs, vendor, testdata, node_modules
 		name := d.Name()
-		if name != "." && skipDir(name) {
+		if rel != "." && skipDir(name) {
 			return filepath.SkipDir
 		}
 		// Skip nested modules: their main packages belong to their own module
 		// and are not buildable as import paths of the outer module.
-		if IsNestedModule(path) {
+		if rel != "." && IsNestedModule(path) {
 			return filepath.SkipDir
 		}
 
 		// Check if this directory has a non-test .go file with package main
 		if hasMainPackageMatch(path, match) {
 			importPath := modPath
-			if path != "." {
-				importPath = modPath + "/" + filepath.ToSlash(path)
+			if rel != "." {
+				importPath = modPath + "/" + filepath.ToSlash(rel)
 			}
 			pkgs = append(pkgs, importPath)
 		}
@@ -124,11 +142,6 @@ func hasMainPackageMatch(dir string, match func(dir, name string) (bool, error))
 		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		// Skip the transient memlimit guard: counting it would leak host-only main dirs
-		// into other targets' discovery.
-		if name == MemLimitGuardFileName {
-			continue
-		}
 		// Check the package name up front: most files are not "package main", so this skips
 		// the build-constraint parse on every .go file in the tree.
 		if packageNameFromFile(filepath.Join(dir, name)) != "main" {
@@ -147,9 +160,8 @@ func hasMainPackageMatch(dir string, match func(dir, name string) (bool, error))
 // matchFile is the host build-constraint matcher, a var so tests can observe its calls; errors fail open (included).
 var matchFile = build.Default.MatchFile
 
-// packageNameFromFile reads a Go file's package name via go/parser in PackageClauseOnly
-// mode, which stops after the package clause — this handles a multi-line comment before
-// it, unlike a naive line scanner. Returns "" if there's no parseable package clause.
+// packageNameFromFile reads a Go file's package name via go/parser in
+// PackageClauseOnly mode, which stops after the package clause.
 func packageNameFromFile(path string) string {
 	// Use the partial AST's package name even if ParseFile also returned an error.
 	f, _ := parser.ParseFile(token.NewFileSet(), path, nil, parser.PackageClauseOnly)

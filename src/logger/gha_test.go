@@ -13,6 +13,7 @@ import (
 // the colon and the comma. Without the data escaping, a multi-line message
 // truncates to its leading line in the annotation.
 func TestEmitGHAEscaping(t *testing.T) {
+	t.Serial()
 	cases := []struct {
 		name string
 		emit func(w *strings.Builder, file, msg string)
@@ -96,6 +97,7 @@ func TestEmitGHAEscaping(t *testing.T) {
 // TestLoggerGHAEscaping verifies escaping end-to-end through the Logger API
 // (Warn/Error/WarnFile/ErrorFile in GHA mode).
 func TestLoggerGHAEscaping(t *testing.T) {
+	t.Serial()
 	l, out, errBuf := captureLogger(LevelDebug, true)
 
 	l.Warn("line one\nline two")
@@ -119,6 +121,7 @@ func TestLoggerGHAEscaping(t *testing.T) {
 // output is NOT escaped: multi-line messages and percent signs pass through
 // byte-identically.
 func TestNonGHAOutputUnescaped(t *testing.T) {
+	t.Serial()
 	l, out, errBuf := captureLogger(LevelDebug, false)
 
 	l.Warn("line one\nline two with 50%% done")

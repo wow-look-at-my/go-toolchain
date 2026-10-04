@@ -87,11 +87,6 @@ func generateASTFix(pass *analysis.Pass, ifStmt *ast.IfStmt, assertPkg, assertFu
 // An init clause declares into the if's scope, so `if _, err := f();` is legal even where err already
 // exists -- it shadows it. Lifting it verbatim into the enclosing block loses that shadow: if every
 // name is already defined there, Go rejects the bare `:=` with "no new variables on left side of :=".
-//
-// So when every defined name already exists in the enclosing scope, the hoisted statement assigns
-// instead of defining. When any name is new, `:=` stays correct and the statement is untouched.
-// The outer variable is then written rather than shadowed -- inherent to flattening the if, since
-// the assertion below it must see the value.
 func hoistableInit(pass *analysis.Pass, ifStmt *ast.IfStmt) ast.Stmt {
 	assign, ok := ifStmt.Init.(*ast.AssignStmt)
 	if !ok || assign.Tok != token.DEFINE {
@@ -100,7 +95,7 @@ func hoistableInit(pass *analysis.Pass, ifStmt *ast.IfStmt) ast.Stmt {
 	// Scopes[ifStmt] is the scope the init declares into; its parent is where the statement lands.
 	ifScope := pass.TypesInfo.Scopes[ifStmt]
 	if ifScope == nil || ifScope.Parent() == nil {
-		return ifStmt.Init // no type info: leave it exactly as it was
+		return ifStmt.Init // no type info.
 	}
 	for _, lhs := range assign.Lhs {
 		ident, ok := lhs.(*ast.Ident)
@@ -241,7 +236,7 @@ func buildBinaryAssert(pass *analysis.Pass, bin *ast.BinaryExpr, tVar, assertPkg
 // on stale position information when AST nodes are reused in a different context
 // (e.g., extracting condition operands from an if statement into assert call arguments).
 func clearNodePositions(node ast.Node) {
-	ast.Inspect(node, func(n ast.Node) bool {
+	InspectNode(node, func(n ast.Node) bool {
 		if n == nil {
 			return false
 		}
@@ -299,7 +294,7 @@ func prepareFixNodes(nodes []ast.Node, pos token.Pos) {
 // positioned token (Ident or BasicLit) to pos.
 func setFirstTokenPos(node ast.Node, pos token.Pos) {
 	done := false
-	ast.Inspect(node, func(n ast.Node) bool {
+	InspectNode(node, func(n ast.Node) bool {
 		if done || n == nil {
 			return false
 		}

@@ -100,7 +100,7 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 			})
 		}
 
-		// Record per-test timeline entries for OTEL trace spans
+		// Record per-test timeline entries for the step summary and the Chrome trace.
 		if h.timeline != nil && event.Elapsed >= 0.1 {
 			switch event.Action {
 			case testjson.ActionPass, testjson.ActionFail, testjson.ActionSkip:
@@ -173,10 +173,9 @@ func (h *coverageHandler) printFastSummary() {
 }
 
 // FailureOutput is everything worth showing about a failed run, in the order
-// a reader needs it: what actually went wrong, then the per-test detail.
-// The compiler's own diagnostics lead -- a summary that arrives before the
-// error it summarizes is how "[build failed]" becomes the only thing anybody
-// sees.
+// a reader needs it: what went wrong, then the per-test detail. The
+// compiler's own diagnostics lead -- a summary that arrives before the error
+// it summarizes is how "[build failed]" becomes the only thing anybody sees.
 func (h *coverageHandler) FailureOutput() string {
 	var result string
 	// Build/link diagnostics: the actual error behind "[build failed]".

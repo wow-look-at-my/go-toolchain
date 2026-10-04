@@ -11,6 +11,7 @@ import (
 )
 
 func TestStoreNotes(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	report := &BenchmarkReport{
 		Packages: map[string][]BenchmarkResult{
@@ -28,6 +29,7 @@ func TestStoreNotes(t *testing.T) {
 }
 
 func TestStoreNotesError(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	report := &BenchmarkReport{
 		Packages: map[string][]BenchmarkResult{},
@@ -42,6 +44,7 @@ func TestStoreNotesError(t *testing.T) {
 }
 
 func TestFetchPreviousNone(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	mock.SetResponse("git", []string{"log", "--format=%H", "--notes=benchmarks", "--grep=", "-1"}, nil, fmt.Errorf("no notes"))
 
@@ -52,6 +55,7 @@ func TestFetchPreviousNone(t *testing.T) {
 }
 
 func TestFetchPreviousEmpty(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	mock.SetResponse("git", []string{"log", "--format=%H", "--notes=benchmarks", "--grep=", "-1"}, []byte(""), nil)
 
@@ -62,6 +66,7 @@ func TestFetchPreviousEmpty(t *testing.T) {
 }
 
 func TestFetchPreviousWithData(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	mock.SetResponse("git", []string{"log", "--format=%H", "--notes=benchmarks", "--grep=", "-1"}, []byte("abc123\n"), nil)
 
@@ -76,6 +81,7 @@ func TestFetchPreviousWithData(t *testing.T) {
 }
 
 func TestFetchForCommitSuccess(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	reportData := `{"packages":{"pkg":[{"name":"BenchmarkFoo","ns_per_op":1000}]}}`
 	mock.SetResponse("git", []string{"notes", "--ref=benchmarks", "show", "abc123"}, []byte(reportData), nil)
@@ -86,6 +92,7 @@ func TestFetchForCommitSuccess(t *testing.T) {
 }
 
 func TestFetchForCommitNotFound(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	mock.SetResponse("git", []string{"notes", "--ref=benchmarks", "show", "abc123"}, nil, fmt.Errorf("no note found"))
 
@@ -94,6 +101,7 @@ func TestFetchForCommitNotFound(t *testing.T) {
 }
 
 func TestGetHeadSHA(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	mock.SetResponse("git", []string{"rev-parse", "--short", "HEAD"}, []byte("abc1234\n"), nil)
 
@@ -103,6 +111,7 @@ func TestGetHeadSHA(t *testing.T) {
 }
 
 func TestGetHeadSHAError(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	mock.SetResponse("git", []string{"rev-parse", "--short", "HEAD"}, nil, fmt.Errorf("not a git repo"))
 
@@ -111,6 +120,7 @@ func TestGetHeadSHAError(t *testing.T) {
 }
 
 func TestParseNotesJSON(t *testing.T) {
+	t.Serial()
 	data := `{"packages":{"pkg":[{"name":"BenchmarkFoo","ns_per_op":1234.5}]}}`
 	report, err := parseNotesJSON([]byte(data))
 	assert.Nil(t, err)
@@ -122,6 +132,7 @@ func TestParseNotesJSON(t *testing.T) {
 }
 
 func TestParseNotesJSONInvalid(t *testing.T) {
+	t.Serial()
 	_, err := parseNotesJSON([]byte("not json"))
 	assert.NotNil(t, err)
 }

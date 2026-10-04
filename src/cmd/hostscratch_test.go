@@ -11,6 +11,7 @@ import (
 // TestScratchBase: git reads the scratch path from its own argument list,
 // where nothing translates it, so an NT host cannot be handed cosmo's /tmp.
 func TestScratchBase(t *testing.T) {
+	t.Serial()
 	assert.Equal(t, "", scratchBase("linux"))
 	assert.Equal(t, "", scratchBase("darwin"))
 
@@ -29,6 +30,7 @@ func TestScratchBase(t *testing.T) {
 // "open D:\...\tmp\go-toolchain-cov\coverage-N.out: The system cannot find the
 // path specified", which is what cosmo's /tmp becomes to a native go.exe.
 func TestArgListTempDir(t *testing.T) {
+	t.Serial()
 	old := goCacheDirFunc
 	defer func() { goCacheDirFunc = old }()
 	goCacheDirFunc = func() (string, error) { return `C:\Users\r\.cache\go-toolchain`, nil }
