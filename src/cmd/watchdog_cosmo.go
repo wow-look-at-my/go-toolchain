@@ -15,21 +15,18 @@ import (
 // Dup3), and Close directly. Keep both implementations in sync.
 
 // startWatchdog replaces the stdout and stderr descriptors with pipes,
-// forwarding all output to the original file descriptors while monitoring
-// for stalls. Returns nil if setup fails (non-fatal; build continues without monitoring).
+// forwarding all output to the file descriptors while monitoring for stalls.
+// Returns nil if setup fails (non-fatal; build continues without monitoring).
 func startWatchdog(threshold time.Duration) *outputWatchdog {
-	if watchdogDisabled() {
-		return nil
-	}
 	// Save original file descriptors
 	origStdoutFd, err := syscall.Dup(1)
 	if err != nil {
-		return nil
+		return watchdogOff("setup failed: %v", err)
 	}
 	origStderrFd, err := syscall.Dup(2)
 	if err != nil {
 		syscall.Close(origStdoutFd)
-		return nil
+		return watchdogOff("setup failed: %v", err)
 	}
 
 	// Create pipes for stdout and stderr
@@ -37,7 +34,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 	if err != nil {
 		syscall.Close(origStdoutFd)
 		syscall.Close(origStderrFd)
-		return nil
+		return watchdogOff("pipe for stdout: %v", err)
 	}
 	stderrR, stderrW, err := os.Pipe()
 	if err != nil {
@@ -45,7 +42,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 		stdoutW.Close()
 		syscall.Close(origStdoutFd)
 		syscall.Close(origStderrFd)
-		return nil
+		return watchdogOff("pipe for stderr: %v", err)
 	}
 
 	// Replace the stdout and stderr descriptors with pipe write-ends
@@ -56,7 +53,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 		stderrW.Close()
 		syscall.Close(origStdoutFd)
 		syscall.Close(origStderrFd)
-		return nil
+		return watchdogOff("dup2 onto fd 1: %v", err)
 	}
 	if err := syscall.Dup2(int(stderrW.Fd()), 2); err != nil {
 		// Restore stdout before bailing
@@ -67,7 +64,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 		stderrW.Close()
 		syscall.Close(origStdoutFd)
 		syscall.Close(origStderrFd)
-		return nil
+		return watchdogOff("dup2 onto fd 2: %v", err)
 	}
 
 	// Never reassign os.Stdout/Stderr via os.NewFile: piled-up finalizers eventually close real stdio out from under later code.

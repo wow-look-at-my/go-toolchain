@@ -34,9 +34,9 @@ func newGoModRepo(t *testing.T, goLine string) (dir, mod string) {
 	return dir, mod
 }
 
-// A rewrite that lands the same bytes is not an edit. The windows leg failed a
-// green build over such a rewrite, so the refresh must clear it - and must
-// still name a file whose content really moved.
+// A rewrite that lands the same bytes is not an edit. The windows leg failed
+// a green build over such a rewrite, so the refresh must clear it - and must
+// still name a file whose content moved.
 func TestRefreshGitIndexClearsAStatOnlyChange(t *testing.T) {
 	t.Serial()
 	dir, mod := newGoModRepo(t, "go 1.27")
@@ -64,17 +64,17 @@ func TestCheckDirtyInCISkipsOutsideCI(t *testing.T) {
 	assert.NoError(t, checkDirtyInCI())
 }
 
-func TestDirtyFilesExcludingToolchainWrites(t *testing.T) {
+// The fork gitlink moves on every run that follows a moved fork, so the CI
+// dirty gate has to let it past. Everything else on the line stays caught:
+// this is a single path, not a general amnesty for submodules.
+func TestDropForkGitlink(t *testing.T) {
 	t.Serial()
-	// Nothing this run wrote on its own authority, so every line is a real change.
-	status := " M .gitignore\n M src/main.go\n"
-	got := dirtyFilesExcludingToolchainWrites(status)
-	assert.Equal(t, " M .gitignore\n M src/main.go", got)
-}
-
-func TestDirtyFilesExcludingToolchainWritesEmpty(t *testing.T) {
-	t.Serial()
-	assert.Equal(t, "", dirtyFilesExcludingToolchainWrites(""))
+	assert.Empty(t, dropForkGitlink(" M _gosmopolitan"), "the fork gitlink alone leaves a clean tree")
+	assert.Empty(t, dropForkGitlink("M  _gosmopolitan"), "staged reads the same as unstaged")
+	assert.Equal(t, " M go.mod", dropForkGitlink(" M _gosmopolitan\n M go.mod"), "a real change beside it still fails")
+	assert.Equal(t, " M _gosmopolitan/src/run.bash", dropForkGitlink(" M _gosmopolitan/src/run.bash"),
+		"a file INSIDE the fork is not the gitlink")
+	assert.Empty(t, dropForkGitlink(""))
 }
 
 // The message tells the reader to review the diff, so a CI-only failure has to
@@ -109,23 +109,4 @@ func TestDirtyDiffReportsWhenGitCannotAnswer(t *testing.T) {
 	t.Serial()
 	assert.Contains(t, dirtyDiffIn(t.TempDir(), " M go.mod"), "git diff failed")
 	assert.Empty(t, dirtyDiffIn(t.TempDir(), ""))
-}
-
-func TestStatusLineIsToolchainWrite(t *testing.T) {
-	t.Serial()
-	// With no pins, nothing in a status line is this run's own write.
-	cases := map[string]bool{
-		" M .gitignore":     false,
-		" M src/main.go":    false,
-		"R  old.go -> a.go": false,
-		"":                  false,
-	}
-	for line, want := range cases {
-		assert.Equalf(t, want, statusLineIsToolchainWrite(line, nil), "line %q", line)
-	}
-
-	// A tracked pin's own go.mod is this run's write; another module's is not.
-	pins := map[string][]string{".": {"example.com/dep"}}
-	assert.True(t, statusLineIsToolchainWrite(" M go.mod", pins))
-	assert.False(t, statusLineIsToolchainWrite(" M sub/go.mod", pins))
 }

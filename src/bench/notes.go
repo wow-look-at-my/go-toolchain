@@ -53,7 +53,6 @@ func FetchPrevious(r runner.CommandRunner) (*BenchmarkReport, string, error) {
 		return nil, "", nil // no previous results
 	}
 
-	// Check if this commit actually has notes (log output includes commits without notes)
 	proc, err = runner.Cmd("git", "notes", "--ref=benchmarks", "show", sha).
 		WithQuiet().
 		Run(r)

@@ -14,7 +14,7 @@ The dats library's own contract carries the interesting half. `Run` returns an e
 
 ## Repos with no go.mod
 
-`run()` used to stop at `no go.mod found` before doing anything, which made the dats phase unreachable for a repo that is not Go. That was the wrong boundary. The CLI a suite exercises does not have to be written in Go, and dats is linked in here rather than distributed on its own. The practical effect was that a shell or TypeScript repo wanting its suites run had to fetch a standalone dats binary and hand-wire a CI.
+`run()` used to stop at `no go.mod found` before doing anything, which made the dats phase unreachable for a repo that is not Go. That was the wrong boundary. The CLI a suite exercises does not have to be written in Go, and dats is linked in here rather than distributed on its own. In practice, a shell or TypeScript repo that wanted its suites run had to fetch a standalone dats binary. It also had to hand-wire a CI.
 
 So when `findGoModules()` comes back empty, `run()` checks `hasDatsSuites(".")` and, if there are suites, hands off to `runDatsOnly`:
 
@@ -36,7 +36,7 @@ The positive case is covered by unit tests (`TestRunDatsOnly*`), not by `dats/cl
 
 It has to be inside the module root because dats sandboxes every suite command. A staging dir under `$TMPDIR` is invisible to every backend, and every suite fails its setup command. `build/` is gitignored in every repo go-toolchain builds, so staging there never dirties the tree.
 
-Copies, never in-place execution: the matrix cosmo artifact is a fat APE that rewrites its own file on first exec. So nothing may ever execute a `build/` artifact where it sits.
+Copies, not in-place execution: the matrix cosmo artifact is a fat APE that rewrites its own file on first exec. So nothing may ever execute a `build/` artifact where it sits.
 
 Staged names are the bare `OutputName` plus `.exe` on windows hosts. The root path stages what `runBuildPhase` built. The matrix path stages the host-named `build.BinaryName(name, hostos.GOOS(), runtime.GOARCH)` artifact. A missing host artifact is Debug-logged and skipped, so a cross-only build still runs its suites (and fails honestly if it needed one).
 
@@ -50,13 +50,13 @@ Never answer any of this by turning the sandbox off. A suite cannot even ask for
 
 `datsSandbox` asks dats for a backend before the run and passes the answer as `Options.Sandbox`. Auto is what almost every host gets. The exception is a host where NO backend can exist. Bwrap is linux, seatbelt is macOS. And an NT host is left with its own daemon.
 
-The alternative was to fail, and failing is what takes the suites away from the host they exist to cover. So the phase keeps every suite and every assertion and gives up the one property it cannot have, at error level, naming what is gone. The isolation between a suite command and the machine. Reduced function with a signal is engineering. Reduced function in silence is the lie `claude_snippets/silent-degradation-is-a-lie.md` describes. That is why this path is loud rather than a quiet fallback.
+The alternative was to fail, and failing is what takes the suites away from the host they exist to cover. So the phase keeps every suite and every assertion and gives up the property it cannot have, at error level, naming what is gone. The isolation between a suite command and the machine. Reduced function with a signal is engineering. Reduced function in silence is the lie `claude_snippets/silent-degradation-is-a-lie.md` describes. That is why this path is loud rather than a quiet fallback.
 
-A missing bubblewrap on a linux host is NOT this. It carries no marker, an install cures it. And it stays fatal — degrading there will let a fixable setup gap turn every consuming repo's isolation. `TestDatsSandbox` pins all three cases.
+A missing bubblewrap on a linux host is NOT this. It carries no marker, an install cures it. And it stays fatal — degrading there will let a fixable setup gap turn every consuming repo's isolation. `TestDatsSandbox` pins all cases.
 
 ## Why the NT leg provisions no backend
 
-CI tried to give the windows leg a linux daemon through WSL, and the attempt is worth recording so nobody spends the afternoon again. WSL1 installs, `dockerd` starts, and `docker info` answers — then every `docker run` dies in runc. That daemon is worse than no daemon. It passes dats' probe, auto selects it, and every suite fails its setup command instead of taking the `ErrNoBackendOnHost` path above. WSL2 will work and cannot be had — a GitHub-hosted windows VM is already nested one level, and nested virtualization cannot be enabled inside it. So `build-everywhere`'s NT leg installs nothing, the runner's own daemon serves windows containers and is rejected by OSType.
+CI tried to give the windows leg a linux daemon through WSL. The attempt is worth recording so nobody spends the afternoon again. WSL1 installs, `dockerd` starts, and `docker info` answers — then every `docker run` dies in runc. That daemon is worse than no daemon. It passes dats' probe, auto selects it, and every suite fails its setup command instead of taking the `ErrNoBackendOnHost` path above. WSL2 will work and cannot be had — a GitHub-hosted windows VM is already nested one level, and nested virtualization cannot be enabled inside it. So `build-everywhere`'s NT leg installs nothing, the runner's own daemon serves windows containers and is rejected by OSType.
 
 ## How the run is configured
 
@@ -68,6 +68,6 @@ CI tried to give the windows leg a linux daemon through WSL, and the attempt is 
 
 ## Failure and coverage
 
-A failure wraps as `dats suites failed: %w` and fails the build. On the root path that happens before `saveFingerprint`, so a red suite is never stamped up-to-date. `.dats` and `.golden` files feed `computeFingerprint` (`uptodate.go`), so suite and golden edits bust the "Up to date" fast-exit.
+A failure wraps as `dats suites failed: %w` and fails the build. On the root path that happens before `saveFingerprint`. As a result, a red suite is never stamped up-to-date. `.dats` and `.golden` files feed `computeFingerprint` (`uptodate.go`), so suite and golden edits bust the "Up to date" fast-exit.
 
 There is deliberately NO filtering, selection, or skip mechanism at either layer — every discovered test runs on every build (dats itself has none by design). The repo dogfoods the phase via `dats/cli.dats`.

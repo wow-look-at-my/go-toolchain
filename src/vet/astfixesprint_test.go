@@ -116,7 +116,7 @@ func TestASTFixesPrintFix(t *testing.T) {
 		{OldNode: call, NewNodes: nil},                      // deletion
 	}}
 
-	// Just ensure printFix doesn't panic
+	// Ensure printFix doesn't panic
 	for _, fix := range fixes.Fixes {
 		fixes.printFix(fix)
 	}

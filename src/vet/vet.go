@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"go/ast"
+	"go/build"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/buildtags"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"golang.org/x/tools/go/analysis"
 
@@ -75,7 +78,7 @@ func RunWithProgress(fix bool, progress ProgressFunc) (bool, error) {
 }
 
 // loadMode type-checks the module's own source and reads each dependency as
-// the export data the compiler in this binary wrote. Depth: docs/CI.md
+// the export data the compiler in this binary wrote.
 func loadMode() packages.LoadMode {
 	return packages.LoadSyntax | packages.NeedModule
 }
@@ -86,8 +89,8 @@ func RunOnPattern(pattern string, fix bool, progress ProgressFunc) (bool, error)
 	return vetSemantic(pattern, NewEditor(fix), progress)
 }
 
-// loadErrorMessages collects load errors from the WHOLE import graph, not just
-// the roots: a failed dependency records its cause on its own Errors, and the
+// loadErrorMessages collects load errors from the WHOLE import graph, not the
+// roots: a failed dependency records its cause on its own Errors, and the
 // root only carries the downstream `undefined:` cascade. Go version mismatch
 // warnings are dropped (a minimum, not a syntax gate). Messages are
 // deduplicated: a directory's test variants carry the same Errors.
@@ -192,10 +195,52 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 	return finishSemantic(pattern, ed, progress, filesChanged, diagnostics)
 }
 
+// moduleHasGoFiles reports whether the tree holds a Go file the loader owes an
+// answer for UNDER tagCfg. It skips what every walk here skips: a hidden
+// directory, vendor, testdata and a nested module. This separates a dead loader
+// from a module that genuinely has nothing to check.
+//
+// A file counts only when the build constraints admit it. A module whose every
+// file is constrained out has nothing to load, and a loader that returns
+// nothing for it is correct. Counting the file on disk instead reports that
+// module as a dead loader -- which is how a wasm-only main, legal and building
+// nowhere else, read as a failure.
+func moduleHasGoFiles(tagCfg buildtags.Config) bool {
+	ctx := build.Default
+	ctx.BuildTags = append(ctx.BuildTags, tagCfg.Tags...)
+	found := false
+	filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata") {
+				return filepath.SkipDir
+			}
+			if gomod.IsNestedModule(path) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		// MatchFile reads the constraints, so an excluded file does not count.
+		match, merr := ctx.MatchFile(filepath.Dir(path), filepath.Base(path))
+		if match || merr != nil {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
+}
+
 // vetOneConfig loads and analyzes the module under a single build-tag
-// configuration, appending diagnostics and recording every file it actually
-// parsed into analyzedFiles (module-relative, slash separated) so Verify can
-// prove no tagged file went unseen.
+// configuration, appending diagnostics and recording every file it parsed
+// into analyzedFiles (module-relative, slash separated) so Verify can prove
+// no tagged file went unseen.
 func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report func(string),
 	diagnostics *[]Diagnostic, analyzedFiles set.Set[string], nParsedTotal *int,
 ) (bool, error) {
@@ -246,6 +291,20 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 
 	if len(loadErrors) > 0 {
 		return false, fmt.Errorf("package load errors:\n%s", strings.Join(loadErrors, "\n"))
+	}
+
+	// An empty load analyzes nothing. Every check below it then passes for want
+	// of input, and the phase reports a green it never earned. packages.Load
+	// reports no error when the go list driver it shells out to dies or is
+	// killed, so an empty result is the only symptom there is. buildtags.Verify
+	// cannot see this. It compares against the GATED files, and a module with no
+	// build tag has none to miss.
+	if nPkgs == 0 && moduleHasGoFiles(tagCfg) {
+		return false, fmt.Errorf("vet loaded no packages under tags %s from %s, "+
+			"but this module has Go files: no file was type-checked and no analyzer ran.\n"+
+			"The go list driver returned an empty result. It usually died or was killed: "+
+			"look above for a timeout, and for a shared build cache that stopped answering",
+			tagCfg, strings.Join(patterns, " "))
 	}
 
 	// Run analyzers — wrap each Run function to record per-analyzer per-package timing.
@@ -430,19 +489,15 @@ func fixesFilename(fixes *ASTFixes) string {
 	return fixes.Fset.Position(fixes.File.Pos()).Filename
 }
 
-// checkFileCommittedByName is checkFileCommitted keyed by an explicit filename,
-// used by fix producers that don't carry an *ASTFixes (e.g. cast text edits).
-// It tries go-git, then falls back to the git CLI on infrastructure errors.
+// checkFileCommittedByName is checkFileCommitted keyed by an explicit
+// filename, used by fix producers that don't carry an *ASTFixes (e.g. cast
+// text edits).
 func checkFileCommittedByName(filename string) error {
 	err := checkFileCommittedGoGit(filename)
 	if err == nil {
 		return nil
 	}
-	// If go-git detected uncommitted changes, trust that result
-	if strings.Contains(err.Error(), "uncommitted changes") {
-		return err
-	}
-	// go-git failed for infrastructure reasons; fall back to git CLI
+	// A dirty verdict is confirmed against the git CLI before it stops the fix.
 	return checkFileCommittedExec(filename)
 }
 

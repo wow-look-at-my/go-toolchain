@@ -7,12 +7,17 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // Only the dup2 implementations reach these, and windows has none.
 
-// watchdogDisabled reports the GO_TOOLCHAIN_NO_WATCHDOG off-switch: a fault in fd forwarding can trap all output.
-func watchdogDisabled() bool { return os.Getenv("GO_TOOLCHAIN_NO_WATCHDOG") == "1" }
+// watchdogOff reports that no stall monitoring is running, and why.
+func watchdogOff(reason string, args ...any) *outputWatchdog {
+	logger.Warn("watchdog: no stall monitoring this run: "+reason, args...)
+	return nil
+}
 
 // forward reads from src (pipe read-end) and writes to dst (original fd),
 // updating lastOutput on every successful read.
@@ -31,9 +36,9 @@ func (w *outputWatchdog) forward(src, dst *os.File) {
 	}
 }
 
-// watchLoop checks on a fixed tick whether output has stalled and prints
-// a warning to the original stderr (not the intercepted fd, to avoid
-// resetting the timer).
+// watchLoop checks on a fixed tick whether output has stalled and prints a
+// warning to the stderr (not the intercepted fd, to avoid resetting the
+// timer).
 func (w *outputWatchdog) watchLoop(ctx context.Context) {
 	defer close(w.done)
 	ticker := time.NewTicker(1 * time.Second)

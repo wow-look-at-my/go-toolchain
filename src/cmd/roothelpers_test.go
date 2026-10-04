@@ -94,6 +94,25 @@ func TestFindGoModules_SkipsTestdata(t *testing.T) {
 	assert.Equal(t, ".", modules[0])
 }
 
+// A submodule checkout has a .git file, and a nested clone has a .git directory.
+// Either is another repository, so its modules are not built here.
+func TestFindGoModules_SkipsOtherRepositories(t *testing.T) {
+	t.Serial()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test\ngo 1.21\n"), 0644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "docs", "spec", "tests"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "docs", "spec", ".git"), []byte("gitdir: ../../.git/modules/docs/spec\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "docs", "spec", "tests", "go.mod"), []byte("module spec/tests\n"), 0644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "third", ".git"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "third", "go.mod"), []byte("module third\n"), 0644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "tool"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tool", "go.mod"), []byte("module test/tool\n"), 0644))
+
+	t.Chdir(dir)
+
+	assert.Equal(t, []string{".", "tool"}, findGoModules())
+}
+
 func TestFindGoModules_SkipsHiddenAndVendor(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()
@@ -128,10 +147,6 @@ func TestFindGoModules_NoModules(t *testing.T) {
 // cache skip — cobra passes the leaf command to PersistentPreRunE, so the
 // skip check has to walk ancestors. Regression test for the release-job
 // "Determine tag" failure from `./build/go-toolchain version raw`.
-// version is exempt from the agent output guard too: it prints build metadata
-// and no build result, and this repository's own dats suite runs it -- dats
-// captures stdout to assert on it, so a guarded version fails the integration
-// phase of every run under an agent.
 func TestSkipCache_VersionSubcommandsSkip(t *testing.T) {
 	t.Serial()
 	t.Setenv("CI", "true")
@@ -147,8 +162,6 @@ func TestSkipCache_VersionSubcommandsSkip(t *testing.T) {
 			require.NotNil(t, leaf)
 			assert.True(t, skipUpToDateCheck(leaf),
 				"skipUpToDateCheck should return true for %q (Name=%q)", argv, leaf.Name())
-			assert.True(t, skipAgentGuard(leaf),
-				"skipAgentGuard should be true for %q -- it prints no build result", argv)
 			// End-to-end: PersistentPreRunE must not fail for this leaf.
 			assert.NoError(t, rootCmd.PersistentPreRunE(leaf, nil))
 		})

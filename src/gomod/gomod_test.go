@@ -37,6 +37,23 @@ func TestReadModulePathExtraWhitespace(t *testing.T) {
 	assert.Equal(t, "github.com/user/pkg", ReadModulePath(dir))
 }
 
+// The generate approval rides on the module line as a trailing comment, and
+// this read is what every package path is built from. Taking the comment as
+// part of the path put a space in it, and go refused each package under it as
+// a malformed import path.
+func TestReadModulePathIgnoresATrailingComment(t *testing.T) {
+	for _, line := range []string{
+		"module github.com/user/pkg // go-toolchain:generate=8015b34dab00\n",
+		"module github.com/user/pkg//go-toolchain:generate=8015b34dab00\n",
+		"module   github.com/user/pkg   // a note  \n",
+	} {
+		dir := t.TempDir()
+		writeFile(t, dir, "go.mod", line)
+		assert.Equal(t, "github.com/user/pkg", ReadModulePath(dir),
+			"the comment on %q is not part of the path", line)
+	}
+}
+
 // newModule writes a go.mod in a temp dir and returns the root to walk.
 func newModule(t *testing.T, modPath string) string {
 	t.Helper()

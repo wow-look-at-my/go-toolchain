@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,17 +12,13 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// forkSubmoduleDir is the gosmopolitan checkout inside this repository, the
-// standard library and toolchain source a build of this module compiles in.
-// The underscore keeps the go tool's "./..." out of the fork's own trees,
-// whose test corpus has Go files under no go.mod of their own.
+// forkSubmoduleDir holds the toolchain source. The underscore hides the fork's corpus from "./...".
 const forkSubmoduleDir = "_gosmopolitan"
 
 // forkModulePath names the fork's repository for the branch lookup.
 const forkModulePath = "github.com/wow-look-at-my/gosmopolitan"
 
-// forkCommit is the gosmopolitan commit whose toolchain and standard library
-// this binary links, stamped by the link that built it.
+// forkCommit is the gosmopolitan commit this binary links, stamped at link time.
 var forkCommit string
 
 // forkCommitVar is the linker's name for forkCommit.
@@ -79,11 +76,13 @@ func syncForkSource(r runner.CommandRunner) (string, error) {
 	if err := generateForkFiles(forkSubmoduleDir); err != nil {
 		return "", err
 	}
+	if err := buildForkApeLoaders(r, forkSubmoduleDir); err != nil {
+		return "", err
+	}
 	return want, refreshWasmExec()
 }
 
-// forkHeaders are the assembly headers cmd/dist puts under pkg/include, which
-// the assembler reads through -I and a pristine checkout does not have.
+// forkHeaders are the assembler's -I headers that cmd/dist, not the checkout, provides.
 var forkHeaders = []string{"textflag.h", "funcdata.h", "asm_ppc64x.h", "asm_amd64.h", "asm_riscv64.h"}
 
 // installForkHeaders copies the runtime's headers into the checkout's
@@ -105,8 +104,7 @@ func installForkHeaders() error {
 	return nil
 }
 
-// wasmExecCopy is where this module keeps the fork's wasm_exec.js, for the
-// binary to carry.
+// wasmExecCopy is where this module keeps the fork's wasm_exec.js, for the binary to carry.
 const wasmExecCopy = "src/wasmexec/wasm_exec.js"
 
 // wasmExecHeader opens the copy, so every comment fixer leaves it alone.
@@ -151,7 +149,24 @@ func forkHead(r runner.CommandRunner) (string, error) {
 
 // resolveForkCommit asks the fork's remote for the head of this checkout's
 // branch, or of the default branch, in a single ls-remote.
+// In CI the answer is the head this run attempt locked in buildhost, which
+// checkout-fork-branch.sh locks under the same name.
 func resolveForkCommit(r runner.CommandRunner) (string, error) {
+	name, head, err := forkBranchHead(r)
+	if err != nil || !isGHA() {
+		return head, err
+	}
+	commit, err := lockedRunValue(forkModulePath+"@"+name, head)
+	if err != nil {
+		return "", err
+	}
+	logger.Info("gosmopolitan: building %s on %s, locked for this run", commit, name)
+	return commit, nil
+}
+
+// forkBranchHead answers the branch the fork follows and its head: the branch
+// named like this checkout, else master.
+func forkBranchHead(r runner.CommandRunner) (string, string, error) {
 	branch := currentBranch(r)
 	refs := []string{"HEAD"}
 	if branch != "" {
@@ -159,19 +174,19 @@ func resolveForkCommit(r runner.CommandRunner) (string, error) {
 	}
 	_, out, err := resolveGitURLAndRef(r, forkModulePath, refs...)
 	if err != nil {
-		return "", fmt.Errorf("asking %s for its branches: %w", forkModulePath, err)
+		return "", "", fmt.Errorf("asking %s for its branches: %w", forkModulePath, err)
 	}
 	found, _ := parseLsRemoteRefs(out)
 	if branch != "" {
 		if commit := found["refs/heads/"+branch]; commit != "" {
 			logger.Info("gosmopolitan: following the branch named like this checkout, %s, at %s", branch, commit)
-			return commit, nil
+			return branch, commit, nil
 		}
 	}
 	if commit := found["HEAD"]; commit != "" {
-		return commit, nil
+		return "master", commit, nil
 	}
-	return "", fmt.Errorf("%s named no HEAD", forkModulePath)
+	return "", "", fmt.Errorf("%s named no HEAD", forkModulePath)
 }
 
 // checkoutFork detaches the submodule at commit, fetching it earliest.
@@ -185,11 +200,37 @@ func checkoutFork(r runner.CommandRunner, commit string) error {
 	return nil
 }
 
-// updateForkSubmodules checks out the fork's own submodules, which cmd/go
-// builds in vendor mode from.
 func updateForkSubmodules(r runner.CommandRunner) error {
 	if _, err := gitOutput(r, "git", "-C", forkSubmoduleDir, "submodule", "update", "--init", "--recursive"); err != nil {
 		return fmt.Errorf("checking out gosmopolitan's submodules: %w", err)
+	}
+	return branchForkSubmodules(r)
+}
+
+// forkBranchScript is the fork's own answer to which commit an org submodule stands at.
+const forkBranchScript = "src/submodulebranch.bash"
+
+// branchForkSubmodules runs that script, naming this checkout's branch for it.
+// A pair of repositories developed in tandem carry the same branch name, and
+// the script falls back to the branch .gitmodules gives each submodule.
+//
+// A build that skips this step compiles the commit each gitlink names.
+func branchForkSubmodules(r runner.CommandRunner) error {
+	script := filepath.Join(forkSubmoduleDir, filepath.FromSlash(forkBranchScript))
+	if _, err := os.Stat(script); err != nil {
+		return fmt.Errorf("the fork checkout carries no %s: %w", forkBranchScript, err)
+	}
+	args := []string{script}
+	if branch := currentBranch(r); branch != "" {
+		args = append(args, branch)
+	}
+	proc, err := runner.Cmd("bash", args...).Run(r)
+	if err != nil {
+		return fmt.Errorf("running the fork's %s: %w", forkBranchScript, err)
+	}
+	io.Copy(io.Discard, proc.Stdout())
+	if err := proc.Wait(); err != nil {
+		return fmt.Errorf("running the fork's %s: %w", forkBranchScript, err)
 	}
 	return nil
 }

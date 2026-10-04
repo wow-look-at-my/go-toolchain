@@ -362,5 +362,4 @@ func TestDepChecker_run_DBOpenError(t *testing.T) {
 
 	// Should complete (done=true) with an error
 	assert.True(t, dc.done)
-	// Note: error may or may not be set depending on OS behavior with MkdirAll
 }

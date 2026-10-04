@@ -140,13 +140,10 @@ func writeMockBuildOutput(cfg runner.Config, content string) {
 }
 
 // goCommandArgs answers the go command's own arguments: the pipeline starts
-// go by name, or starts itself under its go subcommand.
+// go by name.
 func goCommandArgs(cfg runner.Config) ([]string, bool) {
 	if name := strings.TrimSuffix(filepath.Base(cfg.Name), ".exe"); name == "go" {
 		return cfg.Args, true
-	}
-	if len(cfg.Args) > 0 && cfg.Args[0] == "go" {
-		return cfg.Args[1:], true
 	}
 	return nil, false
 }

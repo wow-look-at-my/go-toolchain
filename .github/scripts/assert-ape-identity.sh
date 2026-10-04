@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Assert every host built the same APE bytes. Lives in a script (not inline in
-# ci.yml) so the no-tests-in-yaml guard does not read it as a test written into
-# a workflow file.
+# Assert every host built the same APE bytes.
 set -uo pipefail
 for o in linux darwin windows; do
   if [ ! -f "ape/$o/go-toolchain" ]; then

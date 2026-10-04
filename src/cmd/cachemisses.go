@@ -10,9 +10,8 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// cacheMissTracker captures package import paths from go build -v / go test -v
-// stderr output. Each line printed by -v is a package that was compiled because
-// it wasn't in the build cache.
+// cacheMissTracker captures package import paths from go build -v / go test
+// -v stderr output.
 type cacheMissTracker struct {
 	mu     sync.Mutex
 	target io.Writer // underlying writer (e.g. os.Stderr)

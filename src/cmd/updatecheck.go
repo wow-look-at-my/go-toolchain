@@ -43,9 +43,9 @@ func StartUpdateCheck() {
 	}()
 }
 
-// ReportUpdateCheck surfaces the check started by StartUpdateCheck: prints a warning if a newer
-// release exists, or cancels the request if still in flight. The update check must never delay
-// or block go-toolchain. Safe when no check was started, and idempotent for every exit path.
+// ReportUpdateCheck surfaces the check started by StartUpdateCheck: prints a
+// warning if a newer release exists, or cancels the request if still in
+// flight.
 func ReportUpdateCheck() {
 	uc := activeUpdateCheck
 	if uc == nil {

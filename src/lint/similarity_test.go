@@ -123,7 +123,7 @@ func TestFindDuplicates_IdenticalBlocks(t *testing.T) {
 
 func TestFindDuplicates_SizeFilter(t *testing.T) {
 	t.Serial()
-	// Blocks of very different sizes should not be compared
+	// Blocks of different sizes should not be compared
 	short := "IA"
 	long := "IACR_IACR_IACR_IACR_IACR_IACR_IACR_IACR_IACR_IACR"
 	blocks := map[string][]Block{

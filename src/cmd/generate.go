@@ -26,7 +26,8 @@ type generateDirective struct {
 	Line    int    // line number of the directive
 	Command string // the command to execute (after "//go:generate ")
 	// Label replaces File in the hash, so a version bump changing no directive needs no fresh approval.
-	Label string
+	Label   string
+	ReadDir string
 }
 
 // hashKey names the directive for the approval hash.
@@ -404,7 +405,7 @@ func prefixOutput(output string) string {
 	lines := strings.Split(output, "\n")
 
 	for i, line := range lines {
-		// Don't add a trailing newline the original lacked
+		// Don't add a trailing newline the lacked
 		if i == len(lines)-1 && line == "" {
 			break
 		}
