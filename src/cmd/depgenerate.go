@@ -72,7 +72,7 @@ func depGenerateDirectives() ([]generateDirective, error) {
 
 // readDirs answers where the go command reads each package of the given
 // dependency modules from, keyed by the package's cached directory, for the
-// packages it reads from somewhere else. The go command generates a
+// packages it. Reads from somewhere else. The go command generates a
 // dependency package that carries directives into a copy beside the cached
 // module. Listing every package of a module is what makes it generate them
 // all, from the shared build cache when another build already has.
@@ -281,7 +281,7 @@ func generatedOutput(command string) string {
 }
 
 // owesOutput reports that a directive names a file it writes and that the file
-// is neither beside the directive nor in the copy the go command reads the
+// is neither beside the directive nor in the copy the go. Command reads the
 // package from.
 func owesOutput(d generateDirective) bool {
 	out := generatedOutput(d.Command)

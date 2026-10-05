@@ -156,9 +156,9 @@ func TestSetFixLeavesUnspellableUsesAlone(t *testing.T) {
 
 // TestSetFixReachesAPackageVariableUsedFromATestFile pins the variant rule.
 // Tests load as their own package variant, so the pass that cannot see the
-// test file's use must leave the variable alone, and the pass holding every
-// file must rewrite it. Blocking both is how a whole package of set-shaped
-// maps kept its warning and never got the fix.
+// test file's use must leave the variable alone, and the pass. Holding
+// every file must rewrite it. Blocking both is how a whole package of
+// set-shaped maps kept its warning and never got the fix.
 func TestSetFixReachesAPackageVariableUsedFromATestFile(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()

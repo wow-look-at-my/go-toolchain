@@ -372,12 +372,12 @@ jobs:
             mkdir -p "$genbin"
             # The fork's own go goes on PATH beside it: a dependency's generate directive starts `go` by name, and the runner's own go answers a GOROOT this owns.
             export PATH="$genbin:$PWD/_gosmopolitan/bin:$PATH"
-            # The org's own x/tools, which is what gopls and the analyzers here already build against. It keeps the upstream module path, and `go install pkg@version` honors no replacement, so a checkout is how this fork's copy gets built rather than upstream's. Building from a directory also asks the module cache for nothing, so the generator that lives in the module needing it never has to complete that module earliest.
+            # The org's own x/tools, which is what gopls and the analyzers here already build against. It keeps the upstream module path, and `go install pkg@version` honors no replacement, so a checkout is how this fork's copy gets built rather than upstream's. Building from a directory also asks the module cache for nothing. The generator that lives in the module needing it never has to complete that module earliest.
             git clone --quiet --depth 1 https://github.com/wow-look-at-my/gosmopolitan_tools "$RUNNER_TEMP/orgtools"
             for gen in stringer goyacc; do
               (cd "$RUNNER_TEMP/orgtools" && "$go" build -o "$genbin/$gen" "./cmd/$gen")
             done
-            # gotext comes from a checkout for the reason stringer does, and for any of its own: completing x/text runs that module's cmd/gotext/examples/extract directive, which starts gotext -- the program this install exists to produce.
+            # gotext comes from a checkout for the reason stringer does, and for any of its own: completing x/text runs. That module's cmd/gotext/examples/extract directive, which starts gotext -- the program this install exists to produce.
             git clone --quiet --depth 1 --branch v0.42.0 https://github.com/golang/text "$RUNNER_TEMP/xtext"
             (cd "$RUNNER_TEMP/xtext" && "$go" build -o "$genbin/gotext" ./cmd/gotext)
             for pkg in \

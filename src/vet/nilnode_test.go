@@ -22,8 +22,8 @@ func TestInspectPanicsOnATypedNilNode(test *testing.T) {
 }
 
 // InspectNode is the guard. A caller may hand it a field that is legitimately
-// absent: a FuncDecl.Body of a function implemented in assembly, an IfStmt.Else
-// with no else, a ForStmt.Init of a bare loop.
+// absent. This covers a FuncDecl.Body of a function implemented in assembly, an
+// IfStmt.Else with no else, a ForStmt.Init of a bare loop.
 func TestInspectNodeTakesWhatIsAbsent(test *testing.T) {
 	for _, row := range []struct {
 		name string

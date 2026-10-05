@@ -380,11 +380,11 @@ func TestMaybeSubmitDeps_SkipsSmokeFixtureInOwnRepo(t *testing.T) {
 	assert.Equal(t, 0, requests, "the smoke fixture must not be submitted as this repository's dependency graph")
 }
 
-// The load-bearing case. "Build somewhere other than the checkout" must not
-// become the opt-out that GO_TOOLCHAIN_NO_DEP_SUBMISSION was: for every
-// repository but this repository it is a hard failure, never a quiet skip. Without
-// this, any repo could dodge dependency submission by cd-ing to a temp dir and
-// stay green while dropping out of vulnerability scanning.
+// The load-bearing case. "Build somewhere other than the checkout" must not become
+// the opt-out that GO_TOOLCHAIN_NO_DEP_SUBMISSION was: for every repository but
+// this repository it is a hard failure. Never a quiet skip. Without this, any repo
+// could dodge dependency submission by cd-ing to a temp dir and stay green while
+// dropping out of vulnerability scanning.
 func TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere(t *testing.T) {
 	t.Serial()
 	requests := 0

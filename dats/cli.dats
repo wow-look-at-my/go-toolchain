@@ -3,7 +3,7 @@
 #
 # $GO_TOOLCHAIN_DATS_BUILD_DIR holds throwaway copies of the binaries this
 # pipeline just built. It is READ-ONLY inside the sandbox (it lives under the
-# working directory), and the binary under test may be an APE, whose loader
+# working directory). The binary under test may be an APE, whose loader
 # rewrites its own file as it starts. It exits 121 from a read-only path. So
 # setup copies it to `{shared.gt.exe}` and every test execs that copy; a test
 # needing a directory to work in makes its own `{outputs.mod}`.
@@ -11,15 +11,15 @@
 # Scratch space is ALWAYS a dats placeholder, never `mktemp -d`. `{shared.X}`
 # is the only namespace that expands in a setup command, and it expands in test
 # commands too, so the same copy serves both. Only dats' own directories are
-# writable under every backend. `mktemp -d` lands in the
-# ambient temp directory, which bwrap tolerates because it privatizes the whole
-# /tmp namespace -- and which seatbelt, macOS's backend, denies: `mkdtemp
-# failed ... Operation not permitted`, leaving $d empty so every command runs
-# against /gt. The sibling fixture under .github/dats-fixtures/ carries the
-# same rule; dats' own docs/file-format.md is where it is documented.
-# GO_TOOLCHAIN_BUILDHOST_URL points at an unreachable address on every test so
-# the background update check fails instantly and silently, keeping output
-# deterministic regardless of what buildhost has published.
+# writable under every backend. `mktemp -d` lands in the ambient temp
+# directory, which bwrap tolerates because it privatizes the whole /tmp
+# namespace -- and which seatbelt, macOS's backend, denies: `mkdtemp failed ...
+# Operation not permitted`, leaving $d empty so every command runs against /gt.
+# The sibling fixture under .github/dats-fixtures/ carries the same rule; dats'
+# own docs/file-format.md is where it is documented. GO_TOOLCHAIN_BUILDHOST_URL
+# points at an unreachable address on every test so the background update check
+# fails instantly and silently, keeping output deterministic. Regardless of
+# what buildhost has published.
 #
 # NOTE: build-everywhere self-builds this repo on every host, so every test
 # here runs on linux, darwin and windows. Nothing below may name a host.
@@ -44,9 +44,9 @@ setup:
 
 tests:
 	# The only test here that reaches the staleness footer, whose commit queries
-	# would otherwise ride api.github.com -- a round trip per commit at a 10s
-	# client timeout each, spent inside the rebuild wall-clock budget
-	# host-build enforces. Unreachable base = the offline footer, instantly.
+	# would otherwise ride api.github.com -- a round trip per commit. At a 10s
+	# client timeout each, spent inside the rebuild wall-clock budget host-build
+	# enforces. Unreachable base = the offline footer, instantly.
 	- desc: version reports the build stamp
 	  cmd: '{shared.gt.exe} version'
 	  timeout: 30s
@@ -106,8 +106,8 @@ tests:
 			- "Usage:"
 
 	# From a throwaway directory, not the module root: in the module root the
-	# binary bootstraps the Go version go.mod demands, and a bootstrap that has
-	# to download prints progress to stderr -- straight into the snapshot.
+	# binary bootstraps the Go version go.mod demands, and a bootstrap. That
+	# has to download prints progress to stderr -- straight into the snapshot.
 	#
 	# The byte-exact snapshot assertion below relies on logx's minDurationToShow
 	# threshold: this error prints instantly during flag parsing (no I/O), well
@@ -187,8 +187,8 @@ tests:
 	#
 	# The POSITIVE case (suites present, no go.mod, they run) is a Go unit test,
 	# not a case here. Asserting it from a suite means go-toolchain starting dats
-	# inside a command dats is already sandboxing, and nested bwrap is not a
-	# thing worth depending on for coverage the unit tests already give.
+	# inside a command dats is already sandboxing. Nested bwrap is not a thing
+	# worth depending on for coverage the unit tests already give.
 	- desc: no module and no suites names both halves
 	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; {shared.gt.exe}'
 	  exit: 1

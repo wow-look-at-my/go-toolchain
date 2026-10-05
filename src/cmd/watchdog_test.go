@@ -83,7 +83,7 @@ func TestWatchdogWarnsWhileTheBuildIsSilent(t *testing.T) {
 // drain race. This holds at shutdown: output written before wd.stop() must
 // still make it through to the stdout. Without the forward-goroutine wait in
 // stop(), stdoutR.Close() discarded any bytes forward() hadn't read yet,
-// causing the coverage block to vanish intermittently.
+// causing the coverage block. To vanish intermittently.
 func TestWatchdogStopDoesNotDropBufferedOutput(t *testing.T) {
 	t.Serial()
 	// Forces single-threaded scheduling so forward() and main compete for the same P; otherwise the race rarely triggers.

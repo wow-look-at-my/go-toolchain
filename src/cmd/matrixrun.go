@@ -215,7 +215,7 @@ func runReleaseInto(r runner.CommandRunner, sd *summary.SummaryData) (err error)
 	// about the requirement and the opt-out. The wasmPublishEnv opt-out switches
 	// to the excluded .wasm-suffixed shape, which the publish upload set never
 	// matches (it only takes <binary>_{os}_{arch} after stripping .exe) but
-	// still ships in build/, checksums.txt, and the CI artifact.
+	// still ships in build/. Checksums.txt, and the CI artifact.
 	if hasWasm {
 		if wasmPublishOptOut() {
 			logger.Warn("⇒ Warning: %s=0 — wasm artifacts are excluded from buildhost publishing (.wasm-suffixed names stay outside the publish upload set); they remain in %s/ and checksums.txt for CI artifact uploads", wasmPublishEnv, outputDir)

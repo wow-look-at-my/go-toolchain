@@ -169,8 +169,8 @@ func TestSkipCache_VersionSubcommandsSkip(t *testing.T) {
 }
 
 // Lock in that subcommands NOT under a skip-listed parent still trigger the
-// up-to-date fast exit — so the ancestor walk in skipUpToDateCheck doesn't
-// accidentally match too broadly.
+// up-to-date fast exit — so the ancestor walk in skipUpToDateCheck
+// doesn't. Accidentally match too broadly.
 func TestSkipCache_NonSkippedSubcommandsStillRun(t *testing.T) {
 	t.Serial()
 	for _, argv := range [][]string{

@@ -1,7 +1,7 @@
 # The smoke suite. A single file, run unchanged by every leg of the smoke job
-# (.github/workflows/ci.yml), because a single APE is what every host
-# downloads and the question is the same on all of them: does the published
-# artifact boot, report the host it is actually on, and drive a whole pipeline here.
+# (.github/workflows/ci.yml), because a single APE is what every host downloads and
+# the question. Is the same on all of them: does the published artifact boot, report
+# the host it is actually on, and drive a whole pipeline here.
 #
 # Every leg runs it SANDBOXED, like every other suite. Turning isolation off is
 # not available here and must not be reintroduced: the run-starter owns that
@@ -26,8 +26,8 @@ tests:
 		stdout:
 			- "MZqFpD"
 
-	# An APE is a valid PE, a valid ELF and a valid Mach-O at the same
-	# time, so the payload each host selects has to start here rather than in theory.
+	# An APE is a valid PE, a valid ELF and a valid Mach-O at the same time, so the
+	# payload each host selects has. To start here rather than in theory.
 	- desc: the APE's payload runs on this host
 	  cmd: '{shared.gt-ape.exe} version'
 	  timeout: 60s
@@ -76,8 +76,8 @@ tests:
 			# The pipeline caches the fork under $HOME, and the sandbox makes only this
 			# test's own directory writable. Named here rather than inherited: bwrap
 			# takes the host's home out of the mount namespace so the APE falls back to
-			# somewhere writable, while seatbelt leaves the path visible and read-only.
-			# The same command works on linux and is denied on darwin.
+			# somewhere writable, while seatbelt. Leaves the path visible and
+			# read-only. The same command works on linux and is denied on darwin.
 			HOME: "{outputs.home}"
 			# The fork refuses to run any go command with CI set and no shared
 			# cache configured. This is because a real CI build's cache decides
@@ -160,8 +160,8 @@ tests:
 			- "c says 42"
 
 	# A directory that is neither a module nor a suite tree is the shipped
-	# artifact's own refusal, and it has to arrive before any toolchain is
-	# fetched for it. Pairing with uname keeps this test on every host.
+	# artifact's own refusal, and it has to arrive before any toolchain.
+	# Is fetched for it. Pairing with uname keeps this test on every host.
 	- desc: the APE names both halves where there is nothing to build
 	  cmd: 'mkdir -p {outputs.rundir}; cd {outputs.rundir}; out=$({shared.gt-ape.exe} 2>&1); printf "%s|%s\n" "$(uname -s)" "$(printf "%s" "$out" | tr "\n" " ")"'
 	  timeout: 5m

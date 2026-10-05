@@ -144,7 +144,7 @@ func TestCommentSpanExemptsDirectivesAndPackageDoc(t *testing.T) {
 // TestCommentSpanAttachesToTheRightNode verifies a trailing comment.
 // TestCommentSpanAttachesToTheRightNode also verifies a struct field's doc,
 // and a comment inside a case clause each attach to the small node beside
-// them, not to something so big the check never fires.
+// them, not to something. So big the check never fires.
 func TestCommentSpanAttachesToTheRightNode(t *testing.T) {
 	t.Serial()
 	filler := strings.Repeat("x", 130)

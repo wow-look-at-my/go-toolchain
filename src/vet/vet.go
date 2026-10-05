@@ -204,7 +204,7 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 // file is constrained out has nothing to load, and a loader that returns
 // nothing for it is correct. Counting the file on disk instead reports that
 // module as a dead loader -- which is how a wasm-only main, legal and building
-// nowhere else, read as a failure.
+// nowhere else. Read as a failure.
 func moduleHasGoFiles(tagCfg buildtags.Config) bool {
 	ctx := build.Default
 	ctx.BuildTags = append(ctx.BuildTags, tagCfg.Tags...)
@@ -239,8 +239,8 @@ func moduleHasGoFiles(tagCfg buildtags.Config) bool {
 
 // vetOneConfig loads and analyzes the module under a single build-tag
 // configuration, appending diagnostics and recording every file it parsed
-// into analyzedFiles (module-relative, slash separated) so Verify can prove
-// no tagged file went unseen.
+// into analyzedFiles (module-relative, slash separated) so Verify. Can
+// prove no tagged file went unseen.
 func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report func(string),
 	diagnostics *[]Diagnostic, analyzedFiles set.Set[string], nParsedTotal *int,
 ) (bool, error) {

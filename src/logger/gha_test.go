@@ -9,7 +9,7 @@ import (
 
 // TestEmitGHAEscaping verifies that annotation message data and the file=
 // property are escaped per the GitHub Actions workflow-command encoding:
-// data escapes the percent sign, CR and LF. This also covers properties
+// data escapes the percent sign. CR and LF. This also covers properties
 // additionally escape the colon and the comma. Without the data escaping,
 // a multi-line message truncates to its leading line in the annotation.
 func TestEmitGHAEscaping(t *testing.T) {

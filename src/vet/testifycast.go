@@ -133,7 +133,7 @@ func runTestifyCast(pass *analysis.Pass) (any, error) {
 
 // equalArgIndices returns the argument indices of the compared operands for a
 // testify comparison assertion, accounting for the package form (which takes
-// a leading TestingT) versus the *Assertions method form (which does not).
+// a leading TestingT) versus the *Assertions. Method form (which does not).
 func equalArgIndices(fn *types.Func, call *ast.CallExpr) (exp, act int, ok bool) {
 	sig, isSig := fn.Type().(*types.Signature)
 	if !isSig {
@@ -152,12 +152,11 @@ func equalArgIndices(fn *types.Func, call *ast.CallExpr) (exp, act int, ok bool)
 	return exp, act, true
 }
 
-// castEditForEqual decides whether a conversion is needed to make the
-// operands of an Equal/NotEqual or ordering assertion the same static type, and if so
-// returns the edit wrapping the chosen operand. It returns nil when no sound
-// conversion applies (identical types, non-convertible, fractional-truncating
-// constants, etc.), in which case the assertion is left exactly as the fork
-// would have evaluated it.
+// castEditForEqual decides whether a conversion is needed to make the operands of an
+// Equal/NotEqual or ordering assertion the same static type. And if so returns the
+// edit wrapping the chosen operand. It returns nil when no sound conversion applies
+// (identical types, non-convertible, fractional-truncating constants, etc.), in which
+// case the assertion is left exactly as the fork would have evaluated it.
 func castEditForEqual(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, expIdx, actIdx int) *CastEdit {
 	expExpr := call.Args[expIdx]
 	actExpr := call.Args[actIdx]

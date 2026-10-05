@@ -20,7 +20,7 @@ var generatedCodeRe = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
 
 // RunGofmt checks that all Go source files in the current directory tree are
 // formatted, routing every unformatted file through ed: a fix-mode editor
-// rewrites it in place, a check-mode (CI) editor records it as a violation.
+// rewrites. It in place, a check-mode (CI) editor records it as a violation.
 // Returns whether any file was written.
 func RunGofmt(ed Editor) (bool, error) {
 	var anyWrote bool
@@ -83,7 +83,7 @@ const (
 
 // revertDocCommentSmartQuotes reverts gofmt's smart-quote substitution back
 // to the ASCII digraphs, restoring U+201C to a doubled backtick and U+201D to
-// a doubled apostrophe wherever they appear inside a Go comment. This is
+// a doubled apostrophe. Wherever they appear inside a Go comment. This is
 // curative, not merely preventive: gofmt's doc-comment formatter is the ONLY
 // thing that produces these runes in Go source, and only inside comments. A
 // curly quote in a comment is always a gofmt artifact -- no author types it

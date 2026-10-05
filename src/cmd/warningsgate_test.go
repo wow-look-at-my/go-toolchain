@@ -149,9 +149,9 @@ func TestWarningsGateReprintsEveryWarning(t *testing.T) {
 	}
 }
 
-// TestWarningsGateRecapAnnotatesInGHA verifies that in GitHub Actions the
-// recap rides a SINGLE ::error annotation with its newlines escaped, so the whole
-// list survives in the annotation instead of truncating to its leading line.
+// TestWarningsGateRecapAnnotatesInGHA verifies that in GitHub Actions the recap
+// rides a SINGLE ::error annotation with its newlines escaped, so the whole list
+// survives in the annotation. Instead of truncating to its leading line.
 func TestWarningsGateRecapAnnotatesInGHA(t *testing.T) {
 	t.Serial()
 	logger.ResetWarnCount()

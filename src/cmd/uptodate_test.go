@@ -114,7 +114,7 @@ func TestComputeFingerprintIncludesActionYML(t *testing.T) {
 }
 
 // The environment decides what a run does — an env-gated test switched on is a
-// pipeline the stored fingerprint never described — so the skip must not fire
+// pipeline the stored fingerprint never described — so the skip must. Not fire
 // across a changed variable.
 func TestComputeFingerprintIncludesTheEnvironment(t *testing.T) {
 	t.Serial()
@@ -400,7 +400,7 @@ func TestComputeFingerprintFoldsEmbeds(t *testing.T) {
 // TestUpToDateTracksEmbeddedFiles is the end-to-end regression for the bug. It
 // drives real `go list` resolution over a fixture module that embeds data files
 // via every directive form (EmbedFiles, TestEmbedFiles, XTestEmbedFiles) and
-// asserts that editing any embedded file busts the "up to date" skip, while an
+// asserts that editing any embedded file. Busts the "up to date" skip, while an
 // unchanged tree still reports up to date.
 func TestUpToDateTracksEmbeddedFiles(t *testing.T) {
 	t.Serial()

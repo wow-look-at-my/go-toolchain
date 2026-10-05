@@ -178,7 +178,7 @@ func TestFoo(t *testing.T) {
 // even when the file only imports os. The fixer must add the io/fs import
 // alongside the cast. Without it the rewritten file fails to load (undefined:
 // fs) and every later vet run — including the fix's own verify re-run —
-// dies at the type-check with a package load error before any fixer runs. The
+// dies. At the type-check with a package load error before any fixer runs. The
 // tree can never converge.
 func TestVetSemanticCastAddsMissingImport(t *testing.T) {
 	t.Serial()

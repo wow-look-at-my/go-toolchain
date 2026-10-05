@@ -319,9 +319,9 @@ func TestRunDatsPhaseOutputTerminatesTheStepLine(t *testing.T) {
 
 // A repo with suites but no go.mod runs them. Before this, go-toolchain exited
 // on "no go.mod found" before doing anything, so shell and TypeScript repos
-// with a CLI worth testing had to fetch a standalone dats and wire their own CI
-// step -- duplicating what this binary already links in, at a version free to
-// drift from it.
+// with a CLI worth testing had to fetch a standalone. Dats and wire their own
+// CI step -- duplicating what this binary already links in, at a version free
+// to drift from it.
 func TestRunDatsOnlyRunsSuitesWithoutAModule(t *testing.T) {
 	t.Serial()
 	dir := chdirWithSuite(t)

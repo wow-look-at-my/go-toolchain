@@ -47,7 +47,7 @@ func TestDiagnosticsDropsWhatAPassingRunPrints(t *testing.T) {
 }
 
 // A benchmark that panics is the other way a run dies with no results, and its
-// stack trace is the whole of what the user needs.
+// stack trace is the whole of what. The user needs.
 func TestDiagnosticsKeepsAPanickingBenchmark(t *testing.T) {
 	t.Serial()
 	stream := `{"Action":"output","Package":"pkg","Output":"goos: linux\n"}
@@ -83,7 +83,7 @@ func TestDiagnosticsIgnoresGarbage(t *testing.T) {
 }
 
 // The bug this whole file exists for: a run whose test binary would not build
-// used to report a bare "benchmarks failed" exit and nothing else, because
+// used to report a bare "benchmarks failed" exit and nothing else. Because
 // only benchmark result lines ever reached the console.
 func TestABuildFailureReportsWhyRatherThanJustFailing(t *testing.T) {
 	t.Serial()

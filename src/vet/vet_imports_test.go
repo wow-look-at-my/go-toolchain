@@ -105,7 +105,7 @@ func TestLoadErrorMessages(t *testing.T) {
 
 // TestLoadErrorMessagesReportsDependencyErrors. A package that fails to load
 // records the cause on ITS OWN Errors and still hands its importers a type under
-// whatever name go list reported, so the roots carry only the downstream
+// whatever name go list. Reported, so the roots carry only the downstream
 // `undefined:` cascade. Reading roots alone dropped the only line that named the
 // broken package. A dependency reached by several paths reports a single time.
 func TestLoadErrorMessagesReportsDependencyErrors(t *testing.T) {

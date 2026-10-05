@@ -123,7 +123,7 @@ func isVanityHostReachable(host string) bool {
 // sub-module path within the repo.
 //
 // It queries the Go module proxy (go mod download -json) for the Origin URL
-// and Subdir, then falls back to the go-import meta tag on the vanity host.
+// and Subdir, then falls back to the go-import meta tag. On the vanity host.
 func resolveVanityVCSURL(modulePath, version string) (string, string, error) {
 	// The proxy strategy: go mod download -json gives Origin.URL
 	cmd := exec.Command("go", "mod", "download", "-json", modulePath+"@"+version)
@@ -207,7 +207,7 @@ var vanityVCSResolver func(modulePath, version string) (string, string, error)
 
 // injectVanityReplaces parses go.sum for vanity-URL modules, checks host
 // reachability, and injects replace directives into go.mod for any module
-// whose vanity host is unreachable.
+// whose vanity. Host is unreachable.
 //
 // Returns the state (replaces + go.sum snapshot) so the caller can remove
 // the replaces and restore go.sum after go mod tidy completes.

@@ -97,7 +97,7 @@ func isOutputDir(path string) bool {
 // computeFingerprint hashes all inputs that affect a go-toolchain run. All .go
 // files (including tests), go.mod, go.sum, .dats suites and their .golden
 // snapshots, everything under a testdata directory, Go version, the flags the
-// run was invoked with. The environment it was invoked in, and every file
+// run. Was invoked with. The environment it was invoked in, and every file
 // pulled in by a //go:embed directive (resolved via go list).
 func computeFingerprint(r runner.CommandRunner) (string, error) {
 	h := sha256.New()
@@ -203,7 +203,7 @@ func underTestdata(path string) bool {
 //
 // It shells out to `go list -test -json ./...`, letting go list resolve the
 // embed patterns (globs, directory trees, the all: prefix) instead of parsing
-// //go:embed comments by hand. -test is required, or TestEmbedFiles and
+// //go:embed comments by hand. -test. Is required, or TestEmbedFiles and
 // XTestEmbedFiles stay unresolved. ./... without -deps keeps the scope to the
 // main module. GOCACHEPROG is cleared so go list doesn't spawn a cacheprog
 // child that inherits stdout and stalls the io.ReadAll below.
