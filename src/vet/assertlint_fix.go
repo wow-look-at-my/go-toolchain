@@ -7,6 +7,7 @@ import (
 
 	"github.com/wow-look-at-my/go-containers/set"
 	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/go/ast/astutil"
 )
 
 // getTestVarName extracts the test variable name (t or b) from the body.
@@ -25,170 +26,411 @@ func getTestVarName(body *ast.BlockStmt) string {
 	return ""
 }
 
-// generateASTFix creates an ASTFix for the if statement. hoisted carries the
-// names earlier fixes in the same file have already flattened into each scope.
-func generateASTFix(pass *analysis.Pass, ifStmt *ast.IfStmt, assertPkg, assertFunc string, hoisted hoistedNames) *ASTFix {
+// generateASTFix creates an ASTFix for the if statement. report is false when
+// the if is not one the fixer can rewrite without changing what the test
+// does or breaking the build; such an if is left alone and not reported.
+// A nil fix with report true is a finding with no automatic rewrite.
+func generateASTFix(pass *analysis.Pass, st *assertFixState, ifStmt *ast.IfStmt, assertPkg, assertFunc string) (fix *ASTFix, report bool) {
 	// Skip if/else chains (else-if is already filtered during detection)
 	if ifStmt.Else != nil {
-		return nil
+		return nil, true
 	}
 
 	tVar := getTestVarName(ifStmt.Body)
 	if tVar == "" {
-		return nil
+		return nil, true
 	}
 
-	// Build the assertion call AST
-	assertCall := buildAssertCall(pass, ifStmt.Cond, tVar, assertPkg, assertFunc)
-	if assertCall == nil {
-		return nil
+	// An if inside one this pass already replaces is rewritten on the re-run, against the new tree.
+	if st.insideReplaced(ifStmt) {
+		return nil, false
 	}
-	assertStmt := &ast.ExprStmt{X: assertCall}
 
-	// Handle init clause case: if x := expr; cond { t.Error } → x := expr; assert.X(...)
-	if ifStmt.Init != nil {
+	errCall, rest, ok := splitFailureBody(ifStmt.Body, assertPkg)
+	if !ok {
+		return nil, false
+	}
+	dropped := []ast.Node{errCall}
+	if assertPkg == "require" {
+		// Statements after t.Fatal never run; they go with it.
+		for _, s := range rest {
+			dropped = append(dropped, s)
+		}
+		rest = nil
+	}
+	if st.dropOrphansVar(ifStmt, dropped) {
+		return nil, false
+	}
+
+	var commit func()
+	var newNodes []ast.Node
+	switch {
+	case isNoErrorInit(ifStmt, assertFunc):
 		// Special case: if err := X; err != nil → require.NoError(t, X)
-		if assertFunc == "NoError" {
-			if assign, ok := ifStmt.Init.(*ast.AssignStmt); ok && assign.Tok == token.DEFINE {
-				if len(assign.Rhs) == 1 {
-					noErrorCall := makeCall(
-						makeSelector(assertPkg, "NoError"),
-						ast.NewIdent(tVar),
-						assign.Rhs[0],
-					)
-					newNodes := []ast.Node{&ast.ExprStmt{X: noErrorCall}}
-					prepareFixNodes(newNodes, ifStmt.Pos())
-					return &ASTFix{
-						OldNode:  ifStmt,
-						NewNodes: newNodes,
-					}
-				}
-			}
-		}
+		assign := ifStmt.Init.(*ast.AssignStmt)
+		noErrorCall := makeCall(
+			makeSelector(assertPkg, "NoError"),
+			ast.NewIdent(tVar),
+			assign.Rhs[0],
+		)
+		newNodes = []ast.Node{assertionStmt(noErrorCall, rest)}
 
-		// General case: extract init statement
-		newNodes := hoistInit(pass, ifStmt, assertStmt, hoisted)
-		prepareFixNodes(newNodes, ifStmt.Pos())
-		return &ASTFix{
-			OldNode:  ifStmt,
-			NewNodes: newNodes,
+	case ifStmt.Init == nil:
+		// Simple case: if cond { t.Error } → assert.X(t, ...)
+		assertCall := buildAssertCall(pass, ifStmt.Cond, tVar, assertPkg, assertFunc)
+		if assertCall == nil {
+			return nil, false
 		}
+		newNodes = []ast.Node{assertionStmt(assertCall, rest)}
+
+	default:
+		// Init clause: if x := expr; cond { t.Error } → x := expr; assert.X(...)
+		assertCall := buildAssertCall(pass, ifStmt.Cond, tVar, assertPkg, assertFunc)
+		if assertCall == nil {
+			return nil, false
+		}
+		var init ast.Stmt
+		init, commit, ok = st.hoistInit(ifStmt)
+		if !ok {
+			return nil, false
+		}
+		newNodes = []ast.Node{init, assertionStmt(assertCall, rest)}
 	}
 
-	// Simple case: if cond { t.Error } → assert.X(t, ...)
-	newNodes := []ast.Node{assertStmt}
+	if commit != nil {
+		commit()
+	}
+	st.replaced = append(st.replaced, ifStmt)
 	prepareFixNodes(newNodes, ifStmt.Pos())
 	return &ASTFix{
 		OldNode:  ifStmt,
 		NewNodes: newNodes,
+	}, true
+}
+
+// isNoErrorInit reports the `if err := X; err != nil` shape
+// determineAssertion names NoError, with the right-hand side the rewrite
+// passes on.
+func isNoErrorInit(ifStmt *ast.IfStmt, assertFunc string) bool {
+	if assertFunc != "NoError" {
+		return false
+	}
+	assign, ok := ifStmt.Init.(*ast.AssignStmt)
+	return ok && assign.Tok == token.DEFINE && len(assign.Rhs) == 1
+}
+
+// assertionStmt is the statement an assertion call becomes. Statements that
+// followed t.Error in the if body ran only when the check failed, so they stay
+// behind the assertion's result: `if !assert.X(...) { continue }`.
+func assertionStmt(call *ast.CallExpr, rest []ast.Stmt) ast.Stmt {
+	if len(rest) == 0 {
+		return &ast.ExprStmt{X: call}
+	}
+	return &ast.IfStmt{
+		Cond: &ast.UnaryExpr{Op: token.NOT, X: call},
+		Body: &ast.BlockStmt{List: rest},
 	}
 }
 
-// hoistedNames records, per scope, the names and types that fixes in the same
-// run have flattened into that scope. The type checker's scopes describe the
-// source as written, where each if's init is private to its if; once an init
-// is flattened into the enclosing block its names are visible to every later
-// statement there, so the next flattened init resolves against this as well.
-type hoistedNames map[*types.Scope]map[string]types.Type
-
-// declared returns the type the name has in scope after the fixes so far: the
-// variable the checker sees from pos, or one flattened in by an earlier fix.
-// found is false for a name that nothing in scope declares.
-func (h hoistedNames) declared(scope *types.Scope, name string, pos token.Pos) (typ types.Type, isVar, found bool) {
-	if typ, ok := h[scope][name]; ok {
-		return typ, true, true
+// splitFailureBody splits an if body into its leading t.Error/t.Fatal call
+// and the statements after it. A body that does anything before the failure
+// call is not a plain assertion: the rewrite would reorder or drop that work.
+// A t.Error-led body under a require (a t.Fatal further down) is refused too:
+// require would stop the test before the statements between them run.
+func splitFailureBody(body *ast.BlockStmt, assertPkg string) (*ast.CallExpr, []ast.Stmt, bool) {
+	if body == nil || len(body.List) == 0 {
+		return nil, nil, false
 	}
-	_, obj := scope.LookupParent(name, pos)
-	if obj == nil {
-		return nil, false, false
-	}
-	v, ok := obj.(*types.Var)
+	exprStmt, ok := body.List[0].(*ast.ExprStmt)
 	if !ok {
-		return nil, false, true
+		return nil, nil, false
 	}
-	return v.Type(), true, true
+	call, ok := exprStmt.X.(*ast.CallExpr)
+	if !ok || !isTestingErrorCall(call) {
+		return nil, nil, false
+	}
+	fatal := isFatalCall(call)
+	if fatal != (assertPkg == "require") {
+		return nil, nil, false
+	}
+	return call, body.List[1:], true
 }
 
-func (h hoistedNames) record(scope *types.Scope, name string, typ types.Type) {
-	if h[scope] == nil {
-		h[scope] = make(map[string]types.Type)
-	}
-	h[scope][name] = typ
+// isFatalCall reports t.Fatal/t.Fatalf.
+func isFatalCall(call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	return ok && (sel.Sel.Name == "Fatal" || sel.Sel.Name == "Fatalf")
 }
 
-// hoistInit returns the if's init clause and the assertion in a form that is
-// legal where the if stood.
+// assertFixState is what one file's assertlint pass knows across its fixes.
+// Every fix is computed against the same type-checked tree, so a hoist has to
+// see the names the earlier hoists in its block already declared.
+type assertFixState struct {
+	pass *analysis.Pass
+	file *ast.File
+
+	// hoisted maps a block scope to the names fixes declared into it and their types.
+	hoisted map[*types.Scope]map[string]types.Type
+	// replaced are the ifs this pass rewrites.
+	replaced []ast.Node
+
+	// uses lists every identifier that refers to an object, in source order.
+	uses map[types.Object][]*ast.Ident
+	// writes are identifiers standing alone as an assignment or ++/-- target.
+	writes set.Set[*ast.Ident]
+	// assigns maps each write identifier to its assignment statement.
+	assigns map[*ast.Ident]*ast.AssignStmt
+	// unusedExempt are declarations the compiler never reports unused: parameters and results, plus range variables.
+	unusedExempt set.Set[token.Pos]
+}
+
+func newAssertFixState(pass *analysis.Pass, file *ast.File) *assertFixState {
+	st := &assertFixState{
+		pass:         pass,
+		file:         file,
+		hoisted:      make(map[*types.Scope]map[string]types.Type),
+		uses:         make(map[types.Object][]*ast.Ident),
+		writes:       set.New[*ast.Ident](),
+		assigns:      make(map[*ast.Ident]*ast.AssignStmt),
+		unusedExempt: set.New[token.Pos](),
+	}
+	ast.Inspect(file, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.Ident:
+			if obj := pass.TypesInfo.Uses[x]; obj != nil {
+				st.uses[obj] = append(st.uses[obj], x)
+			}
+		case *ast.AssignStmt:
+			for _, lhs := range x.Lhs {
+				if id, ok := lhs.(*ast.Ident); ok {
+					st.writes.Add(id)
+					st.assigns[id] = x
+				}
+			}
+		case *ast.IncDecStmt:
+			if id, ok := x.X.(*ast.Ident); ok {
+				st.writes.Add(id)
+			}
+		case *ast.RangeStmt:
+			for _, e := range []ast.Expr{x.Key, x.Value} {
+				if id, ok := e.(*ast.Ident); ok {
+					st.unusedExempt.Add(id.Pos())
+				}
+			}
+		case *ast.FuncType:
+			for _, fl := range []*ast.FieldList{x.Params, x.Results} {
+				if fl == nil {
+					continue
+				}
+				for _, f := range fl.List {
+					for _, id := range f.Names {
+						st.unusedExempt.Add(id.Pos())
+					}
+				}
+			}
+		}
+		return true
+	})
+	return st
+}
+
+// insideReplaced reports whether n sits inside an if this pass already rewrites.
+func (st *assertFixState) insideReplaced(n ast.Node) bool {
+	for _, r := range st.replaced {
+		if n.Pos() >= r.Pos() && n.End() <= r.End() {
+			return true
+		}
+	}
+	return false
+}
+
+// dropOrphansVar reports whether deleting the dropped nodes leaves a local
+// variable declared and not used: one the failure message was the only
+// reader of. The compiler rejects that, so such an if is not rewritten.
+func (st *assertFixState) dropOrphansVar(ifStmt *ast.IfStmt, dropped []ast.Node) bool {
+	inDropped := func(pos token.Pos) bool {
+		for _, d := range dropped {
+			if pos >= d.Pos() && pos < d.End() {
+				return true
+			}
+		}
+		return false
+	}
+	orphaned := false
+	for _, d := range dropped {
+		ast.Inspect(d, func(n ast.Node) bool {
+			id, ok := n.(*ast.Ident)
+			if !ok || orphaned {
+				return !orphaned
+			}
+			v, ok := st.pass.TypesInfo.Uses[id].(*types.Var)
+			if !ok || v.IsField() || v.Parent() == nil || v.Parent() == st.pass.Pkg.Scope() {
+				return true
+			}
+			// A name the if itself declares leaves along with it (the NoError shape).
+			if v.Pos() >= ifStmt.Pos() && v.Pos() < ifStmt.End() {
+				return true
+			}
+			if st.unusedExempt.Contains(v.Pos()) {
+				return true
+			}
+			for _, u := range st.uses[v] {
+				if !st.writes.Contains(u) && !inDropped(u.Pos()) {
+					return true
+				}
+			}
+			orphaned = true
+			return false
+		})
+	}
+	return orphaned
+}
+
+// hoistInit returns the if's init clause in a form legal outside the if, and
+// a commit that records what it declared once the fix is kept. ok is false
+// when no spelling of the init is both legal in the enclosing block and keeps
+// every other statement there reading the variable it read before.
 //
-// An init clause declares into the if's own scope, so `if _, err := f();` is
-// legal beside an existing err (it shadows it), beside a later `err :=` in the
-// same block, and beside an err of another type. Flattened into the enclosing
-// block, each of those is a compile error: "no new variables on left side of
-// :=", a redeclaration, or a mismatched assignment. The statements are emitted
-// flat when that is provably legal, else kept together in a block, which
-// scopes the init exactly as the if did:
-//
-//   - every name is new in the enclosing scope: `:=` stays as written;
-//   - every name exists as a variable of the identical type: `:=` becomes `=`,
-//     so the outer variable is written rather than shadowed, which flattening
-//     requires anyway since the assertion below must see the value;
-//   - a mix of new and existing names, each existing one a variable of the
-//     identical type: `:=` stays, declaring the new names and assigning or
-//     shadowing the rest;
-//   - anything else, or no type information: a block.
-func hoistInit(pass *analysis.Pass, ifStmt *ast.IfStmt, assertStmt ast.Stmt, hoisted hoistedNames) []ast.Node {
-	block := []ast.Node{&ast.BlockStmt{List: []ast.Stmt{ifStmt.Init, assertStmt}}}
+// An init clause declares into the if's own scope. Lifted into the enclosing
+// block, each name it declares must be one of.
+//   - new there and not shadowing anything a later statement in the block
+//     reads, so := declares it;
+//   - a variable the block already declared earlier, of the same type, that
+//     nothing reads before the block next overwrites it, so it is reused;
+//   - a name an earlier hoist in this pass declared there with the same type.
+func (st *assertFixState) hoistInit(ifStmt *ast.IfStmt) (ast.Stmt, func(), bool) {
+	parentList, ok := st.enclosingStmtList(ifStmt)
+	if !ok {
+		return nil, nil, false // not in a statement list, so there is nowhere to put a second statement.
+	}
 	assign, ok := ifStmt.Init.(*ast.AssignStmt)
 	if !ok || assign.Tok != token.DEFINE {
-		return []ast.Node{ifStmt.Init, assertStmt} // an assignment or a call declares nothing
+		return ifStmt.Init, nil, true
 	}
 	// Scopes[ifStmt] is the scope the init declares into; its parent is where the statement lands.
-	ifScope := pass.TypesInfo.Scopes[ifStmt]
+	ifScope := st.pass.TypesInfo.Scopes[ifStmt]
 	if ifScope == nil || ifScope.Parent() == nil {
-		return block
+		return nil, nil, false
 	}
-	landing := ifScope.Parent()
+	block := ifScope.Parent()
+	prior := st.hoisted[block]
 
-	type named struct {
-		name string
-		typ  types.Type
-	}
-	var names []named
-	anyNew := false
+	defined := make(map[string]types.Type)
 	for _, lhs := range assign.Lhs {
 		ident, ok := lhs.(*ast.Ident)
 		if !ok {
-			return block // not a plain name list
+			return nil, nil, false
 		}
 		if ident.Name == "_" {
 			continue
 		}
-		def := pass.TypesInfo.Defs[ident]
+		def := st.pass.TypesInfo.Defs[ident]
 		if def == nil {
-			return block
+			return nil, nil, false
 		}
-		names = append(names, named{ident.Name, def.Type()})
-		// A later `name :=` in the landing block would redeclare a name flattened before it.
-		if later := landing.Lookup(ident.Name); later != nil && later.Pos() > ifStmt.Pos() {
-			return block
-		}
-		existing, isVar, found := hoisted.declared(landing, ident.Name, ifStmt.Pos())
-		if !found {
-			anyNew = true
+		typ := def.Type()
+
+		if existing := block.Lookup(ident.Name); existing != nil {
+			if existing.Pos() > ifStmt.Pos() {
+				return nil, nil, false // declared later in the block
+			}
+			if !types.Identical(existing.Type(), typ) || !st.overwriteIsDead(existing, ifStmt, parentList) {
+				return nil, nil, false
+			}
 			continue
 		}
-		if !isVar || !types.Identical(existing, def.Type()) {
-			return block
+		if prevType, ok := prior[ident.Name]; ok {
+			if !types.Identical(prevType, typ) {
+				return nil, nil, false
+			}
+			continue
+		}
+		if _, outer := block.LookupParent(ident.Name, ifStmt.Pos()); outer != nil && st.usedWithin(outer, ifStmt.End(), block.End()) {
+			return nil, nil, false // the rest of the block reads the outer name
+		}
+		defined[ident.Name] = typ
+	}
+
+	hoisted := *assign
+	if len(defined) == 0 {
+		hoisted.Tok = token.ASSIGN // every name exists already, and := needs one new name.
+	}
+	commit := func() {
+		if st.hoisted[block] == nil {
+			st.hoisted[block] = make(map[string]types.Type)
+		}
+		for name, typ := range defined {
+			st.hoisted[block][name] = typ
 		}
 	}
-	for _, n := range names {
-		hoisted.record(landing, n.name, n.typ)
+	return &hoisted, commit, true
+}
+
+// enclosingStmtList returns the statement list n is a direct element of.
+func (st *assertFixState) enclosingStmtList(n ast.Stmt) ([]ast.Stmt, bool) {
+	path, _ := astutil.PathEnclosingInterval(st.file, n.Pos(), n.End())
+	if len(path) < 2 || path[0] != n {
+		return nil, false
 	}
-	if anyNew {
-		return []ast.Node{assign, assertStmt}
+	switch p := path[1].(type) {
+	case *ast.BlockStmt:
+		return p.List, true
+	case *ast.CaseClause:
+		return p.Body, true
+	case *ast.CommClause:
+		return p.Body, true
 	}
-	flat := *assign
-	flat.Tok = token.ASSIGN
-	return []ast.Node{&flat, assertStmt}
+	return nil, false
+}
+
+// usedWithin reports whether any identifier in (from, to) refers to obj.
+func (st *assertFixState) usedWithin(obj types.Object, from, to token.Pos) bool {
+	for _, u := range st.uses[obj] {
+		if u.Pos() > from && u.Pos() < to {
+			return true
+		}
+	}
+	return false
+}
+
+// overwriteIsDead reports whether assigning obj in place of ifStmt's init
+// changes nothing else: the first reference to obj after the if is a plain
+// assignment in the same statement list, which does not read obj itself.
+func (st *assertFixState) overwriteIsDead(obj types.Object, ifStmt *ast.IfStmt, list []ast.Stmt) bool {
+	var first *ast.Ident
+	for _, u := range st.uses[obj] {
+		if u.Pos() > ifStmt.End() && (first == nil || u.Pos() < first.Pos()) {
+			first = u
+		}
+	}
+	if first == nil {
+		return true
+	}
+	if !st.writes.Contains(first) {
+		return false
+	}
+	assign := st.assigns[first]
+	if assign == nil || (assign.Tok != token.ASSIGN && assign.Tok != token.DEFINE) {
+		return false // x += 1 reads x
+	}
+	inList := false
+	for _, s := range list {
+		if s == ast.Stmt(assign) {
+			inList = true
+			break
+		}
+	}
+	if !inList {
+		return false // a write inside a branch or loop may not happen
+	}
+	for _, rhs := range assign.Rhs {
+		for _, u := range st.uses[obj] {
+			if u.Pos() >= rhs.Pos() && u.Pos() < rhs.End() {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // makeSelector creates a pkg.method selector expression.
@@ -209,10 +451,10 @@ func makeCall(fun ast.Expr, args ...ast.Expr) *ast.CallExpr {
 
 // buildAssertCall builds the assertion call AST node.
 func buildAssertCall(pass *analysis.Pass, cond ast.Expr, tVar, assertPkg, assertFunc string) *ast.CallExpr {
-	// Handle negation
-	actualCond := cond
-	if unary, ok := cond.(*ast.UnaryExpr); ok && unary.Op == token.NOT {
-		actualCond = unary.X
+	// Handle negation. determineAssertFunc sees through parentheses, `!(a > b)` included.
+	actualCond := ast.Unparen(cond)
+	if unary, ok := actualCond.(*ast.UnaryExpr); ok && unary.Op == token.NOT {
+		actualCond = ast.Unparen(unary.X)
 	}
 
 	switch c := actualCond.(type) {
@@ -221,13 +463,12 @@ func buildAssertCall(pass *analysis.Pass, cond ast.Expr, tVar, assertPkg, assert
 
 	case *ast.BinaryExpr:
 		return buildBinaryAssert(pass, c, tVar, assertPkg, assertFunc)
-
-	case *ast.Ident:
-		// assert.True(t, x) or assert.False(t, x)
-		return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), c)
 	}
 
-	// Fallback: use actualCond (with negation unwrapped)
+	// Anything else is a boolean value: assert.True(t, x) or assert.False(t, x).
+	if assertFunc != "True" && assertFunc != "False" {
+		return nil
+	}
 	return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), actualCond)
 }
 
@@ -255,7 +496,10 @@ func buildCallAssert(pass *analysis.Pass, call *ast.CallExpr, tVar, assertPkg, a
 		}
 	}
 
-	// Fallback: wrap the entire call
+	// Fallback: the call is the boolean asserted on.
+	if assertFunc != "True" && assertFunc != "False" {
+		return nil
+	}
 	return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), call)
 }
 
@@ -304,8 +548,11 @@ func buildBinaryAssert(pass *analysis.Pass, bin *ast.BinaryExpr, tVar, assertPkg
 		return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), bin.X, bin.Y)
 	}
 
-	// Default: the plain argument pair
-	return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), bin.X, bin.Y)
+	// Default: the comparison is the boolean asserted on.
+	if assertFunc != "True" && assertFunc != "False" {
+		return nil
+	}
+	return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), bin)
 }
 
 // clearNodePositions recursively clears position information from all AST nodes
@@ -351,6 +598,10 @@ func clearNodePositions(node ast.Node) {
 			x.Rparen = token.NoPos
 		case *ast.AssignStmt:
 			x.TokPos = token.NoPos
+		case *ast.BranchStmt:
+			x.TokPos = token.NoPos
+		case *ast.ReturnStmt:
+			x.Return = token.NoPos
 		}
 		return true
 	})

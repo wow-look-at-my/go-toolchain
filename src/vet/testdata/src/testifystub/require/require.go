@@ -27,7 +27,15 @@ func Contains(t TestingT, s, contains interface{}, msgAndArgs ...interface{}) bo
 
 func NotContains(t TestingT, s, contains interface{}, msgAndArgs ...interface{}) bool { return true }
 
+func NoError(t TestingT, err error, msgAndArgs ...interface{}) bool { return true }
+
 // Ordering assertions mirror the assert stub.
+func Greater(t TestingT, e1, e2 interface{}, msgAndArgs ...interface{}) bool { return true }
+
+func GreaterOrEqual(t TestingT, e1, e2 interface{}, msgAndArgs ...interface{}) bool { return true }
+
+func LessOrEqual(t TestingT, e1, e2 interface{}, msgAndArgs ...interface{}) bool { return true }
+
 func Less(t TestingT, e1, e2 interface{}, msgAndArgs ...interface{}) bool { return true }
 
 func Lessf(t TestingT, e1, e2 interface{}, msg string, args ...interface{}) bool { return true }

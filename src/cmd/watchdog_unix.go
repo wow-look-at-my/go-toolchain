@@ -11,8 +11,8 @@ import (
 )
 
 // startWatchdog replaces the stdout and stderr descriptors with pipes,
-// forwarding all output to the original file descriptors while monitoring
-// for stalls. Returns nil if setup fails (non-fatal; build continues without monitoring).
+// forwarding all output to the file descriptors while monitoring for stalls.
+// Returns nil if setup fails (non-fatal; build continues without monitoring).
 func startWatchdog(threshold time.Duration) *outputWatchdog {
 	// Save original file descriptors
 	origStdoutFd, err := unix.Dup(1)

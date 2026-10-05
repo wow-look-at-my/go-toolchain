@@ -264,7 +264,7 @@ func b() { y := 1; _ = y }
 
 func TestRunOnFiles_ThresholdSensitivity(t *testing.T) {
 	t.Serial()
-	// A pair of functions that are somewhat similar but not identical
+	// A pair of functions that are similar but not identical
 	src := `package p
 
 func funcA() {
@@ -291,7 +291,7 @@ func funcB() {
 
 	files := map[string]*ast.File{"test.go": f}
 
-	// With a very high threshold, they should not match
+	// With a high threshold, they should not match
 	reportsHigh := RunOnFiles(files, fset, 0.99, 1)
 
 	// With a low threshold, they should match
@@ -345,9 +345,9 @@ func runBuildPhase(targets []string) {
 
 func TestRunOnFiles_IntraFunctionNoFalsePositive(t *testing.T) {
 	t.Serial()
-	// An if/else with genuinely different structure should not be flagged.
-	// The if-branch uses assignments + calls + return; the else-branch
-	// uses a for-loop + switch + defer — structurally very different.
+	// An if/else with genuinely different structure should not be flagged. The
+	// if-branch uses assignments + calls + return; the else-branch uses a
+	// for-loop + switch + defer — structurally different.
 	src := `package p
 
 func handleResult(ok bool) {

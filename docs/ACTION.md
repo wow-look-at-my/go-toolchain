@@ -34,7 +34,7 @@ A step that merely runs a command fails on its own exit code and matches nothing
 
 The magic is the header a fat APE opens with, `MZqFpD='`. And the interpreter is `/bin/sh`. There is no APE loader to install: the header IS a shell script, so the kernel handing the file to `sh` is the whole mechanism. What it buys is a bare `execve` of an APE. Without the entry only a shell can start one, and `go run`, `go test` and any exec from a program answer.
 
-The step needs root and a mounted `/proc/sys/fs/binfmt_misc`. A host that has neither keeps working: it warns, names what is missing, and exits 0. So the entry is a capability, never a requirement, and nothing downstream may assume it — see [MATRIX.md](MATRIX.md). The step is skipped outright on macOS and Windows, which have no such mechanism.
+The step needs root and a mounted `/proc/sys/fs/binfmt_misc`. A host that has neither keeps working: it warns, names what is missing, and exits 0. So the entry is a capability, not a requirement, and nothing downstream may assume it — see [MATRIX.md](MATRIX.md). The step is skipped outright on macOS and Windows, which have no such mechanism.
 
 Registering is idempotent. An entry that is already present and enabled is left alone. One that is present and disabled is reported rather than silently counted as working, since a disabled entry execs nothing.
 
@@ -50,7 +50,7 @@ Registering is idempotent. An entry that is already present and enabled is left 
 
 The magic is the header a fat APE opens with, `MZqFpD='`, and the interpreter is `/bin/sh`. There is no APE loader to install: the header IS a shell script, so the kernel handing the file to `sh` is the whole mechanism. What it buys is a bare `execve` of an APE. Without the entry only a shell can start one. `go run`, `go test` and any exec from a program then answer `exec format error`. This repo's own CI has shipped that message for `trace.test` (see [CI.md](CI.md)).
 
-The step needs root and a mounted `/proc/sys/fs/binfmt_misc`. A host that has neither keeps working. It warns, names what is missing, and exits 0, because every caller in this org already reaches an APE through a shell. The entry is therefore a capability, never a requirement, and nothing downstream may assume it (see [MATRIX.md](MATRIX.md)). The step is skipped outright on macOS and Windows, which have no such mechanism.
+The step needs root and a mounted `/proc/sys/fs/binfmt_misc`. A host that has neither keeps working. It warns, names what is missing, and exits 0, because every caller in this org already reaches an APE through a shell. The entry is therefore a capability, not a requirement, and nothing downstream may assume it (see [MATRIX.md](MATRIX.md)). The step is skipped outright on macOS and Windows, which have no such mechanism.
 
 Registering is idempotent. An entry that is already present and enabled is left alone. One that is present and disabled is reported rather than silently counted as working, because a disabled entry execs nothing.
 
@@ -58,15 +58,13 @@ Registering is idempotent. An entry that is already present and enabled is left 
 
 ## 1b4. The sandbox backend
 
-The action installs bubblewrap on every Linux run with `wow-look-at-my/actions@cached-apt#latest`, before the build. The dats phase sandboxes every suite command. Without bubblewrap it falls back to docker, which runs the suites in a container with no host Go for the bootstrap.
-`wow-look-at-my/dats/.github/actions/install-sandbox-backend@master` runs before the build. dats owns the sandbox, so it owns putting a backend on the runner, and this action holds no copy of that install. The dats phase sandboxes every suite command. Without a backend it falls back to docker, which runs the suites in a container with no host Go for the bootstrap.
+The action installs bubblewrap on every Linux run with `wow-look-at-my/actions@cached-apt#latest`, before the build. The dats phase sandboxes every suite command. Without bubblewrap it falls back to docker, which runs the suites in a container with no host Go for the bootstrap. `wow-look-at-my/dats/.github/actions/install-sandbox-backend@master` runs before the build. dats owns the sandbox. As a result, it owns putting a backend on the runner. This action holds no copy of that install. The dats phase sandboxes every suite command. Without a backend it falls back to docker, which runs the suites in a container with no host Go for the bootstrap.
 
-The go command also confines a dependency's generate directive. It stops the build when it cannot. So a module needs a backend for what its dependencies generate, whether or not it has suites of its own.
+The go command also confines a dependency's generate directive. It stops the build when it cannot. So a module needs a backend for what its dependencies generate, whether it has suites of its own.
 
 The install therefore runs on every Linux run. A module's own tree says nothing about what its dependencies generate. The cached-apt step restores bubblewrap from the cache on a hit, so a warm run skips `apt-get`. On macOS and Windows the step installs nothing, because those hosts have other backends or none.
 
-A consumer therefore drops its own bubblewrap step.
-The step therefore runs on every build. A module's own tree says nothing about what its dependencies generate, and the resolution that answers it runs later. A host where the backend already builds a sandbox pays one probe. Otherwise dats installs it, clears the two user-namespace knobs a kernel may gate it behind, and probes again. A host where the probe still fails fails the job there, with its own error. It never degrades unnoticed. macOS carries seatbelt and Windows gets a WSL backend, so no host is skipped.
+A consumer therefore drops its own bubblewrap step. The step therefore runs on every build. A module's own tree says nothing about what its dependencies generate, and the resolution that answers it runs later. A host where the backend already builds a sandbox pays one probe. Otherwise dats installs it, clears the user-namespace knobs a kernel may gate it behind, and probes again. A host where the probe still fails fails the job there, with its own error. It never degrades unnoticed. macOS carries seatbelt and Windows gets a WSL backend, so no host is skipped.
 
 A consumer therefore drops its own bubblewrap step. The contract, and the suite covering it, live in dats.
 
@@ -76,9 +74,13 @@ buildhost's own `buildhost-download` action fetches the binary into `$RUNNER_TEM
 
 **The download carries no branch pin.** buildhost's bare "latest" resolves against the project's default branch.
 
-The probe then runs `go-toolchain version` and captures its output rather than discarding it. So the real reason the binary is unusable is shown: a crash or an unrunnable binary. A source build happens only where the caller opted in, and it writes into the same directory. A silent fallback hides a buildhost outage and ships a locally-compiled toolchain that can differ from the released one.
+The probe then runs `go-toolchain version` and captures its output rather than discarding it. So the real reason the binary is unusable is shown: a crash or an unrunnable binary. A source build happens only where the caller opted in. It writes into the same directory. A silent fallback hides a buildhost outage and ships a locally-compiled toolchain that can differ from the released one.
 
 A caller-provided `binary:` is staged through `/tmp` and pre-run once for the same APE reason. Staging also keeps the caller's own file byte-identical. For a native binary this changes nothing.
+
+## 1c2. cosmocc
+
+`cgo: true` installs cosmocc (`.github/scripts/install-cosmocc.sh`, one release pinned by digest) in `/opt/cosmocc` and puts its bin on PATH. The fork compiles a cgo package's C with `x86_64-unknown-cosmo-cc` and `aarch64-unknown-cosmo-cc`, one per payload of the fat APE. It links each payload with the raw `<arch>-linux-cosmo-gcc` beside them. The script runs as root where it is root and through sudo elsewhere, so a container job without sudo still installs. This repository's own build installs it too: embedstd compiles runtime/cgo into the standard library the binary carries.
 
 ## 1d. The generators a dependency needs
 
@@ -123,7 +125,7 @@ Being distinct per job, per matrix leg, AND per build is the point: concurrent g
     path: dist   # no name: self-discovers this run's hand-off
 ```
 
-Nameless discovery is clean only when the run's hand-off set is unambiguous at download time (the exact ambiguity semantics belong to `cache-download` — see its docs). A run that saves several distinct hand-offs — several go-toolchain jobs, a matrix go-toolchain job, or extra `cache-upload` hand-offs alongside the build outputs.
+Nameless discovery is clean only when the run's hand-off set is unambiguous at download time (the exact ambiguity semantics belong to `cache-download` — see its docs). A run can save several distinct hand-offs. Examples are several go-toolchain jobs, a matrix go-toolchain job, or extra `cache-upload` hand-offs alongside the build outputs.
 
 **This is the only name saved.** The pre-build per-job name `go-build-<job>[.m<idx>]` and the bare `go-build` alias are gone. Each was a second key that a multi-producer run raced on. So the second finisher's save collided and had to be absorbed with `continue-on-error`. The action now saves ONE hand-off, under that name. A download naming anything else restores nothing. That is why this repo's own `identical`, `smoke` and `publish` jobs spell `go-build-build.broot` in full. A consumer that still downloads either legacy name gets a miss and must migrate to the name above. `src/cmd/handoffname_test.go` pins both the template and the absence of any second hand-off.
 
@@ -164,7 +166,7 @@ The case that does not register is a publish whose target server is loopback or 
 
 ## 5. One head per run across several jobs
 
-A workflow needs nothing for this. The fork's go command locks each org module's branch head per run attempt in buildhost, and every job of the attempt builds it ([ORG-PINS.md](ORG-PINS.md#one-head-per-ci-run-the-buildhost-run-lock)). The job only needs `id-token: write`, which the action already requires.
+A workflow needs nothing for this. The fork's go command locks each org module's branch head per run attempt in buildhost. Every job of the attempt builds it ([ORG-PINS.md](ORG-PINS.md#one-head-per-ci-run-the-buildhost-run-lock)). The job only needs `id-token: write`, which the action already requires.
 
 ---
 

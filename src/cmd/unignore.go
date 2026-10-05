@@ -14,7 +14,6 @@ import (
 var unignoreCmd = &cobra.Command{
 	Use:   "unignore",
 	Short: "Remove build-check exemptions",
-	// PersistentPreRunE is set in init(): referencing unignoreCmd here would be an initialization cycle.
 }
 
 // unignorePreRun confirms interactively, then chains to the root PersistentPreRunE via unignoreCmd's OWN

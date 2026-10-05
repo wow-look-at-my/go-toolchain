@@ -10,6 +10,8 @@ Every job of a run attempt builds the same head of each org module and of the fo
 
 Builds go-toolchain from source with the previous release as the bootstrap (the passes and the from-scratch fallback are described under build-everywhere and identical below). Its cache-validation step runs `build/go-toolchain` again over the same tree and holds the warm build to a time ceiling.
 
+Every job that builds this binary installs cosmocc first, with `.github/scripts/install-cosmocc.sh`. They are host-build, build, bootstrap-scratch and build-everywhere. The build job gets it through the action. embedstd compiles runtime/cgo for both architectures into the standard library the binary carries. A host without the compiler will carry a different library than the others. The smoke job installs it too, for the cgo module it builds through the shipped APE.
+
 **Build-log duration regression guard.** The "Build and test" step (`go run ./src`) tees its output to `$RUNNER_TEMP/build-log.txt` (`set -euo pipefail` — GHA's default `bash -e {0}` has no `pipefail`. So a plain `cmd | tee file` will let a real build/test failure hide behind `tee`'s own exit code). This job's `cache: false` setup-go guarantees a cold module cache. So `go mod tidy -v`'s verbose `go: downloading X` / `go: found X` lines always fire — exactly the output where a real bug shipped once. A wrapper stamped even sub-second lines with a duration (`go: downloading X 0.00s`), because it forgot to gate on a minimum elapsed time (see `src/logx/logx.go`'s `minDurationToShow` and `src/cmd/console.go`'s `timedLineWriter` / `timedLineMinDuration`, both fixed to require >= 1s before stamping).
 
 Follow-up steps check the capture. First, `ansifilter` strips the ANSI color codes, after a sanity check that raw ANSI codes are present. It is not this repo's own `ansiRE`, so a bug in that regex cannot also blind the test. Then a TypeScript step asserts no `go: `-prefixed line (cmd/go's own messages, which never carry a duration themselves — any stamp there was added by us) carries a duration under 1s. So the check cannot silently pass by verifying nothing. It is deliberately scoped to `go: ` lines rather than "any duration under 1s anywhere in the log". Go-toolchain's own named step/test timers (e.g. `vet: gofmt 0.17s`) are intentionally unconditional — a named operation's own time is always worth reporting — and must not be flagged.
@@ -77,9 +79,9 @@ An answer that differs by host is asserted by PAIRING it with `uname -s` on one 
 
 The guard regression staged into the pipeline test's module is one file too. It runs INSIDE the sandbox, so its host is Linux under a docker backend and Darwin under seatbelt, and the same uname pairing covers both.
 
-The job is `timeout-minutes`-bounded and downloads the `go-build-build.broot` hand-off the `build` job uploaded, via `wow-look-at-my/actions@cache-download#latest` (run-keyed cross-OS cache wrapper. The download `path` is the destination directory). The action names its hand-off `go-build-<job id>.b<build>` per calling job and build (the sanitized `working-directory`, `root` for `.`), with a `.m<job-index>` suffix per leg when the caller is a matrix job. So concurrent same-run saves never collide on one key. That is the only name it saves.
+The job is `timeout-minutes`-bounded and downloads the `go-build-build.broot` hand-off the `build` job uploaded, via `wow-look-at-my/actions@cache-download#latest` (run-keyed cross-OS cache wrapper. The download `path` is the destination directory). The action names its hand-off `go-build-<job id>.b<build>` per calling job and build (the sanitized `working-directory`, `root` for `.`). A matrix job adds a `.m<job-index>` suffix per leg. So concurrent same-run saves never collide on one key. That is the only name it saves.
 
-The suite EXECUTES throwaway copies of the artifacts in `dist/`, never the downloaded file itself. Every leg runs the SAME file, `dist/go-toolchain` — there is a single artifact now, and each leg proves it boots on that host.
+The suite EXECUTES throwaway copies of the artifacts in `dist/`, not the downloaded file itself. Every leg runs the SAME file, `dist/go-toolchain` — there is a single artifact now, and each leg proves it boots on that host.
 
 **linux** — APE magic `MZqFpD`, then `version`, `--help`, host detection, and the FULL default pipeline in a tiny module under the APE. The agent-output-guard regression is a committed dats fixture (`.github/dats-fixtures/agent-output-guard.dats`), copied into that module's `dats/` dir and run automatically by the pipeline's dats phase.
 
@@ -134,7 +136,7 @@ The type-check reads each dependency's export data, its compiled API, instead of
 
 ## The pipeline links the toolchain it builds with
 
-`go/parser`, `go/types`, `cmd/compile`, `cmd/link` and the standard library are one fork commit, built in one pass. The `gosmopolitan` submodule is that commit. `go-toolchain version` names it. A newer fork ships by a push to this repository that moves the submodule, never by a download.
+`go/parser`, `go/types`, `cmd/compile`, `cmd/link` and the standard library are one fork commit, built in one pass. The `gosmopolitan` submodule is that commit. `go-toolchain version` names it. A newer fork ships by a push to this repository that moves the submodule, not by a download.
 
 ## A test binary is an APE, like everything else
 
@@ -221,11 +223,11 @@ The tripwires themselves are asserted by `.github/dats-fixtures/cache-profile.da
 
 ### Build socketharness
 
-socketharness reproduces a coding agent's own tool-execution plumbing (a socketpair for a child's stdio, not a bare pipe -- see docs/AGENT-OUTPUT-GUARD.md) so smoke-linux/smoke-macos can prove the actual reported bug against the real shipped binaries. Built here as one APE by the linked go command (the embedded standard library is cosmo-only, so there is no native cross-compile), which both smoke hosts run, rather than via `setup-go` on smoke-macos. That will put Go on that runner's PATH before the "Full pipeline" step and quietly defeat the whole point of that job. Proving go-toolchain's OWN bootstrap works on a genuinely Go-less mac.
+socketharness reproduces a coding agent's own tool-execution plumbing (a socketpair for a child's stdio, not a bare pipe -- see docs/AGENT-OUTPUT-GUARD.md). With it, smoke-linux/smoke-macos can prove the actual reported bug against the real shipped binaries. Built here as one APE by the linked go command (the embedded standard library is cosmo-only, so there is no native cross-compile), which both smoke hosts run, rather than via `setup-go` on smoke-macos. That will put Go on that runner's PATH before the "Full pipeline" step and quietly defeat the whole point of that job. Proving go-toolchain's OWN bootstrap works on a genuinely Go-less mac.
 
 ### build
 
-Build + test via the composite action with NO target inputs, which is exactly what a consumer gets. ONE GOOS=cosmo fat APE (go-toolchain) covering linux/amd64, darwin/arm64 and windows/amd64, plus the buildhost-artifacts.json manifest that publishes it as a single multi-platform artifact. No per-platform copies, no native cross-compiles.
+Build + test via the composite action with NO target inputs, which is exactly what a consumer gets. ONE GOOS=cosmo fat APE (go-toolchain) covering linux/amd64, darwin/arm64 and windows/amd64. The buildhost-artifacts.json manifest beside it publishes it as a single multi-platform artifact. No per-platform copies, no native cross-compiles.
 
 This job publishes too. The action publishes every executable binary it builds, and no input turns that off. So the APE reaches buildhost here, before `identical` and `smoke` read it. The `cleanup` job below outlives both gates to drop the run's hand-offs.
 
@@ -239,7 +241,7 @@ Explicit name (host-build's "Upload host binary" hand-off): the strict cache-dow
 
 ### uses: ./
 
-The go-toolchain action itself cache-uploads build/ under the per-job+build name `go-build-<job id>.b<build>` on every run (unconditional) -- here that is `go-build-build.broot`, which the identical. The job id and build identity in the name keep concurrent same-run invocations (in other repos: the linux + darwin two-job pattern, or builds in one job) from colliding on one run-scoped key. There is no standalone upload step here.
+The go-toolchain action itself cache-uploads build/ under the per-job+build name `go-build-<job id>.b<build>` on every run (unconditional). Here that is `go-build-build.broot`, which the `identical` job downloads. The job id and build identity in the name keep concurrent same-run invocations (in other repos: the linux + darwin two-job pattern, or builds in one job) from colliding on one run-scoped key. There is no standalone upload step here.
 
 ### timeout: '15
 
@@ -247,7 +249,7 @@ The cosmo target additionally downloads + extracts the gosmopolitan toolchain an
 
 ### smoke-linux
 
-Cross-OS smoke of the actual release artifacts: download the build-output hand-off the `build` job uploaded (exactly the bytes it published) and RUN the APE on each host OS. APEs self-assimilate on first exec -- they rewrite their own header in place to the host's native format -- so every job runs a throwaway copy. These jobs have no checkout, so build/ lands in an otherwise empty workspace.
+Cross-OS smoke of the actual release artifacts. Each job downloads the build-output hand-off the `build` job uploaded (exactly the bytes it published) and RUNS the APE on its host OS. APEs self-assimilate on first exec -- they rewrite their own header in place to the host's native format -- so every job runs a throwaway copy. These jobs have no checkout, so build/ lands in an otherwise empty workspace.
 
 ### uses: actions/checkout@v7
 
@@ -259,7 +261,7 @@ Explicit name on purpose: by this point the run holds SEVERAL hand-offs (host-go
 
 ### Download socketharness hand-off
 
-socketharness reproduces a coding agent's own tool-execution plumbing (a socketpair for a child's stdio, not a bare pipe -- see docs/AGENT-OUTPUT-GUARD.md). The guard fixture below can prove the actual reported bug against the real shipped APE. Cross-compiled in host-build (which already has Go set up) rather than via setup-go here -- see smoke-macos, where installing Go on that runner will defeat the point of that job.
+socketharness reproduces a coding agent's own tool-execution plumbing (a socketpair for a child's stdio, not a bare pipe -- see docs/AGENT-OUTPUT-GUARD.md). The guard fixture below can prove the actual reported bug against the real shipped APE. Cross-compiled in host-build (which already has Go set up) rather than via setup-go here. See smoke-macos, where installing Go on that runner will defeat the point of that job.
 
 ### Linux smoke suite
 
@@ -312,13 +314,13 @@ One APE runs on several hosts, so everything host-specific it does -- toolchain 
 
 Full default pipeline: macos-latest has no Go on PATH. So this is the job's first real bootstrap, then tidy/vet/test/coverage/build. The dats phase over the guard fixture staged beside the module.
 
-That guard regression is a committed dats fixture (.github/dats-fixtures/agent-output-guard.dats), not hand-rolled bash. Go-toolchain links dats in and runs any dats/ suite found (recursively) in the module it is building -- there is no separate suite-running step. That is exactly why this fixture is copied in rather than checked in under this repo's OWN dats/. A suite asserting darwin-host behavior will also run (and fail) during this repo's own linux build/host-build jobs, which discover every dats/ suite recursively with no filtering. That inner phase sandboxes every command to the module root, so the binary under test must live INSIDE.
+That guard regression is a committed dats fixture (.github/dats-fixtures/agent-output-guard.dats), not hand-rolled bash. Go-toolchain links dats in and runs any dats/ suite found (recursively) in the module it is building -- there is no separate suite-running step. That is exactly why this fixture is copied in rather than checked in under this repo's OWN dats/. A suite asserting darwin-host behavior will also run (and fail) during this repo's own linux build/host-build jobs. Those jobs discover every dats/ suite recursively with no filtering. That inner phase sandboxes every command to the module root, so the binary under test must live INSIDE.
 
 ### the guard allows a plain run whose socket reader is the agent itself
 
 The same socket cases the guard fixture runs, but outside any sandbox -- the shape a real opencode user has, since nothing sandboxes them. The two are not redundant: seatbelt is itself a variable the classifier's probes answer differently under. So a disagreement between these tests and the fixture localizes the defect to the sandbox rather than to the guard.
 
-Each case gets a go.mod in the RUN DIRECTORY ITSELF, or the child never reaches the guard. With no go on PATH, main.go's bootstrap reads the version to fetch out of ./go.mod and exits before cobra runs when there is none. It does not walk up (MEASURED: one directory above was not enough). The guard fixture never hits this: its suites run from inside go-toolchain's own pipeline, which has a go by then. The version matches what the pipeline test already cached, so this bootstraps from disk instead of downloading a second toolchain.
+Each case gets a go.mod in the RUN DIRECTORY ITSELF, or the child never reaches the guard. With no go on PATH, main.go's bootstrap reads the version to fetch out of ./go.mod. When there is none, it exits before cobra runs. It does not walk up (MEASURED: one directory above was not enough). The guard fixture never hits this: its suites run from inside go-toolchain's own pipeline, which has a go by then. The version matches what the pipeline test already cached, so this bootstraps from disk instead of downloading a second toolchain.
 
 Every binary is copied from the pristine handed-off artifact rather than from one an earlier test ran. An APE rewrites its own file on first exec. So a copy of one that has run is the thing a mac user downloads. The guard fixture copies pristine too, which is what makes the two comparable.
 

@@ -14,7 +14,7 @@ The dats library's own contract carries the interesting half. `Run` returns an e
 
 ## Repos with no go.mod
 
-`run()` used to stop at `no go.mod found` before doing anything, which made the dats phase unreachable for a repo that is not Go. That was the wrong boundary. The CLI a suite exercises does not have to be written in Go, and dats is linked in here rather than distributed on its own. The practical effect was that a shell or TypeScript repo wanting its suites run had to fetch a standalone dats binary and hand-wire a CI.
+`run()` used to stop at `no go.mod found` before doing anything, which made the dats phase unreachable for a repo that is not Go. That was the wrong boundary. The CLI a suite exercises does not have to be written in Go, and dats is linked in here rather than distributed on its own. In practice, a shell or TypeScript repo that wanted its suites run had to fetch a standalone dats binary. It also had to hand-wire a CI.
 
 So when `findGoModules()` comes back empty, `run()` checks `hasDatsSuites(".")` and, if there are suites, hands off to `runDatsOnly`:
 
@@ -36,7 +36,7 @@ The positive case is covered by unit tests (`TestRunDatsOnly*`), not by `dats/cl
 
 It has to be inside the module root because dats sandboxes every suite command. A staging dir under `$TMPDIR` is invisible to every backend, and every suite fails its setup command. `build/` is gitignored in every repo go-toolchain builds, so staging there never dirties the tree.
 
-Copies, never in-place execution: the matrix cosmo artifact is a fat APE that rewrites its own file on first exec. So nothing may ever execute a `build/` artifact where it sits.
+Copies, not in-place execution: the matrix cosmo artifact is a fat APE that rewrites its own file on first exec. So nothing may ever execute a `build/` artifact where it sits.
 
 Staged names are the bare `OutputName` plus `.exe` on windows hosts. The root path stages what `runBuildPhase` built. The matrix path stages the host-named `build.BinaryName(name, hostos.GOOS(), runtime.GOARCH)` artifact. A missing host artifact is Debug-logged and skipped, so a cross-only build still runs its suites (and fails honestly if it needed one).
 

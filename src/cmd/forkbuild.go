@@ -8,8 +8,7 @@ import (
 )
 
 // forkBuildEnv is everything a build job takes from the toolchain this binary
-// links. Both the default build phase and the matrix path resolve it through
-// here rather than each assembling their own half of it.
+// links.
 type forkBuildEnv struct {
 	// goCmd starts the go command: the go link to this executable.
 	goCmd []string
@@ -77,17 +76,17 @@ func joinLDFlags(stamp, caller string) string {
 	return stamp + " " + caller
 }
 
-// warnCGOUnavailable says so when --cgo was asked for. Neither output this
-// pipeline produces has cgo, so the flag changes nothing about the build, and
-// a silently ignored flag reads as a working flag.
-func warnCGOUnavailable(hasAPE, hasWasm bool) {
-	if !cgoEnabled {
-		return
+// cgoEnabledValue is the CGO_ENABLED a build for goos runs with.
+func cgoEnabledValue(goos string) string {
+	if cgoEnabled && goos == cosmoOS {
+		return "1"
 	}
-	if hasAPE {
-		logger.Warn("⇒ Warning: --cgo has no effect on the cosmo target (cosmopolitan has no cgo; CGO_ENABLED=0 is forced)")
-	}
-	if hasWasm {
+	return "0"
+}
+
+// warnCGOUnavailable says so when --cgo was asked for and a wasm target is built. A silently ignored flag reads as a working flag.
+func warnCGOUnavailable(hasWasm bool) {
+	if cgoEnabled && hasWasm {
 		logger.Warn("⇒ Warning: --cgo has no effect on wasm targets (WebAssembly has no cgo; CGO_ENABLED=0 is forced)")
 	}
 }

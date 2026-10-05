@@ -34,9 +34,9 @@ func newGoModRepo(t *testing.T, goLine string) (dir, mod string) {
 	return dir, mod
 }
 
-// A rewrite that lands the same bytes is not an edit. The windows leg failed a
-// green build over such a rewrite, so the refresh must clear it - and must
-// still name a file whose content really moved.
+// A rewrite that lands the same bytes is not an edit. The windows leg failed
+// a green build over such a rewrite, so the refresh must clear it - and must
+// still name a file whose content moved.
 func TestRefreshGitIndexClearsAStatOnlyChange(t *testing.T) {
 	t.Serial()
 	dir, mod := newGoModRepo(t, "go 1.27")

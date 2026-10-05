@@ -40,7 +40,7 @@ go-toolchain writes `buildhost-artifacts.json` at the root of the directory it p
 
 `PUT /api/v1/projects/{project}/releases/{version}/artifacts/ape?platforms=<os/arch,...>`
 
-One request, one blob, one row. The literal `ape` segment replaces the `{os}/{arch}` pair, which is why buildhost's `os=cosmo` rejection — a rule of the per-platform grammar — cannot fire on this path. The server 400s if the bytes are not an APE (`MZqFpD` at offset 0) and `platforms` names more than one platform.
+One request, one blob, one row. The literal `ape` segment replaces the `{os}/{arch}` pair. That is why buildhost's `os=cosmo` rejection, a rule of the per-platform grammar, cannot fire on this path. The server 400s if the bytes are not an APE (`MZqFpD` at offset 0) and `platforms` names more than one platform.
 
 ## Producing it
 

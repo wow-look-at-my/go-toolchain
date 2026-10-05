@@ -13,10 +13,7 @@ import (
 
 // Only the dup2 implementations reach these, and windows has none.
 
-// watchdogOff reports that no stall monitoring is running, and why. Every
-// startWatchdog path that gives up takes this: a build with no watchdog looks
-// exactly like a build that never stalled, so the absence has to be stated or
-// a silent phase is read as a fast one.
+// watchdogOff reports that no stall monitoring is running, and why.
 func watchdogOff(reason string, args ...any) *outputWatchdog {
 	logger.Warn("watchdog: no stall monitoring this run: "+reason, args...)
 	return nil
@@ -39,9 +36,9 @@ func (w *outputWatchdog) forward(src, dst *os.File) {
 	}
 }
 
-// watchLoop checks on a fixed tick whether output has stalled and prints
-// a warning to the original stderr (not the intercepted fd, to avoid
-// resetting the timer).
+// watchLoop checks on a fixed tick whether output has stalled and prints a
+// warning to the stderr (not the intercepted fd, to avoid resetting the
+// timer).
 func (w *outputWatchdog) watchLoop(ctx context.Context) {
 	defer close(w.done)
 	ticker := time.NewTicker(1 * time.Second)
