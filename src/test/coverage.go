@@ -244,11 +244,11 @@ func filterBlocksByReachable(blocks []coverageBlock, reachable set.Set[string]) 
 	return filtered
 }
 
-// parseProfileBlocks parses a coverage profile into blocks.
-// Duplicate entries (same file + line range) are merged by taking the max
-// count. A recent Go with -coverpkg=./... and a serial -p emits an entry per
-// test-package per block, so without merging, statements get counted per test
-// package, which dramatically deflates the coverage percentage.
+// parseProfileBlocks parses a coverage profile into blocks. Duplicate entries
+// (same file + line range) are merged by taking the max count. A recent Go
+// with -coverpkg=./... and a serial -p emits an entry per test-package per
+// block, so without merging, statements get counted per test package. This
+// dramatically deflates the coverage percentage.
 func parseProfileBlocks(filename string) ([]coverageBlock, error) {
 	file, err := os.Open(filename)
 	if err != nil {

@@ -10,8 +10,8 @@ import (
 )
 
 // GOOS=cosmo (gosmopolitan) counts as `unix`, but golang.org/x/sys/unix has
-// no cosmo port, so this file mirrors watchdog_unix.go using the fork's
-// stdlib syscall package instead: the cosmo port exposes Dup, Dup2 (via
+// no cosmo port. This file mirrors watchdog_unix.go using the fork's stdlib
+// syscall package instead: the cosmo port exposes Dup, Dup2 (via
 // Dup3), and Close directly. Keep both implementations in sync.
 
 // startWatchdog replaces the stdout and stderr descriptors with pipes,

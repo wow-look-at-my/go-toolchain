@@ -28,7 +28,7 @@ type importRewrite struct{ old, new string }
 // wow-look-at-my/testify fork and routes each offending file through ed. A
 // fix-mode editor rewrites the import to upstream stretchr/testify and resyncs
 // the module graph (go mod tidy, plus go mod vendor when the repo vendors its
-// dependencies); a check-mode (CI) editor records a violation instead, so a
+// dependencies). A check-mode (CI) editor records a violation instead, so a
 // tree still on the fork fails CI rather than passing green. (The fork is being
 // removed, so an unmigrated import is a latent unresolvable-module break.)
 //
@@ -84,7 +84,7 @@ func FixTestifyImports(ed Editor) (bool, error) {
 	return anyWrote, nil
 }
 
-// renderTestifyImports parses filename and returns its source with every
+// renderTestifyImports parses filename. It returns its source with every
 // wow-look-at-my/testify fork import rewritten to upstream stretchr/testify
 // (sub-package path preserved), along with the list of rewrites. It performs no
 // write; a file with no fork import returns (nil, nil, nil).
