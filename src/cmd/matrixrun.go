@@ -210,8 +210,8 @@ func runReleaseInto(r runner.CommandRunner, sd *summary.SummaryData) (err error)
 	}
 
 	// Wasm artifacts default to buildhost's publishable naming (<name>_wasm_js /
-	// <name>_wasm_wasip1), which needs a buildhost with wasm artifact support --
-	// an older server rejects the upload and aborts the whole publish, so warn
+	// <name>_wasm_wasip1), which needs a buildhost with wasm artifact support.
+	// An older server rejects the upload and aborts the whole publish, so warn
 	// about the requirement and the opt-out. The wasmPublishEnv opt-out switches
 	// to the excluded .wasm-suffixed shape, which the publish upload set never
 	// matches (it only takes <binary>_{os}_{arch} after stripping .exe) but

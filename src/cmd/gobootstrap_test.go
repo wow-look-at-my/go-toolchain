@@ -105,8 +105,8 @@ func TestPathWithFirst(t *testing.T) {
 	assert.Equal(t, "/link", pathWithFirst("/link", "", "linux"))
 }
 
-// A fork older than the module's go directive has no fallback to hide behind:
-// there is no other toolchain, so this fails and names the repair.
+// A fork older than the module's go directive has no fallback to hide behind.
+// There is no other toolchain, so this fails and names the repair.
 func TestForkSatisfiesGoMod(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()

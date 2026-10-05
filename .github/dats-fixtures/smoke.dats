@@ -5,7 +5,7 @@
 #
 # Every leg runs it SANDBOXED, like every other suite. Turning isolation off is
 # not available here and must not be reintroduced: the run-starter owns that
-# decision, and the suites exist to prove the shipped artifact behaves under the
+# decision. The suites exist to prove the shipped artifact behaves under the
 # isolation a consumer gets.
 #
 # The APE is copied under an .exe name on every host. NT needs the suffix, a
@@ -66,7 +66,7 @@ tests:
 			- "GUESSED"
 
 	# The whole pipeline, driven by the APE, in a synthetic consumer module:
-	# tidy resolves testify, vet type-checks, the test runs, the build writes a
+	# tidy resolves testify, vet type-checks, the test runs. The build writes a
 	# binary.
 	- desc: the full pipeline runs in a tiny module on this host
 	  cmd: 'mkdir -p "$HOME"; cd "$(dirname {inputs.go.mod})"; chmod +x ./gt-under-test.exe; {shared.gt-ape.exe}'
@@ -76,14 +76,15 @@ tests:
 			# The pipeline caches the fork under $HOME, and the sandbox makes only this
 			# test's own directory writable. Named here rather than inherited: bwrap
 			# takes the host's home out of the mount namespace so the APE falls back to
-			# somewhere writable, while seatbelt leaves the path visible and read-only,
-			# so the same command works on linux and is denied on darwin.
+			# somewhere writable, while seatbelt leaves the path visible and read-only.
+			# The same command works on linux and is denied on darwin.
 			HOME: "{outputs.home}"
 			# The fork refuses to run any go command with CI set and no shared
-			# cache configured, because a real CI build's cache decides whether
-			# every other CI run recompiles. This build is a throwaway module in
-			# a sandbox with no credentials and no network, so it has no cache to
-			# contribute and the refusal only says the runner is a runner.
+			# cache configured. This is because a real CI build's cache decides
+			# whether every other CI run recompiles. This build is a throwaway
+			# module in a sandbox with no credentials and no network. It has no
+			# cache to contribute and the refusal only says the runner is a
+			# runner.
 			CI: ""
 		copy:
 			gt-under-test.exe: ../../dist/go-toolchain

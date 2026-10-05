@@ -40,7 +40,7 @@ jobs:
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
-      # The last release a green master run published is the bootstrap, as it is for every consumer; a release without the linked go command hands the job to the from-scratch steps below. see docs/CI.md
+      # The last release a green master run published is the bootstrap, as it is for every consumer. A release without the linked go command hands the job to the from-scratch steps below. see docs/CI.md
       - name: Take the previous release
         id: bootstrap
         uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
@@ -72,7 +72,7 @@ jobs:
             echo "linked=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # The fork's last published release is the bootstrap compiler for its make.bash: its go command carries the cache client in process, so go_bootstrap compiles from the shared cache; a stock Go cannot reach it.
+      # The fork's last published release is the bootstrap compiler for its make.bash. Its go command carries the cache client in process, so go_bootstrap compiles from the shared cache. A stock Go cannot reach it.
       - name: Take the fork's release
         if: steps.release.outputs.linked != 'true'
         uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
@@ -667,7 +667,7 @@ jobs:
       - name: Where the from-scratch bootstrap differs
         run: bash .github/scripts/explain-mismatch.sh ape/linux/go-toolchain ape/scratch/go-toolchain
 
-      # The cross-host pairs are the ones the fixture below actually compares, so a red run says which bytes moved rather than only that some did.
+      # The cross-host pairs are the ones the fixture below actually compares. A red run says which bytes moved rather than only that some did.
       - name: Where each host's APE differs from the linux one
         run: |
           for host in darwin windows; do
@@ -737,7 +737,7 @@ jobs:
       - name: Smoke suite
         uses: wow-look-at-my/dats@master
         env:
-          # The org proxy wants auth to look up a module it has never seen, and this job's throwaway module always is a single see docs/CI.md
+          # The org proxy wants auth to look up a module it has never seen. This job's throwaway module always is a single see docs/CI.md
           GO_PROXY_CONFIG: ""
         with:
           tests: .github/dats-fixtures/smoke.dats

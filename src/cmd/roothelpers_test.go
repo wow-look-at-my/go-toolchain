@@ -144,7 +144,7 @@ func TestFindGoModules_NoModules(t *testing.T) {
 }
 
 // Subcommands of skip-listed commands (e.g. `version raw`) must inherit the
-// cache skip — cobra passes the leaf command to PersistentPreRunE, so the
+// cache skip — cobra passes the leaf command to PersistentPreRunE. The
 // skip check has to walk ancestors. Regression test for the release-job
 // "Determine tag" failure from `./build/go-toolchain version raw`.
 func TestSkipCache_VersionSubcommandsSkip(t *testing.T) {

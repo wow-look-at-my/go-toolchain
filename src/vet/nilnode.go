@@ -1,11 +1,11 @@
 // nilnode.go guards the way ast.Inspect panics on a tree that parsed fine.
 //
 // Many node fields in go/ast are legitimately absent: a FuncDecl.Body a
-// function implemented in assembly never had, an IfStmt.Else with no else, a
-// ForStmt.Init of a bare loop. Each is a nil POINTER, and handing such a field
-// to ast.Inspect wraps it in an interface that is not nil. ast.Walk switches
-// on the dynamic type, matches, and dereferences. The callback's own
-// `n == nil` guard cannot help: it never runs.
+// function implemented in assembly never had, an IfStmt.Else. This holds with
+// no else, a ForStmt.Init of a bare loop. Each is a nil POINTER, and handing
+// such a field to ast.Inspect wraps it in an interface that is not nil.
+// ast.Walk switches on the dynamic type, matches, and dereferences. The
+// callback's own `n == nil` guard cannot help: it never runs.
 package vet
 
 import (

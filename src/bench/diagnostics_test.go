@@ -12,7 +12,7 @@ import (
 
 // buildFailureStream is what `go test -json` emits when a test binary will not
 // build. It is captured verbatim from a real run, because the shape is the
-// whole point: the compiler's message rides `build-output` events that carry an
+// whole point. The compiler's message rides `build-output` events that carry an
 // ImportPath and no Package, and the stream filter used to drop them all.
 const buildFailureStream = `{"ImportPath":"example.com/x/broken [example.com/x/broken.test]","Action":"build-output","Output":"# example.com/x/broken [example.com/x/broken.test]\n"}
 {"ImportPath":"example.com/x/broken [example.com/x/broken.test]","Action":"build-output","Output":"link: mapping output file failed: no space left on device\n"}

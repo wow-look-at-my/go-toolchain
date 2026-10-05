@@ -85,8 +85,8 @@ const (
 // to the ASCII digraphs, restoring U+201C to a doubled backtick and U+201D to
 // a doubled apostrophe wherever they appear inside a Go comment. This is
 // curative, not merely preventive: gofmt's doc-comment formatter is the ONLY
-// thing that produces these runes in Go source, and only inside comments, so
-// a curly quote in a comment is always a gofmt artifact -- no author types it
+// thing that produces these runes in Go source, and only inside comments. A
+// curly quote in a comment is always a gofmt artifact -- no author types it
 // there by hand. It therefore also heals comments that an earlier, unfixed
 // run already corrupted, not the file being formatted.
 func revertDocCommentSmartQuotes(formatted []byte) []byte {

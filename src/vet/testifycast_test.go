@@ -17,7 +17,7 @@ import (
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
-// applyCastFixtures runs the analyzer over the testifycast fixture module and
+// applyCastFixtures runs the analyzer over the testifycast fixture module. It
 // returns the rewritten source of every file that had fixes applied, anything
 // the analyzer wrote to stderr (element-mismatch warnings), and the raw edit
 // sets themselves (for asserting on recorded imports).

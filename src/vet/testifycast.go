@@ -216,7 +216,7 @@ func castEditForEqual(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, e
 // is argTV) in a conversion to target. It returns nil when the conversion
 // would be unsound — for constant operands, when the constant isn't
 // representable in the target type (fractional truncation or overflow),
-// mirroring the fork, which compares the numeric values and would not have
+// mirroring the fork. This compares the numeric values and would not have
 // considered such a pair equal.
 func buildCastEdit(pass *analysis.Pass, file *ast.File, argExpr ast.Expr, argTV types.TypeAndValue, target types.Type) *CastEdit {
 	// Guard numeric constants against value-changing conversions (truncation or
@@ -311,10 +311,8 @@ func fileQualifier(self *types.Package, file *ast.File) types.Qualifier {
 	}
 }
 
-// isForkNumeric reports whether a basic type is numeric in the sense the fork's
-// isNumericType used (reflect kinds Int..Complex128), excluding complex: the
-// fork's numeric comparison path (toFloat64) does not handle complex, and
-// constant casts into complex are out of scope.
+// isForkNumeric reports whether a basic type is numeric in the sense. The fork's isNumericType used (reflect kinds Int..Complex128), excluding complex. The fork's numeric comparison path (toFloat64) does not handle complex, and constant
+// casts into complex are out of scope.
 func isForkNumeric(b *types.Basic) bool {
 	switch b.Kind() {
 	case types.Int, types.Int8, types.Int16, types.Int32, types.Int64,

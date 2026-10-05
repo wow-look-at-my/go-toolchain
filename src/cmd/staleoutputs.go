@@ -82,7 +82,7 @@ func resetTrackedOutputs() {
 
 // removeBuildOutputsIn deletes every artifact of the named targets from dir
 // and returns what it removed, in directory order. A missing directory is not
-// an error; an artifact that exists and cannot be removed is — a binary the
+// an error. An artifact that exists and cannot be removed is — a binary the
 // toolchain fails to delete is exactly the stale binary this prevents.
 func removeBuildOutputsIn(dir string, names []string) ([]string, error) {
 	entries, err := os.ReadDir(dir)

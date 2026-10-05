@@ -172,14 +172,14 @@ func TestFoo(t *testing.T) {
 }
 
 // TestVetSemanticCastAddsMissingImport is a regression test for the testify
-// cast fixer wedging a tree: converting a bare permission literal compared
+// cast fixer wedging a tree. Converting a bare permission literal compared
 // against an os.FileMode operand inserts fs.FileMode(...) — os.FileMode is an
-// alias for io/fs.FileMode, so the conversion is spelled with the io/fs
-// package even when the file only imports os. The fixer must add the io/fs
-// import alongside the cast; without it the rewritten file fails to load
-// (undefined: fs) and every later vet run — including the fix's own verify
-// re-run — dies at the type-check with a package load error before any fixer
-// runs, so the tree can never converge.
+// alias for io/fs.FileMode. The conversion is spelled with the io/fs package
+// even when the file only imports os. The fixer must add the io/fs import
+// alongside the cast. Without it the rewritten file fails to load (undefined:
+// fs) and every later vet run — including the fix's own verify re-run —
+// dies at the type-check with a package load error before any fixer runs. The
+// tree can never converge.
 func TestVetSemanticCastAddsMissingImport(t *testing.T) {
 	t.Serial()
 	// Resolve testify to the local stub so the fixture type-checks hermetically.
@@ -189,7 +189,7 @@ func TestVetSemanticCastAddsMissingImport(t *testing.T) {
 	dir := t.TempDir()
 
 	// info.Mode()'s type is the origin io/fs.FileMode, not the os.FileMode
-	// alias, so the conversion must be spelled through the io/fs package.
+	// alias. The conversion must be spelled through the io/fs package.
 	code := `package main
 
 import (

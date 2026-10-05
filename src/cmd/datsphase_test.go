@@ -334,8 +334,9 @@ func TestRunDatsOnlyRunsSuitesWithoutAModule(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(dir, "go.mod"), "no module was needed")
 }
 
-// Staging has to live under the working directory for the sandbox to see it,
-// but a non-Go repo does not gitignore build/ and never asked for that directory.
+// Staging has to live under the working directory for the sandbox to see it.
+// However, a non-Go repo does not gitignore build/ and never asked for that
+// directory.
 func TestRunDatsOnlyLeavesNoStrayBuildDir(t *testing.T) {
 	t.Serial()
 	dir := chdirWithSuite(t)

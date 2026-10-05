@@ -344,10 +344,10 @@ func TestMaybeSubmitDeps_SnapshotFailureFatal(t *testing.T) {
 	assert.Contains(t, err.Error(), "dependency snapshot failed")
 }
 
-// This repo's own smoke jobs drive the full pipeline inside a throwaway module
-// under RUNNER_TEMP; submitting there would publish the fixture's dependencies
-// as this repository's dependency graph. That carve-out exists for this
-// repository alone -- see TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere.
+// This repo's own smoke jobs drive the full pipeline inside a throwaway module under
+// RUNNER_TEMP. Submitting there would publish the fixture's dependencies as this
+// repository's dependency graph. That carve-out exists for this repository alone --
+// see TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere.
 func TestMaybeSubmitDeps_SkipsSmokeFixtureInOwnRepo(t *testing.T) {
 	t.Serial()
 	requests := 0

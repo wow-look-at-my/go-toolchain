@@ -27,9 +27,9 @@ func getTestVarName(body *ast.BlockStmt) string {
 }
 
 // generateASTFix creates an ASTFix for the if statement. report is false when
-// the if is not one the fixer can rewrite without changing what the test
-// does or breaking the build; such an if is left alone and not reported.
-// A nil fix with report true is a finding with no automatic rewrite.
+// the if is not one the fixer can rewrite without changing what the test does
+// or breaking the build. Such an if is left alone and not reported. A nil fix
+// with report true is a finding with no automatic rewrite.
 func generateASTFix(pass *analysis.Pass, st *assertFixState, ifStmt *ast.IfStmt, assertPkg, assertFunc string) (fix *ASTFix, report bool) {
 	// Skip if/else chains (else-if is already filtered during detection)
 	if ifStmt.Else != nil {
@@ -163,7 +163,7 @@ func isFatalCall(call *ast.CallExpr) bool {
 }
 
 // assertFixState is what one file's assertlint pass knows across its fixes.
-// Every fix is computed against the same type-checked tree, so a hoist has to
+// Every fix is computed against the same type-checked tree. A hoist has to
 // see the names the earlier hoists in its block already declared.
 type assertFixState struct {
 	pass *analysis.Pass

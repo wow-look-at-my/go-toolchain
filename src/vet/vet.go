@@ -90,8 +90,8 @@ func RunOnPattern(pattern string, fix bool, progress ProgressFunc) (bool, error)
 }
 
 // loadErrorMessages collects load errors from the WHOLE import graph, not the
-// roots: a failed dependency records its cause on its own Errors, and the
-// root only carries the downstream `undefined:` cascade. Go version mismatch
+// roots: a failed dependency records its cause on its own Errors. The root
+// only carries the downstream `undefined:` cascade. Go version mismatch
 // warnings are dropped (a minimum, not a syntax gate). Messages are
 // deduplicated: a directory's test variants carry the same Errors.
 func loadErrorMessages(pkgs []*packages.Package) []string {
@@ -296,7 +296,7 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 	// An empty load analyzes nothing. Every check below it then passes for want
 	// of input, and the phase reports a green it never earned. packages.Load
 	// reports no error when the go list driver it shells out to dies or is
-	// killed, so an empty result is the only symptom there is. buildtags.Verify
+	// killed. An empty result is the only symptom there is. buildtags.Verify
 	// cannot see this. It compares against the GATED files, and a module with no
 	// build tag has none to miss.
 	if nPkgs == 0 && moduleHasGoFiles(tagCfg) {
@@ -389,7 +389,7 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 }
 
 // finishSemantic applies the post-analysis steps a single time, after every build-tag
-// configuration has run: re-run on a rewritten tree, then render the collected
+// configuration has run. Re-run on a rewritten tree, then render the collected
 // diagnostics and editor violations.
 func finishSemantic(pattern string, ed Editor, progress ProgressFunc,
 	filesChanged bool, diagnostics []Diagnostic,
@@ -504,7 +504,7 @@ func checkFileCommittedByName(filename string) error {
 // checkFileCommittedExec checks file status by shelling out to the git CLI.
 // Used as a fallback when go-git encounters bugs or unsupported repo features.
 // The file's directory is the working directory, which cosmo spells for the
-// host, and the pathspec is the base name, which needs no spelling at all.
+// host. The pathspec is the base name, which needs no spelling at all.
 func checkFileCommittedExec(filename string) error {
 	cmd := exec.Command("git", "status", "--porcelain", "--", filepath.Base(filename))
 	cmd.Dir = filepath.Dir(filename)

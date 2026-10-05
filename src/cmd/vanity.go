@@ -119,7 +119,7 @@ func isVanityHostReachable(host string) bool {
 
 // resolveVanityVCSURL discovers the VCS repository URL and import prefix for
 // a vanity module. The import prefix identifies the root of the vanity
-// namespace that maps to the repository; any path beyond the prefix is a
+// namespace that maps to the repository. Any path beyond the prefix is a
 // sub-module path within the repo.
 //
 // It queries the Go module proxy (go mod download -json) for the Origin URL
@@ -389,7 +389,7 @@ func removeVanityReplaces(state *vanityState) error {
 }
 
 // checkDirtyInCIWithVanityRestored runs the CI dirty-tree check against the
-// tree as removeVanityReplaces will leave it: injected replaces dropped from
+// tree as removeVanityReplaces will leave it. Injected replaces dropped from
 // go.mod, go.sum restored to its pre-injection snapshot. The active state is
 // written back before returning, so mirror replaces still resolve modules for
 // later phases. With no active vanity state, this is exactly checkDirtyInCI.

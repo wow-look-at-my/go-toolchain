@@ -100,7 +100,7 @@ func TestFoo(t *testing.T) {
 }
 
 // TestFixTestifyImports_CheckModeRejectsFork is the CI-enforcement regression
-// guard: in check mode (fix=false, the CI path) a file importing the fork must
+// guard. In check mode (fix=false, the CI path) a file importing the fork must
 // be reported as a hard error and must NOT be rewritten. This is the behavior
 // that was missing — CI used to skip the migration entirely and pass green on
 // the fork.

@@ -25,7 +25,7 @@ func TestWatchdogStartsOnEveryRun(t *testing.T) {
 }
 
 // TestWatchdogWarnsWhileTheBuildIsSilent covers the watchdog's whole reason to
-// exist, which nothing asserted: a phase that prints nothing past the threshold
+// exist, which nothing asserted. A phase that prints nothing past the threshold
 // has to produce the STALLED banner on the real stderr. A test phase went quiet
 // for 200s against a 5s threshold and no banner appeared, and there was no test
 // that would have caught it.
@@ -80,10 +80,10 @@ func TestWatchdogWarnsWhileTheBuildIsSilent(t *testing.T) {
 }
 
 // TestWatchdogStopDoesNotDropBufferedOutput is a regression test for the pipe
-// drain race at shutdown: output written before wd.stop() must still make it
-// through to the stdout. Without the forward-goroutine wait in stop(),
-// stdoutR.Close() discarded any bytes forward() hadn't read yet, causing the
-// coverage block to vanish intermittently.
+// drain race. This holds at shutdown: output written before wd.stop() must
+// still make it through to the stdout. Without the forward-goroutine wait in
+// stop(), stdoutR.Close() discarded any bytes forward() hadn't read yet,
+// causing the coverage block to vanish intermittently.
 func TestWatchdogStopDoesNotDropBufferedOutput(t *testing.T) {
 	t.Serial()
 	// Forces single-threaded scheduling so forward() and main compete for the same P; otherwise the race rarely triggers.

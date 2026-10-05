@@ -118,7 +118,7 @@ func TestConfigureGoEnv_OffPassthrough(t *testing.T) {
 }
 
 // The public checksum database is never an option: it cannot hold a private
-// module, so it can only ever fail on such a module, and asking it about a
+// module. It can only ever fail on such a module, and asking it about a
 // module announces that module's path to an outside party.
 func TestUsesPublicSumDB(t *testing.T) {
 	t.Serial()

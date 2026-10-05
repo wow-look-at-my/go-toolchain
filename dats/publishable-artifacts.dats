@@ -8,7 +8,7 @@
 #
 # A job sets GITHUB_OUTPUT, and these tests inherit it. The file it names sits
 # outside the sandbox, so each test that is not about the step output clears
-# the variable and reads the stdout line instead.
+# the variable. It reads the stdout line instead.
 
 sandbox:
 	image: golang:1.25
