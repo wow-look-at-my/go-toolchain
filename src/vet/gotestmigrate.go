@@ -70,11 +70,11 @@ func extractCmpCall(expr ast.Expr) (*ast.CallExpr, *ast.SelectorExpr, bool) {
 }
 
 // MigrateGotestTools scans all Go files for gotest.tools/v3/assert imports and
-// routes each offending file through ed: a fix-mode editor migrates it to
-// github.com/stretchr/testify and resyncs the module graph (go mod tidy, plus
-// go mod vendor when vendored); a check-mode (CI) editor records a violation
-// instead, so a tree still on gotest.tools fails CI rather than passing green —
-// the same enforcement FixTestifyImports gives the removed testify fork.
+// routes each offending file through ed. A fix-mode editor migrates it to
+// github.com/stretchr/testify and resyncs the module graph (go mod tidy, plus go
+// mod vendor when vendored). This also covers a check-mode (CI) editor records a
+// violation instead, so a tree still on gotest.tools fails CI rather than passing
+// green. The same enforcement FixTestifyImports gives the removed testify fork.
 //
 // Returns whether any file was written (only possible with a fix-mode editor).
 func MigrateGotestTools(ed Editor) (bool, error) {

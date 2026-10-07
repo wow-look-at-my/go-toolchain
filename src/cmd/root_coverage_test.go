@@ -15,7 +15,7 @@ import (
 // RunTestsWithCoverage. It sets activeTrace, provides a mock with test-level
 // events covering all branches of the recording loop (an elapsed-free skip,
 // parent-has-subtest skip, and a normal recorded leaf test), and passes a
-// non-nil SummaryData to cover the summary accumulation code path.
+// non-nil SummaryData. To cover the summary accumulation code path.
 func TestRunWithRunnerActiveTrace(t *testing.T) {
 	t.Serial()
 	tmpDir := t.TempDir()

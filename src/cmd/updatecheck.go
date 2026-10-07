@@ -66,7 +66,7 @@ func ReportUpdateCheck() {
 }
 
 // computeUpdateWarning fetches the latest published go-toolchain release from
-// buildhost and returns a warning string if this binary is out of date, or ""
+// buildhost. It returns a warning string if this binary is out of date, or ""
 // if it is current, cannot be compared, or the check failed. It is silent on
 // every error — an update check must never get in the way.
 func computeUpdateWarning(ctx context.Context) string {

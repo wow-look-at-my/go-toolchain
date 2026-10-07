@@ -29,9 +29,9 @@ func ownMainPackage() (string, bool) {
 	return mains[0], true
 }
 
-// buildSelfFixedPoint builds pkg the way the build phase does, in passes
-// until a binary reproduces itself, and answers that binary and the
-// directory holding it, which the caller removes.
+// buildSelfFixedPoint builds pkg the way the build phase does, in
+// passes. This happens until a binary reproduces itself, and answers
+// that binary and the directory holding it, which the caller removes.
 func buildSelfFixedPoint(pkg string) (bin, dir string, err error) {
 	env, err := resolveForkBuildEnv(true)
 	if err != nil {

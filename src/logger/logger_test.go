@@ -239,7 +239,7 @@ func TestDefaultLogger(t *testing.T) {
 
 // TestInitSubprocess verifies the subprocess logger routes every message to
 // stderr and never emits GHA annotations on stdout, even when
-// GITHUB_ACTIONS=true — stdout may be a protocol channel (e.g. GOCACHEPROG).
+// GITHUB_ACTIONS=true. Stdout may be a protocol channel (e.g. GOCACHEPROG).
 func TestInitSubprocess(t *testing.T) {
 	t.Serial()
 	// Save and restore the global default so this test is hermetic.

@@ -133,7 +133,7 @@ func runTestifyCast(pass *analysis.Pass) (any, error) {
 
 // equalArgIndices returns the argument indices of the compared operands for a
 // testify comparison assertion, accounting for the package form (which takes
-// a leading TestingT) versus the *Assertions method form (which does not).
+// a leading TestingT) versus the *Assertions. Method form (which does not).
 func equalArgIndices(fn *types.Func, call *ast.CallExpr) (exp, act int, ok bool) {
 	sig, isSig := fn.Type().(*types.Signature)
 	if !isSig {
@@ -152,12 +152,11 @@ func equalArgIndices(fn *types.Func, call *ast.CallExpr) (exp, act int, ok bool)
 	return exp, act, true
 }
 
-// castEditForEqual decides whether a conversion is needed to make the
-// operands of an Equal/NotEqual or ordering assertion the same static type, and if so
-// returns the edit wrapping the chosen operand. It returns nil when no sound
-// conversion applies (identical types, non-convertible, fractional-truncating
-// constants, etc.), in which case the assertion is left exactly as the fork
-// would have evaluated it.
+// castEditForEqual decides whether a conversion is needed to make the operands of an
+// Equal/NotEqual or ordering assertion the same static type. And if so returns the
+// edit wrapping the chosen operand. It returns nil when no sound conversion applies
+// (identical types, non-convertible, fractional-truncating constants, etc.), in which
+// case the assertion is left exactly as the fork would have evaluated it.
 func castEditForEqual(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, expIdx, actIdx int) *CastEdit {
 	expExpr := call.Args[expIdx]
 	actExpr := call.Args[actIdx]
@@ -216,7 +215,7 @@ func castEditForEqual(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, e
 // is argTV) in a conversion to target. It returns nil when the conversion
 // would be unsound — for constant operands, when the constant isn't
 // representable in the target type (fractional truncation or overflow),
-// mirroring the fork, which compares the numeric values and would not have
+// mirroring the fork. This compares the numeric values and would not have
 // considered such a pair equal.
 func buildCastEdit(pass *analysis.Pass, file *ast.File, argExpr ast.Expr, argTV types.TypeAndValue, target types.Type) *CastEdit {
 	// Guard numeric constants against value-changing conversions (truncation or
@@ -311,10 +310,8 @@ func fileQualifier(self *types.Package, file *ast.File) types.Qualifier {
 	}
 }
 
-// isForkNumeric reports whether a basic type is numeric in the sense the fork's
-// isNumericType used (reflect kinds Int..Complex128), excluding complex: the
-// fork's numeric comparison path (toFloat64) does not handle complex, and
-// constant casts into complex are out of scope.
+// isForkNumeric reports whether a basic type is numeric in the sense. The fork's isNumericType used (reflect kinds Int..Complex128), excluding complex. The fork's numeric comparison path (toFloat64) does not handle complex, and constant
+// casts into complex are out of scope.
 func isForkNumeric(b *types.Basic) bool {
 	switch b.Kind() {
 	case types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
