@@ -183,8 +183,9 @@ func TestModuleRootIsTheDirectoryCarryingTheVersion(t *testing.T) {
 }
 
 // The go command answers GOMODCACHE in the host's spelling and {{.Dir}} in
-// another, so an NT run compared spellings of a single directory and
-// grouped nothing. Everything the cache code compares is slash-spelled now.
+// another, so an NT run compared spellings of a single directory. The go
+// command grouped nothing. Everything the cache code compares is
+// slash-spelled now.
 func TestAHostSpelledFileStillFindsItsModule(t *testing.T) {
 	root := under("github.com/wow/dep@v1")
 	// The host's own spelling, which is what the go command hands back.
@@ -197,8 +198,8 @@ func TestAHostSpelledFileStillFindsItsModule(t *testing.T) {
 }
 
 // The table blob travels with the loader that embeds it: an embed of a missing
-// file does not compile, so copying the loader alone would break the package
-// the copy was meant to fix.
+// file does not compile. Copying the loader alone would break the package the
+// copy was meant to fix.
 func TestTheTableTravelsWithItsLoader(t *testing.T) {
 	from := t.TempDir()
 	for _, name := range []string{"parser.go", "tables.zst", "gen.go"} {
@@ -231,10 +232,10 @@ func TestSatisfyingNothingIsAnImmediateNoOp(t *testing.T) {
 }
 
 // go mod tidy can move a dependency's pin after the earliest pass generated for
-// the older version, which leaves the new version's cache directory owing its
+// the older version. This leaves the new version's cache directory owing its
 // output again. That gap is still the clone's to fill: the directive's input is
-// a git submodule, and the cached copy carries a gitlink instead of the files.
-// So the next pass must reach the clone rather than run the directive where it
+// a git submodule. The cached copy carries a gitlink instead of the files. So
+// the next pass must reach the clone rather than run the directive where it
 // sits.
 func TestASecondPassStillGeneratesInTheClone(t *testing.T) {
 	cache := t.TempDir()

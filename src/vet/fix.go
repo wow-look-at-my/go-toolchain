@@ -149,7 +149,7 @@ func (f *ASTFixes) removeOrphanedComments() {
 
 // Apply renders all fixes and routes the result through ed. AST fixes
 // (assertnorm/assertlint/redundantcast) also emit an analyzer diagnostic, so on
-// CI the diagnostic is what fails the build; ed.Apply writes locally and is a
+// CI the diagnostic is what fails the build. Ed.Apply writes locally and is a
 // no-op on CI (no duplicate violation). Returns whether it wrote.
 func (f *ASTFixes) Apply(ed Editor) (bool, error) {
 	if len(f.Fixes) == 0 {

@@ -260,7 +260,7 @@ func isShellCommand(command string) bool {
 func executeDirective(d generateDirective, quiet bool) error {
 	dir := filepath.Dir(d.File)
 	// A directive in the module cache writes beside a file the cache keeps read
-	// only, so the write is what needs the mode, not the read.
+	// only. The write is what needs the mode, not the read.
 	if inModCache(dir) {
 		return withWritableDir(dir, func() error { return runDirective(d, dir, quiet) })
 	}
@@ -274,7 +274,7 @@ func runDirective(d generateDirective, dir string, quiet bool) error {
 		logger.Info("\t%s", d.Command)
 	}
 
-	// A directive's tool must RUN here, so it is an APE: the a single target the linked go command has, and a single that runs on every host.
+	// A directive's tool must RUN here. It is an APE: the a single target the linked go command has, and a single that runs on every host.
 	env := append(os.Environ(), "GOOS=cosmo", "GOARCH="+runtime.GOARCH)
 	env = append(env,
 		"GOFILE="+filepath.Base(d.File),

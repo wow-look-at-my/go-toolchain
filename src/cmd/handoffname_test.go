@@ -64,8 +64,8 @@ func TestHandoffNameTemplate(t *testing.T) {
 	assert.Equal(t, "${{ inputs.working-directory }}/build", handoff.With["path"])
 }
 
-// The per-job name and the bare `go-build` alias were racy in a multi-producer
-// run; a consumer that still downloads either must migrate, not get the alias back.
+// The per-job name and the bare `go-build` alias were racy in a multi-producer run.
+// A consumer that still downloads either must migrate, not get the alias back.
 func TestNoLegacyHandoffRemains(t *testing.T) {
 	t.Serial()
 	for _, step := range loadActionSteps(t) {
