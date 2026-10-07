@@ -24,7 +24,7 @@ import (
 // constRepresentable reports whether constant v can be represented exactly in
 // basic type b. Used to refuse conversions that would truncate or overflow a
 // constant — the fork compared the underlying numeric values, so such a pair
-// was never equal and we must not paper over the inequality.
+// was never equal. We must not paper over the inequality.
 func constRepresentable(v constant.Value, b *types.Basic) bool {
 	if v == nil || v.Kind() == constant.Unknown {
 		return false
@@ -191,12 +191,11 @@ func (c *CastEdits) neededImports() []string {
 	return paths
 }
 
-// addImportsToSource returns src with the given import paths added to its
-// import declaration. Without the import an inserted conversion like
-// wrapping an untyped constant in fs.FileMode would not compile, and the load
-// error blocks every later vet run. This reprints the whole file (parse, astutil.AddImport,
-// go/printer), so like every AST-reprinting fixer it emits through
-// canonicalizeGoSource.
+// addImportsToSource returns src with the given import paths added to its import
+// declaration. Without the import an inserted conversion like wrapping an untyped constant
+// in fs.FileMode would not compile. The load error blocks every later vet run. This
+// reprints the whole file (parse, astutil.AddImport, go/printer), so like every
+// AST-reprinting fixer it emits through canonicalizeGoSource.
 func addImportsToSource(src []byte, filename string, paths []string) ([]byte, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, filename, src, parser.ParseComments)
@@ -213,7 +212,7 @@ func addImportsToSource(src []byte, filename string, paths []string) ([]byte, er
 	return canonicalizeGoSource(buf.Bytes()), nil
 }
 
-// Apply routes the file with all edits applied through ed: a fix-mode editor
+// Apply routes the file with all edits applied through ed. A fix-mode editor
 // rewrites it on disk (and a fix line is printed per edit), a check-mode (CI)
 // editor records a violation. testifycast emits no analyzer diagnostic of its
 // own, so this recorded violation is what fails CI. Returns whether it wrote.

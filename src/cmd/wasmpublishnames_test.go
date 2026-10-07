@@ -11,17 +11,17 @@ import (
 )
 
 // TestWasmArtifactNamesInBuildhostPublishSet pins the wasm publishing naming
-// contract. The buildhost-publish action selects its upload set by filename:
-// regular files (symlinks and checksums.txt are skipped) whose name, after
+// contract. The buildhost-publish action selects its upload set by filename.
+// Regular files (symlinks and checksums.txt are skipped) whose name, after
 // stripping a trailing .exe, matches publishRe below, parsed as
 // <binary>_{os}_{arch} from its trailing tokens (filter transcribed from a
 // failing go-font-renderer publish run's logs). Default wasm names use
-// buildhost's wasm artifact scheme: os=wasm
-// with arch=js/wasip1, i.e. <name>_wasm_js — they MUST match the pattern and
-// parse as os=wasm. The wasmPublishEnv opt-out shape
-// (<name>_<goos>_wasm.wasm) must NOT match, keeping those artifacts out of
-// the publish set entirely (for a server predating that scheme, where an
-// os=wasm upload is rejected and a rejected artifact aborts the whole publish).
+// buildhost's wasm artifact scheme. Os=wasm with arch=js/wasip1, i.e.
+// <name>_wasm_js — they MUST match the pattern and parse as os=wasm. The
+// wasmPublishEnv opt-out shape (<name>_<goos>_wasm.wasm) must NOT match,
+// keeping those artifacts out of the publish set entirely (for a server
+// predating that scheme, where an os=wasm upload is rejected and a rejected
+// artifact aborts the whole publish).
 func TestWasmArtifactNamesInBuildhostPublishSet(t *testing.T) {
 	t.Serial()
 	// The exact filter from the buildhost-publish action, transcribed from its failure-run logs.

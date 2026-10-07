@@ -13,11 +13,11 @@ import (
 )
 
 // HasCoverableStatements reports whether any non-test, non-generated Go file
-// under dir that is part of the current build contains a function
-// body with a statement — i.e. whether `go test -cover` could ever measure a
-// statement in this module. Embed-only and declarations-only modules (no
-// function bodies anywhere) return false: their empty coverage profile is
-// expected, not evidence of a broken setup.
+// under dir that is part of the current build contains a function body. With a
+// statement — i.e. whether `go test -cover` could ever measure a statement
+// in this module. Embed-only and declarations-only modules (no function bodies
+// anywhere) return false: their empty coverage profile is expected, not
+// evidence of a broken setup.
 func HasCoverableStatements(dir string) bool {
 	found := false
 	filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {

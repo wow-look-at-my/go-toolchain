@@ -9,10 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A nested module's packages are not import paths of the outer module, so a
-// configuration derived from ITS tags names a pattern the outer module cannot
-// load -- which is how `appengine`, a tag only src/compat/go-isatty carries,
-// became a config this module was asked to vet itself under and could not.
+// Consider a nested module's packages. Those packages are not import paths of
+// the outer module. A configuration derived from ITS tags names a pattern the
+// outer module cannot load -- which is how `appengine`, a tag only
+// src/compat/go-isatty. Carries, became a config this module was asked to vet
+// itself under and could not.
 func TestScanSkipsNestedModules(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()

@@ -138,11 +138,11 @@ func withChildStderr(err error) error {
 	return fmt.Errorf("%w\n%s", err, said)
 }
 
-// requiredGoVersion reads the go.mod file and returns the Go version needed.
-// It prefers the "toolchain goX.Y.Z" directive (if present) over the "go X.Y.Z"
+// requiredGoVersion reads the go.mod file and returns the Go version needed. It
+// prefers the "toolchain goX.Y.Z" directive (if present) over the "go X.Y.Z"
 // directive, since the toolchain directive specifies the exact version to use.
-// A release archive is named for its patch version, so a go.mod naming only
-// major and minor is normalized to carry an explicit patch component.
+// A release archive is named for its patch version. A go.mod naming only major
+// and minor is normalized to carry an explicit patch component.
 func requiredGoVersion() (string, error) {
 	f, err := os.Open("go.mod")
 	if err != nil {
