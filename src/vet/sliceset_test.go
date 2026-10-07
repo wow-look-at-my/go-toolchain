@@ -25,7 +25,7 @@ func TestSliceSetAnalyzer(t *testing.T) {
 
 // TestSliceSetSeverityFollowsTheModule verifies the slice findings carry the
 // same severity split as the map checks: an org module has the remedy a
-// single org require away, so it fails; anywhere else the fix would add a
+// single org require away. It fails. Anywhere else the fix would add a
 // dependency the author never chose, so it warns.
 func TestSliceSetSeverityFollowsTheModule(t *testing.T) {
 	t.Serial()
@@ -84,7 +84,7 @@ func TestSliceSetLeavesUncertainSlicesAlone(t *testing.T) {
 
 // runSliceSetOnSource type-checks src and returns what the analyzer reports.
 // The import of slices stays unresolved: supplying it means building its
-// export data up front, and the analyzer reads a slices call off the selector
+// export data up front. The analyzer reads a slices call off the selector
 // when the type checker could not resolve it.
 func runSliceSetOnSource(t *testing.T, src string, module *analysis.Module) []analysis.Diagnostic {
 	t.Helper()

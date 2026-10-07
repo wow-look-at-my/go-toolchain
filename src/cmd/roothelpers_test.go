@@ -144,7 +144,7 @@ func TestFindGoModules_NoModules(t *testing.T) {
 }
 
 // Subcommands of skip-listed commands (e.g. `version raw`) must inherit the
-// cache skip — cobra passes the leaf command to PersistentPreRunE, so the
+// cache skip — cobra passes the leaf command to PersistentPreRunE. The
 // skip check has to walk ancestors. Regression test for the release-job
 // "Determine tag" failure from `./build/go-toolchain version raw`.
 func TestSkipCache_VersionSubcommandsSkip(t *testing.T) {
@@ -169,8 +169,8 @@ func TestSkipCache_VersionSubcommandsSkip(t *testing.T) {
 }
 
 // Lock in that subcommands NOT under a skip-listed parent still trigger the
-// up-to-date fast exit — so the ancestor walk in skipUpToDateCheck doesn't
-// accidentally match too broadly.
+// up-to-date fast exit — so the ancestor walk in skipUpToDateCheck
+// doesn't. Accidentally match too broadly.
 func TestSkipCache_NonSkippedSubcommandsStillRun(t *testing.T) {
 	t.Serial()
 	for _, argv := range [][]string{

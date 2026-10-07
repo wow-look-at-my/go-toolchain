@@ -19,7 +19,7 @@ func write(t *testing.T, dir, path, body string) {
 
 // What this file owns is the WIRING. Which files carry prose, what a number in
 // a comment is, and what a repair writes instead are slopfix's, and its own
-// suites answer for them.
+// suites. Answer for them.
 
 // The sweep repairs the tree the caller names, and a join answers what it did.
 func TestTheSweepRepairsTheTreeAndReportsIt(t *testing.T) {

@@ -118,7 +118,7 @@ func TestConfigureGoEnv_OffPassthrough(t *testing.T) {
 }
 
 // The public checksum database is never an option: it cannot hold a private
-// module, so it can only ever fail on such a module, and asking it about a
+// module. It can only ever fail on such a module, and asking it about a
 // module announces that module's path to an outside party.
 func TestUsesPublicSumDB(t *testing.T) {
 	t.Serial()
@@ -142,6 +142,65 @@ func TestSumDBURLHost(t *testing.T) {
 	assert.Equal(t, "sum.golang.org", sumDBURLHost("https://sum.golang.org/sumdb/x"))
 	assert.Equal(t, "sum.golang.org", sumDBURLHost("sum.golang.org"))
 	assert.Equal(t, "proxy.example.com", sumDBURLHost("http://proxy.example.com:8080/sumdb/x"))
+}
+
+// A build names its own run so every go command it starts shares one org-head
+// resolution. The name is the fork's owner/repo/run-id/attempt shape.
+func TestConfigureGoEnvNamesALocalRun(t *testing.T) {
+	t.Serial()
+	t.Setenv("GO_PROXY_CONFIG", "")
+	t.Setenv("GOPROXY", "")
+	t.Setenv("GOSUMDB", "")
+	t.Setenv("GONOSUMDB", "")
+	t.Setenv("GONOSUMCHECK", "")
+	t.Setenv(runEnv, "")
+	t.Setenv("GITHUB_RUN_ID", "")
+	t.Setenv("GITHUB_RUN_ATTEMPT", "")
+
+	configureGoEnv()
+
+	parts := strings.Split(os.Getenv(runEnv), "/")
+	assert.Len(t, parts, 4)
+	assert.NotContains(t, parts, "")
+	assert.Equal(t, "1", parts[3])
+}
+
+// A run the caller already named is the one every go command must share.
+func TestConfigureGoEnvKeepsANamedRun(t *testing.T) {
+	t.Serial()
+	t.Setenv("GO_PROXY_CONFIG", "")
+	t.Setenv("GOPROXY", "")
+	t.Setenv("GOSUMDB", "")
+	t.Setenv("GONOSUMDB", "")
+	t.Setenv("GONOSUMCHECK", "")
+	t.Setenv(runEnv, "wow-look-at-my/consumer/4242/1")
+
+	configureGoEnv()
+
+	assert.Equal(t, "wow-look-at-my/consumer/4242/1", os.Getenv(runEnv))
+}
+
+// A CI run takes its identity from the GitHub variables, which name the run of
+// every job. Naming a local run would replace none of that.
+func TestConfigureGoEnvLeavesTheCIRunAlone(t *testing.T) {
+	t.Serial()
+	t.Setenv("GO_PROXY_CONFIG", "")
+	t.Setenv("GOPROXY", "")
+	t.Setenv("GOSUMDB", "")
+	t.Setenv("GONOSUMDB", "")
+	t.Setenv("GONOSUMCHECK", "")
+	t.Setenv(runEnv, "")
+	t.Setenv("GITHUB_RUN_ID", "7")
+	t.Setenv("GITHUB_RUN_ATTEMPT", "2")
+
+	configureGoEnv()
+
+	assert.Empty(t, os.Getenv(runEnv))
+}
+
+// A new invocation is a new run, so the heads resolve again.
+func TestLocalRunNameIsUniquePerInvocation(t *testing.T) {
+	assert.NotEqual(t, localRunName(), localRunName())
 }
 
 // With nothing configured the default already disables sumdb phone-home, and
