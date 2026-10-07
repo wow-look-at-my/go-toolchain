@@ -105,8 +105,8 @@ func TestPathWithFirst(t *testing.T) {
 	assert.Equal(t, "/link", pathWithFirst("/link", "", "linux"))
 }
 
-// A fork older than the module's go directive has no fallback to hide behind:
-// there is no other toolchain, so this fails and names the repair.
+// A fork older than the module's go directive has no fallback to hide behind.
+// There is no other toolchain, so this fails and names the repair.
 func TestForkSatisfiesGoMod(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()
@@ -135,9 +135,9 @@ func TestGoCacheDir(t *testing.T) {
 }
 
 // The whole pipeline compiles with the go command this binary is, so the
-// setup's job is to put a link to it named go in front of whatever Go the
+// setup's job is to put a link to it named go. In front of whatever Go the
 // host carries, to point GOROOT at the standard library it builds against,
-// and to pin GOTOOLCHAIN, the setting that otherwise lets the go command
+// and to pin GOTOOLCHAIN, the setting. That otherwise lets the go command
 // fetch a stock toolchain behind our back to satisfy a go directive.
 func TestEnsureGoVersionLinksItselfAsGoAndPinsGOTOOLCHAIN(t *testing.T) {
 	t.Serial()

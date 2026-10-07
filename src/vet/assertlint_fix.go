@@ -27,9 +27,9 @@ func getTestVarName(body *ast.BlockStmt) string {
 }
 
 // generateASTFix creates an ASTFix for the if statement. report is false when
-// the if is not one the fixer can rewrite without changing what the test
-// does or breaking the build; such an if is left alone and not reported.
-// A nil fix with report true is a finding with no automatic rewrite.
+// the if is not one the fixer can rewrite without changing what the test does
+// or breaking the build. Such an if is left alone and not reported. A nil fix
+// with report true is a finding with no automatic rewrite.
 func generateASTFix(pass *analysis.Pass, st *assertFixState, ifStmt *ast.IfStmt, assertPkg, assertFunc string) (fix *ASTFix, report bool) {
 	// Skip if/else chains (else-if is already filtered during detection)
 	if ifStmt.Else != nil {
@@ -163,7 +163,7 @@ func isFatalCall(call *ast.CallExpr) bool {
 }
 
 // assertFixState is what one file's assertlint pass knows across its fixes.
-// Every fix is computed against the same type-checked tree, so a hoist has to
+// Every fix is computed against the same type-checked tree. A hoist has to
 // see the names the earlier hoists in its block already declared.
 type assertFixState struct {
 	pass *analysis.Pass
@@ -287,9 +287,10 @@ func (st *assertFixState) dropOrphansVar(ifStmt *ast.IfStmt, dropped []ast.Node)
 }
 
 // hoistInit returns the if's init clause in a form legal outside the if, and
-// a commit that records what it declared once the fix is kept. ok is false
-// when no spelling of the init is both legal in the enclosing block and keeps
-// every other statement there reading the variable it read before.
+// a commit that records what it declared once. The fix is kept. ok is false.
+// This holds when no spelling of the init is both legal in the enclosing
+// block and keeps every other statement there reading the variable. It read
+// before.
 //
 // An init clause declares into the if's own scope. Lifted into the enclosing
 // block, each name it declares must be one of.
@@ -395,7 +396,7 @@ func (st *assertFixState) usedWithin(obj types.Object, from, to token.Pos) bool 
 
 // overwriteIsDead reports whether assigning obj in place of ifStmt's init
 // changes nothing else: the first reference to obj after the if is a plain
-// assignment in the same statement list, which does not read obj itself.
+// assignment. In the same statement list, which does not read obj itself.
 func (st *assertFixState) overwriteIsDead(obj types.Object, ifStmt *ast.IfStmt, list []ast.Stmt) bool {
 	var first *ast.Ident
 	for _, u := range st.uses[obj] {

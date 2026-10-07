@@ -156,9 +156,9 @@ func TestSetFixLeavesUnspellableUsesAlone(t *testing.T) {
 
 // TestSetFixReachesAPackageVariableUsedFromATestFile pins the variant rule.
 // Tests load as their own package variant, so the pass that cannot see the
-// test file's use must leave the variable alone, and the pass holding every
-// file must rewrite it. Blocking both is how a whole package of set-shaped
-// maps kept its warning and never got the fix.
+// test file's use must leave the variable alone, and the pass. Holding
+// every file must rewrite it. Blocking both is how a whole package of
+// set-shaped maps kept its warning and never got the fix.
 func TestSetFixReachesAPackageVariableUsedFromATestFile(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()
@@ -189,7 +189,7 @@ func TestSetFixReachesAPackageVariableUsedFromATestFile(t *testing.T) {
 }
 
 // TestSetFixStopsAtAFileThisBuildExcludes pins the rest of the rule: a file the
-// build configuration left out holds uses the rewrite would not reach, and a
+// build configuration left out holds uses the rewrite would not reach. A
 // half-rewritten variable does not compile.
 func TestSetFixStopsAtAFileThisBuildExcludes(t *testing.T) {
 	t.Serial()
@@ -223,7 +223,7 @@ func writeGoFile(t *testing.T, dir, name, src string) {
 }
 
 // setFixesForFiles type-checks the named files from dir together and returns
-// the analyzer's fixes, so a pass can be given exactly the files a real build
+// the analyzer's fixes. A pass can be given exactly the files a real build
 // variant would hold.
 func setFixesForFiles(t *testing.T, analyzer *analysis.Analyzer, dir string, names ...string) []*ASTFixes {
 	t.Helper()

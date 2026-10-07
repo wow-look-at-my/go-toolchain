@@ -16,8 +16,8 @@ import (
 //
 // The helper announces itself and then waits, bounded, for the test to react
 // to that announcement. Buffered output means the reaction never arrives in
-// time and the helper exits with a failure, so this fails on regression
-// rather than racing a wall-clock deadline.
+// time and the helper exits with a failure. This fails on regression rather
+// than racing a wall-clock deadline.
 func TestExecuteDirectiveStreamsOutputWhileRunning(t *testing.T) {
 	t.Serial()
 	requireShebangHelper(t)

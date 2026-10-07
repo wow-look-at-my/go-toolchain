@@ -16,12 +16,11 @@ func resolveLinks(path string) string {
 	return path
 }
 
-// checkFileCommittedGoGit checks file status using the go-git library.
-// go-git v5 cannot read an index written under index.skipHash/feature.manyFiles
-// (a recent git writes an empty trailer hash): Status fails with "invalid
-// checksum" — the upstream fix (https://github.com/go-git/go-git/pull/2181) is
-// main-only, unreleased. The
-// git-CLI fallback in checkFileCommittedByName covers such repos
+// checkFileCommittedGoGit checks file status using the go-git library. go-git v5
+// cannot read an index written under index.skipHash/feature.manyFiles (a recent
+// git writes an empty trailer hash): Status fails with "invalid checksum". The
+// upstream fix (https://github.com/go-git/go-git/pull/2181) is main-only,
+// unreleased. The git-CLI fallback in checkFileCommittedByName covers such repos
 // (regression-tested by TestCheckFileCommittedByName_ManyFilesIndex).
 func checkFileCommittedGoGit(filename string) error {
 	fileDir := filepath.Dir(filename)

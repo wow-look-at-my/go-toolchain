@@ -100,7 +100,7 @@ func TestFoo(t *testing.T) {
 }
 
 // TestFixTestifyImports_CheckModeRejectsFork is the CI-enforcement regression
-// guard: in check mode (fix=false, the CI path) a file importing the fork must
+// guard. In check mode (fix=false, the CI path) a file importing the fork must
 // be reported as a hard error and must NOT be rewritten. This is the behavior
 // that was missing — CI used to skip the migration entirely and pass green on
 // the fork.
@@ -222,7 +222,7 @@ func TestSyncVendorIfPresent_NoVendor(t *testing.T) {
 
 // TestFixTestifyImports_VendorConsistency builds a vendored module on the
 // fork, runs the rewriter, and verifies the result is a consistent vendor
-// tree on upstream testify: vendor/modules.txt no longer references the fork,
+// tree on upstream testify. Vendor/modules.txt no longer references the fork,
 // and `go build -mod=vendor ./...` and `go vet -mod=vendor ./...` succeed.
 // This is the regression guard for the "inconsistent vendoring" failure the
 // fork-direction rewrite produced. Both testify modules resolve to local
