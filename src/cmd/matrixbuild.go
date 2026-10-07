@@ -42,7 +42,7 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 		for _, suffix := range []string{"_host", ""} {
 			linkName := target.OutputName + suffix + ext
 			linkPath := filepath.Join(outDir, linkName)
-			// A cosmo build writes the APE under the plain name, so it is a real
+			// A cosmo build writes the APE under the plain name. It is a real
 			// binary, not a link slot -- overwriting it would delete the artifact.
 			if st, statErr := os.Lstat(linkPath); statErr == nil && st.Mode()&os.ModeSymlink == 0 {
 				continue
@@ -77,11 +77,12 @@ func checkPortableJob(job buildJob) error {
 // called as soon as the compiler produces output (used for progress
 // indicators on the default build path).
 //
-// The compiler never writes onto the target file (job.outputPath) directly:
-// its -o is the .tmp- spelling of that path (build.TmpPrefix), and only the
+// The compiler never writes onto the target file (job.outputPath) directly.
+// Its -o is the .tmp- spelling of that path (build.TmpPrefix), and only the
 // commit after the build succeeded moves the results onto the target name.
-// A failing or killed build can therefore never leave even a partial binary
-// at build/<name> for an agent or a later phase to pick up.
+// Consider a failing or killed build. That failing can therefore never
+// leave even a partial binary at build/<name> for an agent or a later phase
+// to pick up.
 func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error {
 	if err := checkPortableJob(job); err != nil {
 		return err

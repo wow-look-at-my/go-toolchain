@@ -55,7 +55,7 @@ const canonicalizeHoistCode = "package main\n\n" +
 // fixCanonicalizeFixture writes the module both canonicalize regressions share,
 // runs the fixer over it, and returns the directory with the rewritten files by
 // name. A fixer run spends a go mod tidy and a package load, so a module per
-// regression repeats that for the same work; a real run fixes a package's files
+// regression repeats that for the same work. A real run fixes a package's files
 // together anyway. Both files are package main and share no names.
 func fixCanonicalizeFixture(t *testing.T) (string, map[string]string) {
 	t.Helper()
@@ -90,10 +90,10 @@ func fixCanonicalizeFixture(t *testing.T) (string, map[string]string) {
 	return dir, got
 }
 
-// TestVetSemanticFixCanonicalizes exercises the AST-fix write path in fix.go:
-// when assertlint rewrites a file, fix.go reprints the whole AST through
-// go/printer, which tab-aligns, applies gofmt's doc-comment smart-quote
-// substitution, and hoists an if's init statement out of the if.
+// TestVetSemanticFixCanonicalizes exercises the AST-fix write path in fix.go.
+// Fix.go reprints the whole AST through go/printer, which tab-aligns, applies
+// gofmt's doc-comment smart-quote substitution. Fix.go hoists an if's init
+// statement out of the if. Do this when assertlint rewrites a file.
 func TestVetSemanticFixCanonicalizes(t *testing.T) {
 	t.Serial()
 	dir, files := fixCanonicalizeFixture(t)
