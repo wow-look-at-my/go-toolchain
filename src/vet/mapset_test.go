@@ -14,8 +14,8 @@ import (
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
-// TestMapSetAnalyzer: an all-true or emptied-then-set-only bool map is reported; a lookup
-// table, comma-ok read, computed value, escaping map, or map[K]struct{} is not.
+// TestMapSetAnalyzer: an all-true or emptied-then-set-only bool map is
+// reported.
 func TestMapSetAnalyzer(t *testing.T) {
 	t.Serial() // See TestBannedOutputAnalyzer.
 	testdata, err := filepath.Abs("testdata")
@@ -24,8 +24,8 @@ func TestMapSetAnalyzer(t *testing.T) {
 }
 
 // TestMapSetSkipsTheSetPackageItself verifies the remedy never warns about
-// itself: Set[T] IS a map[T]struct{}, and its storage sites would spend half
-// the warnings budget saying so.
+// itself: Set[T] IS a map[T]struct{}. Its storage sites would spend half the
+// warnings budget saying so.
 func TestMapSetSkipsTheSetPackageItself(t *testing.T) {
 	t.Serial()
 	const src = `package set
@@ -66,7 +66,7 @@ type Set[T comparable] struct {
 
 // TestMapSetSeverityFollowsTheModule verifies no module escapes the check, and
 // that what the module decides is severity. An org module has the remedy a
-// single org require away, so its findings fail the build; anywhere else the
+// single org require away, so its findings fail the build. Anywhere else the
 // same finding is a warning, because the fix would add a dependency the author
 // never chose.
 func TestMapSetSeverityFollowsTheModule(t *testing.T) {

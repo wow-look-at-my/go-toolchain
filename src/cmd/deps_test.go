@@ -276,7 +276,7 @@ func TestDepChecker_checkDep_CacheFresh(t *testing.T) {
 
 	dc := &DepChecker{cache: c}
 
-	// Insert a fresh "up-to-date" entry (checked just now)
+	// Insert a fresh "up-to-date" entry (checked now)
 	now := int64(9999999999) // Far future timestamp
 	c.store("test/cached-fresh", "v0.0.0-20240101-abc123def456", "", now)
 
