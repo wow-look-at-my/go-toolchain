@@ -1,7 +1,7 @@
-// Package profile builds the per-action build profile: it injects
+// Package profile builds the per-action build profile. It injects
 // -debug-actiongraph dumps into the go build/test invocations of a run,
 // parses them defensively, joins each action (by its truncated
-// ActionID) with the cacheprog's per-action outcome events, and emits a
+// ActionID) with the cacheprog's per-action outcome events. It emits a
 // console summary, build/profile.json, Chrome-trace lanes, and a CI
 // step-summary table — answering "what is this build spending its time on,
 // and did the cache help?".
@@ -28,9 +28,10 @@ func NewCollector(dir string) *Collector {
 	return &Collector{dir: dir}
 }
 
-// GraphArg reserves a fresh actiongraph dump path and returns the go-command
-// flag that writes it ("-debug-actiongraph=<path>"), or "" when the dump
-// directory cannot be created (profiling silently off for this invocation).
+// GraphArg reserves a fresh actiongraph dump path. GraphArg returns the
+// go-command flag that writes it ("-debug-actiongraph=<path>"), or "" when
+// the dump directory cannot be created (profiling silently off for this
+// invocation).
 func (c *Collector) GraphArg() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()

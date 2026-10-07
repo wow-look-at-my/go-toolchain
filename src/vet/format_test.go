@@ -156,7 +156,7 @@ const (
 func TestRevertDocCommentSmartQuotes(t *testing.T) {
 	t.Serial()
 	// Inputs are whole Go files: the revert is scoped to comment spans found by
-	// parsing, so it heals curly quotes in comments (curative) but never touches
+	// parsing. It heals curly quotes in comments (curative) but never touches
 	// string or rune literals.
 	tests := []struct {
 		name string

@@ -141,9 +141,10 @@ func TestCommentSpanExemptsDirectivesAndPackageDoc(t *testing.T) {
 	}
 }
 
-// TestCommentSpanAttachesToTheRightNode verifies a trailing comment, a struct
-// field's doc, and a comment inside a case clause each attach to the small
-// node beside them, not to something so big the check never fires.
+// TestCommentSpanAttachesToTheRightNode verifies a trailing comment.
+// TestCommentSpanAttachesToTheRightNode also verifies a struct field's doc,
+// and a comment inside a case clause each attach to the small node beside
+// them, not to something. So big the check never fires.
 func TestCommentSpanAttachesToTheRightNode(t *testing.T) {
 	t.Serial()
 	filler := strings.Repeat("x", 130)
@@ -173,8 +174,8 @@ func TestCommentSpanAttachesToTheRightNode(t *testing.T) {
 }
 
 // TestCommentSpanWarnsOncePerSite mirrors writeruns' and mapset's own dedup
-// test: go/packages loads a package several ways, so a repeated run over
-// the same pass must not spend the budget again on a site already warned.
+// test: go/packages loads a package several ways. A repeated run over the
+// same pass must not spend the budget again on a site already warned.
 func TestCommentSpanWarnsOncePerSite(t *testing.T) {
 	t.Serial()
 	src := "package p\n\n" + fixtureComment(t, 1, 160) + "\nconst x = 1\n"
