@@ -7,7 +7,7 @@ import (
 )
 
 // unifiedDiff renders a unified diff from old (current content) to want (canonical content), labeled with
-// path. checkEditor attaches this to every violation, so CI names exactly what change would fix it --
+// path. checkEditor attaches this to every violation. CI names exactly what change would fix it --
 // consumable by `patch`/`git apply` for a reader that cannot run go-toolchain to see the answer.
 func unifiedDiff(path string, old, want []byte) (string, error) {
 	diff := difflib.UnifiedDiff{

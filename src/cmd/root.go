@@ -289,9 +289,9 @@ func findGoModules() []string {
 		found = append(found, ".")
 	}
 
-	// Then every nested module. A root go.mod does NOT end the search: a
+	// Then every nested module. A root go.mod does NOT end the search. A
 	// repo that keeps a tool, an example or another service in its own
-	// module still has to build and test it, and returning the root alone
+	// module still has to build and test it. Returning the root alone
 	// reported a whole module green without compiling a line of it.
 	filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -356,8 +356,8 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 	}
 
 	// Vet and the tests read the inputs, and the inputs are what they answer
-	// about. An unchanged tree that lost its outputs has to build again, and
-	// asking that question again only re-runs a suite whose answer is on file.
+	// about. An unchanged tree that lost its outputs has to build again.
+	// Asking that question again only re-runs a suite whose answer is on file.
 	// It is also the path that reaches the build with no coverage to report.
 	if treeUnchanged && !isRetry {
 		waitForCommentScan() // This path reaches no vet, so the sweep lands here.
