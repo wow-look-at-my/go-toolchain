@@ -77,7 +77,7 @@ func TestResetWarnCount(t *testing.T) {
 
 // TestEmittedWarningsRetainsMessages verifies that the text of every emitted
 // warning is retained in emission order, with WarnFile keeping its file
-// prefix, so the warnings gate can re-print exactly what it failed on.
+// prefix, so the warnings gate can. Re-print exactly what it failed on.
 func TestEmittedWarningsRetainsMessages(t *testing.T) {
 	t.Serial()
 	ResetWarnCount()
@@ -181,8 +181,8 @@ func TestEmittedWarningsExcludesFiltered(t *testing.T) {
 }
 
 // TestEmittedWarningsCapped verifies that retention is bounded while the
-// counter keeps counting, so the gate can report how many it is not showing
-// instead of silently truncating.
+// counter keeps counting, so the gate can report how many it is not
+// showing. Instead of silently truncating.
 func TestEmittedWarningsCapped(t *testing.T) {
 	t.Serial()
 	ResetWarnCount()

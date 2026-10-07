@@ -275,7 +275,7 @@ func render(d doc) {
 }
 
 // TestWriteRunsSpendsOneWarningPerSite verifies the file:line deduplication.
-// go/packages loads a package several ways and every variant walks the same
+// go/packages loads a package several ways. Every variant walks the same
 // file, so a site that warned per variant would spend much of the warnings
 // budget on a single line.
 func TestWriteRunsSpendsOneWarningPerSite(t *testing.T) {

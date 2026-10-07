@@ -64,7 +64,7 @@ func TestComputeFingerprintIncludesGoSum(t *testing.T) {
 
 // A source package named "build" is not the output directory. Skipping it by
 // NAME hid every edit under this repo's own src/build, so the fast exit served
-// a stale binary and called the run finished.
+// a stale binary. The fast exit called the run finished.
 func TestComputeFingerprintCountsASourceDirNamedBuild(t *testing.T) {
 	t.Serial()
 	chdirTemp(t)
@@ -93,7 +93,7 @@ func TestComputeFingerprintCountsASourceDirNamedBuild(t *testing.T) {
 }
 
 // action.yml is test data (handoffname_test.go asserts its hand-off name
-// templates) that no //go:embed can reach from src/cmd, so editing it has to
+// templates) that no //go:embed can reach from src/cmd. Editing it has to
 // bust the fingerprint -- otherwise the run fast-exits "Up to date" and those
 // assertions never re-run locally.
 func TestComputeFingerprintIncludesActionYML(t *testing.T) {
@@ -114,7 +114,7 @@ func TestComputeFingerprintIncludesActionYML(t *testing.T) {
 }
 
 // The environment decides what a run does — an env-gated test switched on is a
-// pipeline the stored fingerprint never described — so the skip must not fire
+// pipeline the stored fingerprint never described — so the skip must. Not fire
 // across a changed variable.
 func TestComputeFingerprintIncludesTheEnvironment(t *testing.T) {
 	t.Serial()
@@ -141,7 +141,7 @@ func TestComputeFingerprintIncludesTheEnvironment(t *testing.T) {
 	assert.Equal(t, fp2, fp3, "shell-churned variables must not bust the fingerprint")
 }
 
-// --generate runs go:generate directives; a stored fingerprint from a plain run
+// --generate runs go:generate directives. A stored fingerprint from a plain run
 // does not describe that run, and skipping it reports success for generators
 // that never executed.
 func TestComputeFingerprintIncludesTheFlags(t *testing.T) {
@@ -397,11 +397,11 @@ func TestComputeFingerprintFoldsEmbeds(t *testing.T) {
 	assert.Equal(t, fpA, fpB, "a non-embedded data file must not affect the fingerprint")
 }
 
-// TestUpToDateTracksEmbeddedFiles is the end-to-end regression for the bug: it
+// TestUpToDateTracksEmbeddedFiles is the end-to-end regression for the bug. It
 // drives real `go list` resolution over a fixture module that embeds data files
-// via every directive form (EmbedFiles, TestEmbedFiles, XTestEmbedFiles)
-// and asserts that editing any embedded file busts the "up to date" skip,
-// while an unchanged tree still reports up to date.
+// via every directive form (EmbedFiles, TestEmbedFiles, XTestEmbedFiles) and
+// asserts that editing any embedded file. Busts the "up to date" skip, while an
+// unchanged tree still reports up to date.
 func TestUpToDateTracksEmbeddedFiles(t *testing.T) {
 	t.Serial()
 	if _, err := exec.LookPath("go"); err != nil {

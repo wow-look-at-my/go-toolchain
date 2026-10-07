@@ -47,4 +47,6 @@ A name is resolved the same way the branch this repository is on is. A dependenc
 
 Nothing pins a commit. In CI the fork's `cmd/go` locks each org module's branch head once per run attempt, in buildhost (`/api/v1/run-locks`, keyed by `GITHUB_RUN_ID` and `GITHUB_RUN_ATTEMPT`). Every job of the attempt builds that head. A re-run is a new attempt, so it resolves the branches again, and a deleted branch falls back to master.
 
+Outside CI the pipeline names a run too (`src/goenv.go`). Every go command one invocation starts resolves each org module's head once, and the later commands build what the first one locked. The name is `go-toolchain/local/<pid>-<nanos>/1`, made unique to the invocation so the next build resolves the heads again and picks up a head that moved. A run the caller or CI already named keeps its own identity. The pipeline sets `GOSMOPOLITAN_RUN` only when it is unset and the GitHub variables name no run.
+
 The fork checkout takes its head from the same lock, under the name `github.com/wow-look-at-my/gosmopolitan@<branch>`: `checkout-fork-branch.sh` in the workflow, and `resolveForkCommit` in the pipeline. `GOORGPIN` and `GO_TOOLCHAIN_FORK_COMMIT` are commit pins, and the pipeline refuses to start while either is set.
