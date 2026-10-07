@@ -58,7 +58,7 @@ func TestFileDepsCacheMergesConcurrentWriter(t *testing.T) {
 	assert.Contains(t, merged, depsCacheKey("example.com/theirs", "v1.0.0"))
 }
 
-// A damaged file is not a build failure: the entries are recomputable, and a
+// A damaged file is not a build failure. The entries are recomputable, and a
 // cache that refuses to open would take the whole run down with it.
 func TestFileDepsCacheDamagedFileReadsEmpty(t *testing.T) {
 	t.Serial()

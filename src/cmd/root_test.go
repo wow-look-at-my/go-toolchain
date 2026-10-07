@@ -60,9 +60,9 @@ func TestRunWithRunnerSuccess(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-// The default build writes the plain name, everywhere. A platform suffix
-// would claim a property the fat APE does not have -- it runs on every host --
-// and there is no host-shaped build left for it to distinguish.
+// The default build writes the plain name, everywhere. A platform suffix would
+// claim a property the fat APE does not have -- it runs on every host. There
+// is no host-shaped build left for it to distinguish.
 func TestRunWithRunnerBinaryNameCarriesNoPlatform(t *testing.T) {
 	t.Serial()
 	tmpDir := t.TempDir()

@@ -55,7 +55,7 @@ func captureProfileTrace() {
 // emitBuildProfile emits the actiongraph timing profile: the console
 // section, build/profile.json + $TMPDIR/go-toolchain-profile/profile.json,
 // and the CI step-summary table. Cache hit/miss counts are not part of this
-// report: gosmopolitan's own cmd/go consults its shared cache in process
+// report. Gosmopolitan's own cmd/go consults its shared cache in process
 // (see wow-look-at-my/gosmopolitan CLAUDE.md, "Shared build cache"), so this
 // binary never observes a hit or a miss to report.
 //
