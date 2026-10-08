@@ -174,6 +174,17 @@ func TestAnUnreachableOriginFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "reading the default branch")
 }
 
+// Both pipelines run the gate. Removing either call leaves that pipeline
+// unguarded, so this file, which the repository protects, pins them.
+func TestBothPipelinesRunTheProtectedPathsGate(t *testing.T) {
+	t.Serial()
+	for _, file := range []string{"root.go", "matrix.go"} {
+		source, err := os.ReadFile(file)
+		require.NoError(t, err)
+		assert.Contains(t, string(source), "if err := checkProtectedPaths(); err != nil {", file)
+	}
+}
+
 func TestParseProtectedPathsSkipsCommentsAndBlanks(t *testing.T) {
 	t.Serial()
 	assert.Equal(t, []string{"a_test.go", "testdata/x"}, parseProtectedPaths("# note\n\n  a_test.go  \ntestdata/x\n"))
