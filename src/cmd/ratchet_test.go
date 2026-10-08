@@ -58,6 +58,8 @@ func inCIOn(t *testing.T, branch string) {
 	t.Helper()
 	t.Setenv("CI", "true")
 	t.Setenv("GITHUB_REF_NAME", branch)
+	// A run of this repository's own tests is the child of a parent that runs the ratchet, so the child's marker is cleared.
+	t.Setenv(ratchetByParentEnv, "")
 }
 
 // judged is a repository whose master holds a guarantee: code.go says strong,
