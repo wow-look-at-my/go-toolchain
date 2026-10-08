@@ -163,6 +163,14 @@ func TestProtectedPathsSkipOutsideCI(t *testing.T) {
 	assert.NoError(t, checkProtectedPaths())
 }
 
+// A directory that is no repository has nothing to compare, so the run goes
+// on to say what it does lack.
+func TestADirectoryOutsideARepositoryHasNothingToProtect(t *testing.T) {
+	t.Serial()
+	inCIOn(t, "feature")
+	assert.NoError(t, checkProtectedPathsIn(t.TempDir()))
+}
+
 // A CI run that cannot learn the default branch fails rather than passing unchecked.
 func TestAnUnreachableOriginFails(t *testing.T) {
 	t.Serial()

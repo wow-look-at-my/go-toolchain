@@ -36,6 +36,10 @@ func checkProtectedPathsIn(dir string) error {
 		return string(out), nil
 	}
 
+	// A directory outside any repository has no branch to compare.
+	if _, err := git("rev-parse", "--is-inside-work-tree"); err != nil {
+		return nil
+	}
 	symref, err := git("ls-remote", "--symref", "origin", "HEAD")
 	if err != nil {
 		return fmt.Errorf("protected paths: reading the default branch: %w", err)
