@@ -194,6 +194,9 @@ func run(cmd *cobra.Command, args []string) (err error) {
 	if err := reexecUnderOwnBuild(); err != nil {
 		return err
 	}
+	if err := checkProtectedPaths(); err != nil {
+		return err
+	}
 
 	modules := findGoModules()
 	if len(modules) == 0 {
