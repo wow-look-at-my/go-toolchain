@@ -146,9 +146,6 @@ func runRelease(cmd *cobra.Command, args []string) error {
 	if err := reexecUnderOwnBuild(); err != nil {
 		return err
 	}
-	if err := checkRatchet(); err != nil {
-		return err
-	}
 	// Collects per-action build profiles; no Chrome trace here, but the deferred capture still parses graphs for emitBuildProfile.
 	initBuildProfile()
 	defer captureProfileTrace()
@@ -159,6 +156,10 @@ func runRelease(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := maybeSubmitDeps(); err != nil {
+		return err
+	}
+	// The branch's own generate and build phases have run, so the ratchet judges the tree they left.
+	if err := checkRatchet(); err != nil {
 		return err
 	}
 

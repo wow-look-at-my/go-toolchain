@@ -12,6 +12,9 @@ import (
 // ratchetFile names the command that judges a branch, on its first line that is no comment.
 const ratchetFile = ".github/ratchet"
 
+// ratchetByParentEnv is set in a run that reexecuted itself under the build it judges.
+const ratchetByParentEnv = "GO_TOOLCHAIN_RATCHET_BY_PARENT"
+
 // checkRatchet runs the default branch's ratchet against this branch.
 func checkRatchet() error { return checkRatchetIn("") }
 
@@ -24,7 +27,7 @@ func checkRatchet() error { return checkRatchetIn("") }
 // non-zero. A run on the default branch itself passes, because there is
 // nothing older to hold it to.
 func checkRatchetIn(dir string) error {
-	if os.Getenv("CI") == "" {
+	if os.Getenv("CI") == "" || os.Getenv(ratchetByParentEnv) != "" {
 		return nil
 	}
 	git := func(args ...string) (string, error) {
@@ -85,6 +88,9 @@ func checkRatchetIn(dir string) error {
 		return fmt.Errorf("ratchet: checking out %s: %w", branch, err)
 	}
 	defer git("worktree", "remove", "--force", checkout)
+	if err := generateIn(checkout); err != nil {
+		return fmt.Errorf("ratchet: generating %s's checkout: %w", branch, err)
+	}
 
 	cmd := exec.Command(argv[0], append(argv[1:], head)...)
 	cmd.Dir = checkout
@@ -95,6 +101,35 @@ func checkRatchetIn(dir string) error {
 			branch, ratchetFile, strings.Join(argv, " "), err)
 	}
 	return nil
+}
+
+// generateIn runs the generate directives that the go.mod at dir approves. A
+// command that builds dir then finds each generated file. A directory with no
+// go.mod generates nothing.
+func generateIn(dir string) error {
+	back, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	defer os.Chdir(back)
+	if err := os.Chdir(dir); err != nil {
+		return err
+	}
+	f, err := readGoModFile(".")
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	hash := ""
+	if f.Module != nil {
+		hash = parseGenerateMarker(f.Module.Syntax)
+	}
+	if _, err := satisfyDepGenerate(hash); err != nil {
+		return err
+	}
+	return runGenerate(true, hash)
 }
 
 // onDefaultBranch reports whether this CI run is for the default branch.

@@ -184,6 +184,19 @@ func TestRatchetSkipsOutsideCI(t *testing.T) {
 	assert.NoError(t, checkRatchet())
 }
 
+// A child run under the build it judges leaves the ratchet to its parent.
+func TestAChildLeavesTheRatchetToItsParent(t *testing.T) {
+	t.Serial()
+	inCIOn(t, "feature")
+	clone := newRatchetClone(t, judged)
+	commitIn(t, clone, map[string]string{"code.go": "package x // weak\n"})
+
+	t.Setenv(ratchetByParentEnv, "1")
+	assert.NoError(t, checkRatchetIn(clone))
+	t.Setenv(ratchetByParentEnv, "")
+	assert.Error(t, checkRatchetIn(clone))
+}
+
 // A directory that is no repository has nothing to compare, so the run goes
 // on to say what it does lack.
 func TestADirectoryOutsideARepositoryHasNoRatchet(t *testing.T) {
@@ -201,6 +214,23 @@ func TestAnUnreachableOriginFails(t *testing.T) {
 	err := checkRatchetIn(dir)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "reading the default branch")
+}
+
+// The default branch's checkout is generated in place, and the process comes
+// back to the directory it was in.
+func TestGenerateInKeepsTheWorkingDirectory(t *testing.T) {
+	t.Serial()
+	before, err := os.Getwd()
+	require.NoError(t, err)
+
+	module, _ := newGoModRepo(t, "go 1.27")
+	require.NoError(t, generateIn(module))
+	require.NoError(t, generateIn(t.TempDir()), "a directory with no go.mod generates nothing")
+	assert.ErrorContains(t, generateIn(filepath.Join(t.TempDir(), "missing")), "missing")
+
+	after, err := os.Getwd()
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
 }
 
 // Both pipelines run the ratchet.
