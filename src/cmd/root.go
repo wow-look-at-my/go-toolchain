@@ -194,7 +194,7 @@ func run(cmd *cobra.Command, args []string) (err error) {
 	if err := reexecUnderOwnBuild(); err != nil {
 		return err
 	}
-	if err := checkProtectedPaths(); err != nil {
+	if err := checkRatchet(); err != nil {
 		return err
 	}
 

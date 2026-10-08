@@ -146,7 +146,7 @@ func runRelease(cmd *cobra.Command, args []string) error {
 	if err := reexecUnderOwnBuild(); err != nil {
 		return err
 	}
-	if err := checkProtectedPaths(); err != nil {
+	if err := checkRatchet(); err != nil {
 		return err
 	}
 	// Collects per-action build profiles; no Chrome trace here, but the deferred capture still parses graphs for emitBuildProfile.

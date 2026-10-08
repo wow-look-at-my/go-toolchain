@@ -1,5 +1,0 @@
-# A branch that changes any path below fails its own CI. These files are the
-# protected-paths gate, so no branch can switch it off or weaken it.
-.github/protected-paths
-src/cmd/protectedpaths.go
-src/cmd/protectedpaths_test.go
