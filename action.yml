@@ -90,17 +90,17 @@ runs:
       shell: bash
       run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
-    # Lets the kernel start an APE, so a bare exec works. see docs/ACTION.md
+    # Lets the kernel start an APE, so a bare exec works. see docs/ACTION.md github.action_path is the host path in a container job; GITHUB_ACTION_PATH is the path the step's shell sees.
     - name: Register the APE binfmt handler
       if: runner.os == 'Linux'
       shell: bash
-      run: bash "${{ github.action_path }}/.github/scripts/register-ape-binfmt.sh"
+      run: bash "$GITHUB_ACTION_PATH/.github/scripts/register-ape-binfmt.sh"
 
     # cgo for GOOS=cosmo compiles C with cosmocc. This repository's own build also needs it: embedstd compiles runtime/cgo into the standard library the binary carries. see docs/ACTION.md
     - name: Install cosmocc
       if: inputs.cgo == 'true' || github.repository == 'wow-look-at-my/go-toolchain'
       shell: bash
-      run: bash "${{ github.action_path }}/.github/scripts/install-cosmocc.sh"
+      run: bash "$GITHUB_ACTION_PATH/.github/scripts/install-cosmocc.sh"
 
     # No path: runner.temp is the host path in a container job. The action resolves RUNNER_TEMP itself.
     - name: Download go-toolchain
@@ -129,7 +129,7 @@ runs:
             exit 1
           fi
           echo "::warning::buildhost binary not usable; building from source (allow-source-build=true)"
-          (cd "${{ github.action_path }}" && GOTOOLCHAIN=auto go install ./src)
+          (cd "$GITHUB_ACTION_PATH" && GOTOOLCHAIN=auto go install ./src)
           cp "$(go env GOPATH)/bin/src" "${BIN_DIR}/go-toolchain"
         fi
 
@@ -239,9 +239,7 @@ runs:
     - name: Select publishable artifacts
       id: publishable
       shell: bash
-      env:
-        ACTION_PATH: ${{ github.action_path }}
-      run: bash "$ACTION_PATH/.github/scripts/publishable-artifacts.sh" "${{ inputs.working-directory }}/build"
+      run: bash "$GITHUB_ACTION_PATH/.github/scripts/publishable-artifacts.sh" "${{ inputs.working-directory }}/build"
 
     - name: Require the id-token grant the publish needs
       if: steps.publishable.outputs.publish == 'true'
