@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // testFile holds the ratchet's tests, in both checkouts.
@@ -21,7 +23,7 @@ var testName = regexp.MustCompile(`(?m)^func (Test\w+)\(`)
 
 func main() {
 	if err := judge(".", os.Args[1:], goTest); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		logger.Error("%v", err)
 		os.Exit(1)
 	}
 }
