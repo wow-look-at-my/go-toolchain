@@ -13,7 +13,7 @@ import (
 func TestActionAvoidsHostPathExpressions(t *testing.T) {
 	t.Serial()
 	hostPaths := map[string]string{
-		"${{runner.temp}}":         "$RUNNER_TEMP",
+		"${{runner.temp}}":        "$RUNNER_TEMP",
 		"${{github.action_path}}": "$GITHUB_ACTION_PATH",
 	}
 	for _, step := range loadActionSteps(t) {
