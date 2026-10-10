@@ -25,7 +25,6 @@ func setupCGOEnvironment() {
 		return
 	}
 	setupCGOOnce.Do(func() {
-		// Check cached opencv builds from ensure_opencv (go:generate tool)
 		if dir, err := cachedOpenCVPkgConfig(); err == nil {
 			addPkgConfigPath(dir)
 		}
