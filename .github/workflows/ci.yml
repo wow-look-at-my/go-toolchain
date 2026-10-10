@@ -92,6 +92,11 @@ jobs:
           echo "GOROOT_BOOTSTRAP=${{ runner.temp }}/bootstrap/go" >> "$GITHUB_ENV"
           "${{ runner.temp }}/bootstrap/go/bin/go" version
 
+      # The fork's make.bash compiles the APE loaders with the zig and LLVM its own action pins.
+      - name: Install the fork's build tools
+        if: steps.release.outputs.linked != 'true'
+        uses: ./_gosmopolitan/.github/actions/apeld-tools
+
       # The pipeline links the fork's go command, so the fork's own build is what earliest compiles it; it runs after the secrets because a CI run of the fork's go command refuses to build with no shared cache configured. see docs/CI.md
       - name: Build the bootstrap go command from the fork checkout
         if: steps.release.outputs.linked != 'true'
@@ -326,6 +331,9 @@ jobs:
           tar -xzf "${{ runner.temp }}/gosmopolitan.tar.gz" -C "${{ runner.temp }}/bootstrap"
           echo "GOROOT_BOOTSTRAP=${{ runner.temp }}/bootstrap/go" >> "$GITHUB_ENV"
           "${{ runner.temp }}/bootstrap/go/bin/go" version
+
+      - name: Install the fork's build tools
+        uses: ./_gosmopolitan/.github/actions/apeld-tools
 
       - name: Build the bootstrap go command from the fork checkout
         working-directory: _gosmopolitan/src
