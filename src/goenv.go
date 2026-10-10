@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/wow-look-at-my/go-toolchain/src/cmd"
@@ -45,8 +46,11 @@ func nameRun() {
 
 // localRunName names this invocation in runEnv's shape.
 func localRunName() string {
-	return fmt.Sprintf("go-toolchain/local/%d-%d/1", os.Getpid(), time.Now().UnixNano())
+	return fmt.Sprintf("go-toolchain/local/%d-%d-%d/1", os.Getpid(), time.Now().UnixNano(), localRunSeq.Add(1))
 }
+
+// localRunSeq numbers each local run of this process.
+var localRunSeq atomic.Uint64
 
 // PublicSumDB is the checksum database this toolchain refuses to talk to.
 const PublicSumDB = "sum.golang.org"
