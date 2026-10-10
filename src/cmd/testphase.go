@@ -35,6 +35,9 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	if err := checkOrgPins(moduleRoot()); err != nil {
 		return false, nil, err
 	}
+	if err := checkSubmodulesForward(r, moduleRoot()); err != nil {
+		return false, nil, err
+	}
 
 	// Handle vanity-URL modules: inject replace directives for unreachable hosts
 	vanity, vanityErr := injectVanityReplaces()

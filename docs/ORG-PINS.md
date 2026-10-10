@@ -43,6 +43,10 @@ replace charm.land/bubbletea/v2 => github.com/wow-look-at-my/bubbletea/v2 v2.0.0
 
 A name is resolved the same way the branch this repository is on is. A dependency with no branch of that name takes its default branch. So the pin follows the code once a merged pull request deletes the branch it was opened from.
 
+## A submodule pin only moves forward (`src/cmd/submoduleforward.go`)
+
+Every gitlink on HEAD must equal the gitlink at the same path on the default branch of `origin`, or descend from it. A pin that is older, or on a side line, fails the run and names the path. The check reads the default branch with `git ls-remote`. It fetches the commit graph into a scratch bare repository, so the checkout and its submodules stay as they were. A scratch fetch carries the `http.*.extraheader` that `actions/checkout` writes, so a private submodule resolves in CI. It applies to every submodule, not only org ones.
+
 ## One head per CI run: the buildhost run lock
 
 Nothing pins a commit. In CI the fork's `cmd/go` locks each org module's branch head once per run attempt, in buildhost (`/api/v1/run-locks`, keyed by `GITHUB_RUN_ID` and `GITHUB_RUN_ATTEMPT`). Every job of the attempt builds that head. A re-run is a new attempt, so it resolves the branches again, and a deleted branch falls back to master.
