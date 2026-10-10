@@ -94,10 +94,10 @@ func isOutputDir(path string) bool {
 	return err == nil && abs == outAbs
 }
 
-// computeFingerprint hashes all inputs that affect a go-toolchain run: all .go
+// computeFingerprint hashes all inputs that affect a go-toolchain run. All .go
 // files (including tests), go.mod, go.sum, .dats suites and their .golden
 // snapshots, everything under a testdata directory, Go version, the flags the
-// run was invoked with, the environment it was invoked in, and every file
+// run. Was invoked with. The environment it was invoked in, and every file
 // pulled in by a //go:embed directive (resolved via go list).
 func computeFingerprint(r runner.CommandRunner) (string, error) {
 	h := sha256.New()
@@ -121,7 +121,7 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 
 	var files []string
 	// The walk must skip the run's own product. Matching the NAME "build"
-	// instead hid src/build, a real package, so an edit there left the
+	// instead hid src/build, a real package. An edit there left the
 	// fingerprint unchanged and the fast exit served a stale binary.
 	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -203,13 +203,14 @@ func underTestdata(path string) bool {
 //
 // It shells out to `go list -test -json ./...`, letting go list resolve the
 // embed patterns (globs, directory trees, the all: prefix) instead of parsing
-// //go:embed comments by hand. -test is required, or TestEmbedFiles and
+// //go:embed comments by hand. -test. Is required, or TestEmbedFiles and
 // XTestEmbedFiles stay unresolved. ./... without -deps keeps the scope to the
 // main module. GOCACHEPROG is cleared so go list doesn't spawn a cacheprog
 // child that inherits stdout and stalls the io.ReadAll below.
 //
 // Note: files read at run time from a testdata directory are covered by the
-// walk above; a file living elsewhere with no embed directive stays untracked.
+// walk above. This also covers a file living elsewhere with no embed directive
+// stays untracked.
 func embeddedFiles(r runner.CommandRunner) ([]string, error) {
 	proc, err := runner.Cmd("go", "list", "-test", "-json", "./...").
 		WithQuiet().WithEnv("GOCACHEPROG", "").Run(r)

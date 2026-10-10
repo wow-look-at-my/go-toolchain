@@ -12,7 +12,7 @@ import (
 
 // buildFailureStream is what `go test -json` emits when a test binary will not
 // build. It is captured verbatim from a real run, because the shape is the
-// whole point: the compiler's message rides `build-output` events that carry an
+// whole point. The compiler's message rides `build-output` events that carry an
 // ImportPath and no Package, and the stream filter used to drop them all.
 const buildFailureStream = `{"ImportPath":"example.com/x/broken [example.com/x/broken.test]","Action":"build-output","Output":"# example.com/x/broken [example.com/x/broken.test]\n"}
 {"ImportPath":"example.com/x/broken [example.com/x/broken.test]","Action":"build-output","Output":"link: mapping output file failed: no space left on device\n"}
@@ -47,7 +47,7 @@ func TestDiagnosticsDropsWhatAPassingRunPrints(t *testing.T) {
 }
 
 // A benchmark that panics is the other way a run dies with no results, and its
-// stack trace is the whole of what the user needs.
+// stack trace is the whole of what. The user needs.
 func TestDiagnosticsKeepsAPanickingBenchmark(t *testing.T) {
 	t.Serial()
 	stream := `{"Action":"output","Package":"pkg","Output":"goos: linux\n"}
@@ -83,7 +83,7 @@ func TestDiagnosticsIgnoresGarbage(t *testing.T) {
 }
 
 // The bug this whole file exists for: a run whose test binary would not build
-// used to report a bare "benchmarks failed" exit and nothing else, because
+// used to report a bare "benchmarks failed" exit and nothing else. Because
 // only benchmark result lines ever reached the console.
 func TestABuildFailureReportsWhyRatherThanJustFailing(t *testing.T) {
 	t.Serial()

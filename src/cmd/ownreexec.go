@@ -7,10 +7,10 @@ import (
 )
 
 // reexecUnderOwnBuild hands a run of this module to the toolchain it builds.
-// Vet and the tests then answer about the compiler that ships, and every
-// object they compile is what the build phase and the next run ask for. It
-// returns when this binary already reproduces itself. No marker skips the
-// check: the child proves it again, and its first pass reproduces it.
+// Vet and the tests then answer about the compiler that ships. Every object
+// they compile is what the build phase and the next run ask for. It returns
+// when this binary already reproduces itself. No marker skips the check: the
+// child proves it again, and its first pass reproduces it.
 func reexecUnderOwnBuild() error {
 	pkg, ok := ownMainPackage()
 	if !ok {

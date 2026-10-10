@@ -26,7 +26,7 @@ var generatedFileRe = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
 // `// +build` constraints, ordinary `//` line comments, `/* ... */` block
 // comments, and blank lines may precede the marker. Scanning stops at the earliest
 // line that is non-blank, not a comment, and not a build constraint (normally
-// the `package` clause), so a marker appearing after that point does not count.
+// the `package` clause). A marker appearing after that point does not count.
 func isGeneratedFile(r io.Reader) bool {
 	scanner := bufio.NewScanner(r)
 	// Allow long lines (generated files can have long header lines).

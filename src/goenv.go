@@ -1,8 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/wow-look-at-my/go-toolchain/src/cmd"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
@@ -22,6 +25,32 @@ func ensureDirectFallback(goproxy string) string {
 
 // proxyEnvVars are the Go environment variables that configureGoEnv manages.
 var proxyEnvVars = []string{"GOPROXY", "GOSUMDB", "GONOSUMDB", "GONOSUMCHECK"}
+
+// runEnv is the fork's variable naming the build's run, as owner/repo/run-id/attempt.
+const runEnv = "GOSMOPOLITAN_RUN"
+
+// nameRun exports a run for this invocation, so every go command it starts
+// resolves each org module's branch head once instead of once per command.
+func nameRun() {
+	// A run the caller or CI named is the one every go command must share.
+	if os.Getenv(runEnv) != "" {
+		return
+	}
+	// The fork reads the run from the GitHub variables when both are set, so a
+	// CI run keeps the identity its jobs already share.
+	if os.Getenv("GITHUB_RUN_ID") != "" && os.Getenv("GITHUB_RUN_ATTEMPT") != "" {
+		return
+	}
+	os.Setenv(runEnv, localRunName())
+}
+
+// localRunName names this invocation in runEnv's shape.
+func localRunName() string {
+	return fmt.Sprintf("go-toolchain/local/%d-%d-%d/1", os.Getpid(), time.Now().UnixNano(), localRunSeq.Add(1))
+}
+
+// localRunSeq numbers each local run of this process.
+var localRunSeq atomic.Uint64
 
 // PublicSumDB is the checksum database this toolchain refuses to talk to.
 const PublicSumDB = "sum.golang.org"
@@ -60,6 +89,7 @@ func sumDBURLHost(raw string) string {
 // GOPROXY/GOSUMDB env vars. With neither set, it uses GOPROXY=direct with
 // sumdb disabled. GO_PROXY_CONFIG is ignored: the org proxy it names is gone.
 func configureGoEnv() {
+	nameRun()
 	proxyLog := logger.WithSubsystem("proxy")
 	defer func() {
 		for _, k := range proxyEnvVars {
