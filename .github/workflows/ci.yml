@@ -255,8 +255,8 @@ jobs:
       - name: Cache validation (second build)
         # build/ in THIS job is the fat APE. A shell starts it, which is the only way an APE starts --... see docs/CI.md
         env:
-          # The next build re-invokes go-toolchain, which also submits the dependency snapshot; give... see docs/CI.md
-          GITHUB_TOKEN: ${{ github.token }}
+          # No GITHUB_TOKEN: the run below blanks GITHUB_REPOSITORY at exec, so this
+          # timed rebuild submits no dependency snapshot (the first build already did).
           GOCACHEDEBUG: "1"
           GOCACHELOG: ${{ runner.temp }}/gocache.log
           # The test cache says per package why a result replayed or did not, which is what a slow second build needs answered. see docs/CI.md
@@ -265,7 +265,9 @@ jobs:
           cp build/go-toolchain /usr/local/bin/go-toolchain
           rm -rf build/
           start=$SECONDS
-          go-toolchain
+          # Blank at exec (step env cannot override runner-default GITHUB_*):
+          # no dependency submission from the timed warm rebuild.
+          GITHUB_REPOSITORY= go-toolchain
           elapsed=$(( SECONDS - start ))
           echo "Second build took ${elapsed}s"
           # see docs/CI.md
