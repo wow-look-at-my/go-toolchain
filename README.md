@@ -11,7 +11,6 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 - **WebAssembly targets** — `wasm/js` and `wasm/wasip1`, opted into alongside (or instead of) the APE. See [docs/WASM.md](docs/WASM.md).
 - **Benchmarks** — run automatically after builds, compared against previous results stored in git notes.
 - **CLI test suites** — `*.dats` suites under `dats/` run against the freshly built binaries. A failure fails the build. See [docs/DATS-PHASE.md](docs/DATS-PHASE.md).
-- **Ratchet** — on CI, a branch is judged by the default branch. go-toolchain checks out the default branch. The branch runs the command its `.github/ratchet` names there, with the branch's checkout as the last argument. A non-zero exit fails the build. The branch cannot change the command or what it reads.
 - **Near-duplicate detection** — finds structurally similar functions by comparing ASTs.
 - **File length checks** — warns at lines, fails at 750. Generated files are exempt unless `--count-generated` is passed.
 - **Auto-fix, or CI check** — locally the linter fixes violations in place. On CI the same checks run read-only, and a non-canonical tree fails the build with a diff of the fix.

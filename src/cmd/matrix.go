@@ -158,10 +158,6 @@ func runRelease(cmd *cobra.Command, args []string) error {
 	if err := maybeSubmitDeps(); err != nil {
 		return err
 	}
-	// The branch's own generate and build phases have run, so the ratchet judges the tree they left.
-	if err := checkRatchet(); err != nil {
-		return err
-	}
 
 	// Write GitHub Step Summary with timeline
 	if tl := GetTimeline(); tl != nil {

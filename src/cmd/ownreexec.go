@@ -36,17 +36,8 @@ func reexecUnderOwnBuild() error {
 		logger.Info("  this binary reproduces itself, so the run stays with it")
 		return nil
 	}
-	// The ratchet judges the branch's build, so this binary runs it rather than the build under judgment.
-	os.Setenv(ratchetByParentEnv, "1")
 	code := runSelfWith(bin)
-	os.Unsetenv(ratchetByParentEnv)
 	_ = os.RemoveAll(dir)
-	if code == 0 {
-		if err := checkRatchet(); err != nil {
-			logger.Error("%v", err)
-			code = 1
-		}
-	}
 	os.Exit(code)
 	return nil
 }

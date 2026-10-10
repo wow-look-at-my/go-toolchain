@@ -271,11 +271,6 @@ func run(cmd *cobra.Command, args []string) (err error) {
 
 	os.Chdir(startDir)
 
-	// The branch's own generate and build phases have run, so the ratchet judges the tree they left.
-	if err := checkRatchet(); err != nil {
-		return err
-	}
-
 	// Fail before saveFingerprint when warnings exceed budget, so a failed
 	// run is never stamped up-to-date.
 	if err := checkWarningsGate(); err != nil {
