@@ -47,10 +47,11 @@ func resolveForkBuildEnv(wantAPE bool) (forkBuildEnv, error) {
 
 // apeJob returns the fat-APE build job for a main package.
 func (e forkBuildEnv) apeJob(srcPath, outputPath string) (buildJob, error) {
-	ldflags, err := jobLDFlags(srcPath, os.Getenv("GOFLAGS"))
-	if err != nil {
+	// Every main package links with the release in its build info. docs/RELEASE-STAMP.md
+	if err := ensureReleaseEnv(); err != nil {
 		return buildJob{}, err
 	}
+	ldflags := jobLDFlags(srcPath, os.Getenv("GOFLAGS"))
 	return buildJob{
 		goos:           cosmoOS,
 		goarch:         cosmoFatArch,
@@ -64,13 +65,9 @@ func (e forkBuildEnv) apeJob(srcPath, outputPath string) (buildJob, error) {
 	}, nil
 }
 
-// jobLDFlags is what the caller asked the linker for, plus the revision and release stamps.
-func jobLDFlags(srcPath, goflags string) (string, error) {
-	stamp, err := stampLDFlags(srcPath)
-	if err != nil {
-		return "", err
-	}
-	return joinLDFlags(stamp, callerLDFlags(goflags)), nil
+// jobLDFlags is what the caller asked the linker for, plus the revision stamp.
+func jobLDFlags(srcPath, goflags string) string {
+	return joinLDFlags(stampLDFlags(srcPath), callerLDFlags(goflags))
 }
 
 // joinLDFlags puts the stamp ahead of the caller, so an explicit -X wins: the linker keeps the LAST value for a name.

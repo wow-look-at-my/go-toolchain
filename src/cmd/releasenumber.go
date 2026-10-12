@@ -9,15 +9,18 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // ReleaseEnv names the buildhost release number for a build that already has one.
 const ReleaseEnv = "GO_TOOLCHAIN_RELEASE_VERSION"
 
-// releaseVarNames are the main-package variables a build fills with the buildhost release number.
-var releaseVarNames = []string{"releaseNumber", "ReleaseNumber"}
+// The fork's go command writes these into every binary's build info as the
+// settings release and release.revision (cmd/go/internal/load/release.go).
+const (
+	gosmoReleaseEnv         = "GOSMOPOLITAN_RELEASE"
+	gosmoReleaseRevisionEnv = "GOSMOPOLITAN_RELEASE_REVISION"
+)
 
 // releaseRunLock is the run lock that makes every job of one run attempt stamp the same number.
 const releaseRunLock = "buildhost-release"
@@ -50,12 +53,47 @@ func lookupRelease() (string, error) {
 	return createRunRelease()
 }
 
-// usableRelease rejects what -ldflags cannot carry, the same rule as a revision.
+// usableRelease rejects what a build setting cannot carry, the same rule as a revision.
 func usableRelease(v string) (string, error) {
 	if usableRevision(v) != v {
-		return "", fmt.Errorf("release number %q holds whitespace or a quote, which -ldflags cannot carry", v)
+		return "", fmt.Errorf("release number %q holds whitespace or a quote, which a build setting cannot carry", v)
 	}
 	return v, nil
+}
+
+var (
+	releaseEnvOnce sync.Once
+	releaseEnvErr  error
+)
+
+// ensureReleaseEnv puts the release number and its commit in this process's
+// environment, which every go command it starts inherits. The fork's go
+// command then stamps both into the build info of every binary it links.
+// In CI a missing number or commit fails the build. Outside CI with no
+// ReleaseEnv there is no release, and it warns once.
+func ensureReleaseEnv() error {
+	releaseEnvOnce.Do(func() {
+		rel, err := resolveRelease()
+		if err != nil {
+			releaseEnvErr = err
+			return
+		}
+		if rel == "" {
+			logger.Warn("⇒ Warning: a build outside CI has no buildhost release, so its binaries carry no release number; set %s to give them one", ReleaseEnv)
+			return
+		}
+		rev := resolveRevision()
+		if rev == "" {
+			releaseEnvErr = fmt.Errorf("release %s: this build knows no commit to stamp beside it; set %s or GITHUB_SHA", rel, RevisionEnv)
+			return
+		}
+		if err := os.Setenv(gosmoReleaseEnv, rel); err != nil {
+			releaseEnvErr = err
+			return
+		}
+		releaseEnvErr = os.Setenv(gosmoReleaseRevisionEnv, rev)
+	})
+	return releaseEnvErr
 }
 
 // createRunRelease creates the buildhost release this run publishes, or answers
@@ -155,33 +193,4 @@ func writeReleaseOutput(v string) {
 	}
 	defer f.Close()
 	fmt.Fprintf(f, "release_version=%s\n", v)
-}
-
-// releaseStamp writes the -X flags for the release variables declared holds.
-// A package that declares one gets the number or the build fails, except
-// outside CI, where no release exists and the variable keeps its placeholder.
-func releaseStamp(importPath string, declared set.Set[string], resolve func() (string, error)) (string, error) {
-	var names []string
-	for _, name := range releaseVarNames {
-		if declared.Contains(name) {
-			names = append(names, name)
-		}
-	}
-	if len(names) == 0 {
-		return "", nil
-	}
-	rel, err := resolve()
-	if err != nil {
-		return "", fmt.Errorf("%s declares %s: %w", importPath, strings.Join(names, ", "), err)
-	}
-	if rel == "" {
-		logger.Warn("⇒ Warning: %s declares %s, and a build outside CI has no buildhost release, so the binary carries no release number; set %s to give it one",
-			importPath, strings.Join(names, ", "), ReleaseEnv)
-		return "", nil
-	}
-	flags := make([]string, len(names))
-	for i, name := range names {
-		flags[i] = "-X " + importPath + "." + name + "=" + rel
-	}
-	return strings.Join(flags, " "), nil
 }

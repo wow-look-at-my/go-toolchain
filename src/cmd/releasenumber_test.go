@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,41 +12,53 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wow-look-at-my/go-containers/set"
 )
 
-func TestReleaseStampNamesOnlyTheDeclaredVariables(t *testing.T) {
-	t.Serial()
-	got, err := releaseStamp("example.com/m/cmd/srv", set.Of("releaseNumber", "gitHash"), func() (string, error) { return "412", nil })
-	require.NoError(t, err)
-	assert.Equal(t, "-X example.com/m/cmd/srv.releaseNumber=412", got)
+// freshReleaseEnv clears the per-process answers so a test resolves again,
+// and restores the fork's variables when it ends.
+func freshReleaseEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv(gosmoReleaseEnv, "")
+	t.Setenv(gosmoReleaseRevisionEnv, "")
+	t.Setenv("GITHUB_OUTPUT", "")
+	reset := func() {
+		releaseOnce, releaseValue, releaseErr = sync.Once{}, "", nil
+		releaseEnvOnce, releaseEnvErr = sync.Once{}, nil
+	}
+	reset()
+	t.Cleanup(reset)
 }
 
-func TestReleaseStampAsksForNoReleaseWhenNothingDeclaresOne(t *testing.T) {
+func TestEnsureReleaseEnvHandsTheForkTheNumberAndCommit(t *testing.T) {
 	t.Serial()
-	got, err := releaseStamp("example.com/m", set.Of("gitHash"), func() (string, error) {
-		t.Fatal("a package with no release variable must not create a release")
-		return "", nil
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "", got)
+	freshReleaseEnv(t)
+	t.Setenv("GITHUB_ACTIONS", "true")
+	t.Setenv(ReleaseEnv, "412")
+	t.Setenv(RevisionEnv, "660ecca3f00d8e1b2c3d4e5f60718293a4b5c6d7")
+	require.NoError(t, ensureReleaseEnv())
+	assert.Equal(t, "412", os.Getenv(gosmoReleaseEnv))
+	assert.Equal(t, "660ecca3f00d8e1b2c3d4e5f60718293a4b5c6d7", os.Getenv(gosmoReleaseRevisionEnv))
 }
 
-func TestReleaseStampFailsTheBuildWhenTheReleaseCannotBeHad(t *testing.T) {
+func TestEnsureReleaseEnvFailsTheBuildWhenCICannotGetANumber(t *testing.T) {
 	t.Serial()
-	_, err := releaseStamp("example.com/m", set.Of("releaseNumber"), func() (string, error) { return "", errors.New("buildhost said no") })
-	require.ErrorContains(t, err, "buildhost said no")
-	assert.ErrorContains(t, err, "example.com/m declares releaseNumber")
+	freshReleaseEnv(t)
+	ciEnv(t, "http://127.0.0.1:1")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
+	require.ErrorContains(t, ensureReleaseEnv(), "id-token: write")
+	assert.Equal(t, "", os.Getenv(gosmoReleaseEnv))
 }
 
-func TestReleaseStampLeavesALocalBuildUnstamped(t *testing.T) {
+func TestEnsureReleaseEnvLeavesALocalBuildWithoutARelease(t *testing.T) {
 	t.Serial()
-	got, err := releaseStamp("example.com/m", set.Of("releaseNumber"), func() (string, error) { return "", nil })
-	require.NoError(t, err)
-	assert.Equal(t, "", got)
+	freshReleaseEnv(t)
+	t.Setenv("GITHUB_ACTIONS", "")
+	t.Setenv(ReleaseEnv, "")
+	require.NoError(t, ensureReleaseEnv())
+	assert.Equal(t, "", os.Getenv(gosmoReleaseEnv))
 }
 
-func TestUsableReleaseRejectsWhatAnLDFlagsValueCannotCarry(t *testing.T) {
+func TestUsableReleaseRejectsWhatABuildSettingCannotCarry(t *testing.T) {
 	t.Serial()
 	v, err := usableRelease("17")
 	require.NoError(t, err)
