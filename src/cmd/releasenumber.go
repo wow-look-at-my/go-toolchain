@@ -15,8 +15,7 @@ import (
 // ReleaseEnv names the buildhost release number for a build that already has one.
 const ReleaseEnv = "GO_TOOLCHAIN_RELEASE_VERSION"
 
-// The fork's go command writes these into every binary's build info as the
-// settings release and release.revision (cmd/go/internal/load/release.go).
+// The fork's go command stamps these as the build settings release and release.revision.
 const (
 	gosmoReleaseEnv         = "GOSMOPOLITAN_RELEASE"
 	gosmoReleaseRevisionEnv = "GOSMOPOLITAN_RELEASE_REVISION"
@@ -65,6 +64,9 @@ var (
 	releaseEnvOnce sync.Once
 	releaseEnvErr  error
 )
+
+// ensureReleaseEnvFunc is ensureReleaseEnv, as a seam: a mock build in a test must never create a buildhost release.
+var ensureReleaseEnvFunc = ensureReleaseEnv
 
 // ensureReleaseEnv puts the release number and its commit in this process's
 // environment, which every go command it starts inherits. The fork's go

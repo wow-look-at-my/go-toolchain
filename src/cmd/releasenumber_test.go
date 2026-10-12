@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -56,6 +57,15 @@ func TestEnsureReleaseEnvLeavesALocalBuildWithoutARelease(t *testing.T) {
 	t.Setenv(ReleaseEnv, "")
 	require.NoError(t, ensureReleaseEnv())
 	assert.Equal(t, "", os.Getenv(gosmoReleaseEnv))
+}
+
+func TestEveryAPEJobAsksForTheReleaseFirst(t *testing.T) {
+	t.Serial()
+	old := ensureReleaseEnvFunc
+	ensureReleaseEnvFunc = func() error { return errors.New("buildhost said no") }
+	defer func() { ensureReleaseEnvFunc = old }()
+	_, err := forkBuildEnv{}.apeJob("example.com/m", "out")
+	assert.ErrorContains(t, err, "buildhost said no")
 }
 
 func TestUsableReleaseRejectsWhatABuildSettingCannotCarry(t *testing.T) {
