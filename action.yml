@@ -128,9 +128,15 @@ runs:
             echo "::error::Could not install go-toolchain from buildhost and allow-source-build is not enabled. Set allow-source-build: 'true' to build from source instead."
             exit 1
           fi
-          echo "::warning::buildhost binary not usable; building from source (allow-source-build=true)"
-          (cd "$GITHUB_ACTION_PATH" && GOTOOLCHAIN=auto go install ./src)
-          cp "$(go env GOPATH)/bin/src" "${BIN_DIR}/go-toolchain"
+          echo "::warning::buildhost binary not usable; building from source with the gosmopolitan toolchain (allow-source-build=true)"
+          # Only the fork's go command builds this module, and it never contacts golang.org.
+          case "$RUNNER_OS" in Linux) fork_os=linux ;; macOS) fork_os=darwin ;; Windows) fork_os=windows ;; *) echo "::error::no gosmopolitan toolchain for $RUNNER_OS"; exit 1 ;; esac
+          case "$RUNNER_ARCH" in X64) fork_arch=amd64 ;; ARM64) fork_arch=arm64 ;; *) echo "::error::no gosmopolitan toolchain for $RUNNER_ARCH"; exit 1 ;; esac
+          fork_root="$RUNNER_TEMP/gosmopolitan-source-build"
+          mkdir -p "$fork_root"
+          curl -fsSL --compressed "https://dl.pazer.build/gosmopolitan?branch=master&os=${fork_os}&arch=${fork_arch}" | tar -xz -C "$fork_root"
+          (cd "$GITHUB_ACTION_PATH" && GOROOT="$fork_root/go" GOTOOLCHAIN=local GOTELEMETRY=off GOPROXY=direct GOSUMDB=off GONOSUMDB='*' GOFLAGS= CGO_ENABLED=0 \
+            "$fork_root/go/bin/go" build -trimpath -o "${BIN_DIR}/go-toolchain" ./src)
         fi
 
     - name: Install provided binary
@@ -169,22 +175,16 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        # The pipeline binary is the go command these generators build with, whatever else the runner has on PATH. A runner supplies GOPROXY and GOSUMDB set to nothing, which the go command reads as a list naming no proxy and refuses, so a value is named here for whichever binary runs: an older published one fills nothing in for itself. A value the caller named is kept.
-        export GOPROXY="${GOPROXY:-direct}" GOSUMDB="${GOSUMDB:-off}"
+        # The pipeline binary is the go command these generators build with, whatever else the runner has on PATH. Its environment names no golang.org endpoint, downloads no toolchain and uploads no telemetry.
+        export GOPROXY=direct GOSUMDB=off GONOSUMDB='*' GOTOOLCHAIN=local GOTELEMETRY=off
         mkdir -p "$RUNNER_TEMP/gt-go"
         ln -sf "$(command -v go-toolchain)" "$RUNNER_TEMP/gt-go/go"
-        go=("$RUNNER_TEMP/gt-go/go")
-        for pkg in \
-          golang.org/x/tools/cmd/stringer@v0.49.0 \
-          golang.org/x/tools/cmd/goyacc@v0.49.0 \
-          golang.org/x/text/cmd/gotext@v0.42.0 \
-        ; do
-          "${go[@]}" install "$pkg"
-        done
-        bin="$("${go[@]}" env GOPATH)/bin"
+        go="$RUNNER_TEMP/gt-go/go"
+        bin="$("$go" env GOPATH)/bin"
+        # Each generator comes from a GitHub checkout whose golang.org requirements point at GitHub, so the build resolves nothing through golang.org.
+        bash "$GITHUB_ACTION_PATH/.github/scripts/build-from-github.sh" "$go" https://github.com/golang/tools v0.49.0 "$bin" cmd/stringer cmd/goyacc
+        bash "$GITHUB_ACTION_PATH/.github/scripts/build-from-github.sh" "$go" https://github.com/golang/text v0.42.0 "$bin" cmd/gotext
         echo "$bin" >> "$GITHUB_PATH"
-        # The pipeline's go builds for GOOS=cosmo, so its go install writes into a per-platform subdirectory and ignores GOBIN.
-        echo "$bin/$("${go[@]}" env GOOS)_$("${go[@]}" env GOARCH)" >> "$GITHUB_PATH"
 
     - name: Run go-toolchain
       shell: bash
