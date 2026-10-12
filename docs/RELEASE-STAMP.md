@@ -1,33 +1,9 @@
 # The release stamp
 
-A published binary reports the buildhost release number it shipped as. The number is an incrementing integer, so releases order by it. A commit hash does not order, so it rides along after the number.
+A published binary carries the buildhost release it shipped as. The stamp is data that buildhost's publish appends to each binary before upload. It is not part of the build.
 
-## How the number gets in
+The action's auto-release step runs `buildhost-publish`. That step creates the release of each target project. It then appends a trailer to a copy of every binary, naming the project, the release number and the commit, and uploads the stamped copy. The number in a stamp is therefore always the number of the release that holds the file, in that project.
 
-The build itself stamps it, into every binary it links. No program declares anything, and nothing outside go-toolchain and the gosmopolitan go command takes part, so no workflow or program can leave it out.
+go-toolchain links every binary without a stamp, and creates no release. A binary built outside a publish has no stamp.
 
-- Before the first main package links, `ensureReleaseEnv` (`src/cmd/releasenumber.go`) puts `GOSMOPOLITAN_RELEASE` and `GOSMOPOLITAN_RELEASE_REVISION` in the process environment. Every go command go-toolchain starts inherits them.
-- The fork's go command writes them into every binary's build info as the settings `release` and `release.revision` (`cmd/go/internal/load/release.go` in gosmopolitan). They are independent of `-buildvcs` and of the build running in a checkout.
-- In CI the number comes from buildhost. The build creates the project's release over the job's OIDC token, at the store the run locks use. The `buildhost-release` run lock holds the number, so every job of a run try stamps the same one. A job that finds it locked creates no release.
-- The build writes `release_version` to `GITHUB_OUTPUT`. The action's publish names that release, so the uploaded binaries land in the release whose number they carry.
-- `GO_TOOLCHAIN_RELEASE_VERSION` names the number for a build that already has one.
-
-In CI, a failure to get the number or the commit fails the build. So does a failure to hand the number to the publish. It never falls back to an unstamped binary.
-
-After each link, `verifyReleaseStamp` reads the binary's build info with the same go command and fails the build unless it carries this release and commit. A go command without gosmopolitan's release settings ignores the variables. This check is what turns that into a red build instead of an unstamped release.
-
-A build outside CI with no `GO_TOOLCHAIN_RELEASE_VERSION` has no buildhost release. It warns, and its binaries carry no release setting. Such a binary is never published.
-
-## Reading it
-
-```go
-bi, _ := debug.ReadBuildInfo()
-for _, s := range bi.Settings {
-	switch s.Key {
-	case "release": // the buildhost release number
-	case "release.revision": // the commit it was built from
-	}
-}
-```
-
-A program prints `<name> <release> (<release.revision>)`. A missing `release` means the binary was not built for a release. The program says so as an error, not as a stand-in version.
+The format and a reader: `docs/release-stamp.md` in wow-look-at-my/buildhost.
