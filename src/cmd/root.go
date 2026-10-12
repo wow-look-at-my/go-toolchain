@@ -345,6 +345,9 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 	if err := checkOrgPins(moduleRoot()); err != nil {
 		return err
 	}
+	if err := checkSubmodulesForward(r, moduleRoot()); err != nil {
+		return err
+	}
 
 	// Check for dep updates before tests so we don't run the full
 	// test suite again when a dependency is outdated.

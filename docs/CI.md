@@ -50,7 +50,7 @@ Windows charges the most per start. On linux this repo already spends 25-29s of 
 
 The 30s is deliberate and is not to be raised. The remedy is to make the packages cheaper. What made `src/cmd` expensive was not the tests but the phase they drove. Every `runWithRunner` call ran the real vet pass, and vet loads the package graph through x/tools, which spawns a `go list` per call. The mock runner never saw those — `vet.RunWithProgress` is a direct package call — so a package that runs the pipeline dozens of times paid a subprocess. That is also what the macOS goroutine dump names: `gocommand.runCmdContext`.
 
-`vetRunFunc` (src/cmd/testphase.go) is the seam, and `stubVetPhase` fills it in from `setupMockProject`, the same shape as `ensureCosmoToolchainFunc` keeping the build phase off buildhost. Measured on linux, `test run src/cmd` went 25.1s → 15.4s with total coverage unchanged at 84.6%: the stub still executes the call site, only the callee changes. This and is now the slowest package at 19.0s untouches src/vet`.
+`vetRunFunc` (src/cmd/testphase.go) is the seam, and `stubVetPhase` fills it in from `setupMockProject`, the same shape as `ensureCosmoToolchainFunc` keeping the build phase off buildhost. Measured on linux, `test run src/cmd` went 25.1s → 15.4s with total coverage unchanged at 84.6%: the stub still executes the call site, only the callee changes. `src/vet` is untouched by this and is now the slowest package at 19.0s.
 
 `src/vet` cannot take the same repair — loading real packages IS what it tests. Cheaper remedies applied instead, taking it 19.0s → 16.8s. `initGitRepo` wrote its repo-local settings straight into `.git/config` rather than spending a `git config` process per key. That is processes per fixture repo and such repos. And the analyzer tests that neither chdir nor swap `os.Stderr` — `bannedoutput`, `jsoninterp`, `mapset`, `sliceset` — now call `t.Parallel`. Each analyzer's dedup state is its own package-level set.
 
@@ -91,7 +91,7 @@ Must someone pick up the isolation work anyway, for its own sake: `src/cache` ne
 
 It is one matrix job over ubuntu, macOS and Windows, and every leg runs the SAME file: `.github/dats-fixtures/smoke.dats`. One APE is what every host downloads. So the question is the same everywhere, and a per-host copy of the suite is how one host's coverage quietly falls behind another's.
 
-PAIRING it with `uname -s` on one line — `host: windows ...|MINGW64_NT-10.0` — and matching only the combinations that agree asserts an answer that differs by host. That keeps the assertion strong (a Linux answer on a mac still fails) without the file branching on where it runs. The same idiom carries the guard's correct answers. A refusal on a host it can classify, the INOPERATIVE banner on one it cannot see into. The APE is copied under an `.exe` name on every host: NT needs the suffix and a posix host does not care.
+An answer that differs by host is asserted by PAIRING it with `uname -s` on one line — `host: windows ...|MINGW64_NT-10.0` — and matching only the combinations that agree. That keeps the assertion strong (a Linux answer on a mac still fails) without the file branching on where it runs. The same idiom carries the guard's correct answers. A refusal on a host it can classify, the INOPERATIVE banner on one it cannot see into. The APE is copied under an `.exe` name on every host: NT needs the suffix and a posix host does not care.
 
 The guard regression staged into the pipeline test's module is one file too. It runs INSIDE the sandbox, so its host is Linux under a docker backend and Darwin under seatbelt, and the same uname pairing covers both.
 
@@ -243,7 +243,7 @@ Before raising it, confirm the second build does nothing new. No source may chan
 
 A build cache does not shorten a test run. A suite that grows therefore pushes this step up whatever the cache does.
 
-Their jobs run .github/dats-fixtures/cache-profile.dats` asserts the tripwires themselves, run by the dats action in `host-build` the same way `same.dats` and `smoke.dats`. They were a workflow step once, which meant a push was the only way to reproduce a red. The fixture runs against any local `build/profile.json`. The second-build time limit above is still a workflow step, because asserting it means driving `go-toolchain` twice and timing.
+The tripwires themselves are asserted by `.github/dats-fixtures/cache-profile.dats`, run by the dats action in `host-build` the same way `identical.dats` and `smoke.dats` are run by their jobs. They were a workflow step once, which meant a push was the only way to reproduce a red. The fixture runs against any local `build/profile.json`. The second-build time limit above is still a workflow step, because asserting it means driving `go-toolchain` twice and timing.
 
 ### Build socketharness
 
