@@ -64,6 +64,7 @@ func (t *Trace) Events() []Event {
 	return append([]Event(nil), t.events...)
 }
 
+// resolveThreadID assigns a stable numeric ID to each thread name.
 func resolveThreadID(name string, seen map[string]int) int {
 	if id, ok := seen[name]; ok {
 		return id
