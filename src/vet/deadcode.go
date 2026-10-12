@@ -148,7 +148,7 @@ func objectKind(obj types.Object) string {
 }
 
 // isTestEntryPoint returns true for function names that the test framework
-// calls automatically (TestXxx, BenchmarkXxx, FuzzXxx, ExampleXxx).
+// calls automatically: the Test, Benchmark, Fuzz and Example prefixes.
 func isTestEntryPoint(name string) bool {
 	for _, prefix := range []string{"Test", "Benchmark", "Fuzz", "Example"} {
 		if strings.HasPrefix(name, prefix) {
