@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
@@ -48,7 +49,7 @@ func resolveForkBuildEnv(wantAPE bool) (forkBuildEnv, error) {
 // apeJob returns the fat-APE build job for a main package.
 func (e forkBuildEnv) apeJob(srcPath, outputPath string) (buildJob, error) {
 	// Every main package links with the release in its build info. docs/RELEASE-STAMP.md
-	if err := ensureReleaseEnvFunc(); err != nil {
+	if err := ensureReleaseEnvFunc(filepath.Base(outputPath)); err != nil {
 		return buildJob{}, err
 	}
 	ldflags := jobLDFlags(srcPath, os.Getenv("GOFLAGS"))
