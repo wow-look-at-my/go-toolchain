@@ -34,6 +34,7 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 - **Build profile** — per-action timings: what the build spent its time on. See [docs/PROFILE.md](docs/PROFILE.md).
 - **Vanity URL resolution** — resolves vanity-URL module dependencies via the Go proxy or go-import meta tags.
 - **Go proxy/sumdb support** — honors `GOPROXY` and `GOSUMDB`, and fetches direct with sumdb off when neither is set. `GO_PROXY_CONFIG` is ignored.
+- **No contact with golang.org** — neither go-toolchain nor the go command it embeds ever contacts golang.org or a host under it. A `golang.org/x` or `google.golang.org` module comes from its GitHub repository. A `GOPROXY`, `GOSUMDB` or `GOVULNDB` that names golang.org is an error. See [docs/GOLANG-ORG.md](docs/GOLANG-ORG.md).
 - **Generated code exclusion** — files carrying the standard `DO NOT EDIT.` marker are excluded from tests and coverage.
 - **Release management** — `release` creates a GitHub release with checksums, structured notes and rolling tags.
 - **Buildhost publishing** — CI publishes binaries to [buildhost](https://pazer.build) over OIDC, downloadable as raw binary, tar.gz, deb, Homebrew, npm or OCI.

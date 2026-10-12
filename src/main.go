@@ -10,6 +10,10 @@ import (
 )
 
 func init() {
+	// Every mode, GOCACHEPROG included, runs behind the golang.org block.
+	if err := pinGoEnv(); err != nil {
+		exitOnEnvError(err)
+	}
 	// When invoked as GOCACHEPROG, skip all env setup — serve the protocol.
 	if isCacheProgInvocation() {
 		return
@@ -19,20 +23,27 @@ func init() {
 	if _, linked := cmd.LinkedGoArgs(os.Args); linked {
 		if !namesAProxy(os.Getenv("GOPROXY")) {
 			logger.WithSubsystem("proxy").Info("GOPROXY names no proxy in this environment, so this linked run configures its own")
-			configureGoEnv()
+			if err := configureGoEnv(); err != nil {
+				exitOnEnvError(err)
+			}
 		}
 		return
 	}
 
-	// Let Go auto-download the toolchain go.mod requires.
-	os.Setenv("GOTOOLCHAIN", "auto")
-
 	// Configure the Go module proxy and sumdb, honoring user config.
-	configureGoEnv()
+	if err := configureGoEnv(); err != nil {
+		exitOnEnvError(err)
+	}
 
 	// Clear NO_PROXY: Google domains must route through the egress proxy for DNS.
 	os.Setenv("NO_PROXY", "")
 	os.Setenv("no_proxy", "")
+}
+
+// exitOnEnvError reports a refused environment and ends the process.
+func exitOnEnvError(err error) {
+	logger.Error("go-toolchain: %v", err)
+	os.Exit(1)
 }
 
 func isCacheProgInvocation() bool {
