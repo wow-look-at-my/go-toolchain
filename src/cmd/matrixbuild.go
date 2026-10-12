@@ -151,6 +151,9 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 			}
 		}
 	}
+	if err == nil {
+		err = verifyReleaseStamp(r, job, build.TempOutputPath(job.outputPath))
+	}
 	if err != nil {
 		// The target itself was never written, so it stays absent.
 		build.DiscardOutput(job.outputPath)
