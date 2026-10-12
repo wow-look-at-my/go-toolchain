@@ -74,7 +74,9 @@ buildhost's own `buildhost-download` action fetches the binary into `$RUNNER_TEM
 
 **The download carries no branch pin.** buildhost's bare "latest" resolves against the project's default branch.
 
-The probe then runs `go-toolchain version` and captures its output rather than discarding it. So the real reason the binary is unusable is shown: a crash or an unrunnable binary. A source build happens only where the caller opted in. It writes into the same directory. A silent fallback hides a buildhost outage and ships a locally-compiled toolchain that can differ from the released one.
+The probe then runs `go-toolchain version` and captures its output rather than discarding it. So the real reason the binary is unusable is shown: a crash or an unrunnable binary. A source build happens only where the caller opted in. It writes into the same directory. A silent fallback hides a buildhost outage and ships a locally-compiled toolchain that can differ from the released one. The source build downloads the gosmopolitan toolchain from buildhost and builds with its go command, because only that go command can build this module.
+
+It never contacts golang.org.
 
 A caller-provided `binary:` is staged through `/tmp` and pre-run once for the same APE reason. Staging also keeps the caller's own file byte-identical. For a native binary this changes nothing.
 
@@ -86,9 +88,9 @@ A caller-provided `binary:` is staged through `/tmp` and pre-run once for the sa
 
 A dependency's `//go:generate` directives run when the dependency is fetched. A missing generator therefore fails the build. The step installs stringer, goyacc and gotext before the pipeline runs.
 
-It uses the runner's `go` when there is one. A self-hosted runner often has none. The step then links go-toolchain as `$RUNNER_TEMP/gt-go/go`, and the binary acts as the go command under that name. That go builds for `GOOS=cosmo`. Its `go install` writes into `$GOPATH/bin/cosmo_amd64` and ignores `GOBIN`. The step puts that directory on `PATH` beside `$GOPATH/bin`.
+It uses the runner's `go` when there is one. A self-hosted runner frequently has none. The step then links go-toolchain as `$RUNNER_TEMP/gt-go/go`, and the binary acts as the go command under that name. That go builds for `GOOS=cosmo`. Its `go install` writes into `$GOPATH/bin/cosmo_amd64` and ignores `GOBIN`. The step puts that directory on `PATH` beside `$GOPATH/bin`.
 
-That go has no `go.env` beside it. So without help it has an empty proxy list and fails with "GOPROXY list is not the empty string, but contains no entries". The step gives it Go's standard `GOPROXY` and `GOSUMDB` unless the runner already sets them. The generators are public modules, so the public checksum database discloses nothing.
+The step sets `GOPROXY=direct`, `GOSUMDB=off`, `GOTOOLCHAIN=local` and `GOTELEMETRY=off`, whatever the runner set. No value names golang.org.
 
 ## 1e. The CodeQL permission check
 
