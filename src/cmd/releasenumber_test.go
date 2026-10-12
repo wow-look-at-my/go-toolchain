@@ -37,7 +37,7 @@ func TestEnsureReleaseEnvHandsTheForkTheNumberAndCommit(t *testing.T) {
 	t.Setenv("GITHUB_ACTIONS", "true")
 	t.Setenv(ReleaseEnv, "412")
 	t.Setenv(RevisionEnv, "660ecca3f00d8e1b2c3d4e5f60718293a4b5c6d7")
-	require.NoError(t, ensureReleaseEnv())
+	require.NoError(t, ensureReleaseEnv("slopfix"))
 	assert.Equal(t, "412", os.Getenv(gosmoReleaseEnv))
 	assert.Equal(t, "660ecca3f00d8e1b2c3d4e5f60718293a4b5c6d7", os.Getenv(gosmoReleaseRevisionEnv))
 }
@@ -47,7 +47,7 @@ func TestEnsureReleaseEnvFailsTheBuildWhenCICannotGetANumber(t *testing.T) {
 	freshReleaseEnv(t)
 	ciEnv(t, "http://127.0.0.1:1")
 	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
-	require.ErrorContains(t, ensureReleaseEnv(), "id-token: write")
+	require.ErrorContains(t, ensureReleaseEnv("slopfix"), "id-token: write")
 	assert.Equal(t, "", os.Getenv(gosmoReleaseEnv))
 }
 
@@ -56,14 +56,14 @@ func TestEnsureReleaseEnvLeavesALocalBuildWithoutARelease(t *testing.T) {
 	freshReleaseEnv(t)
 	t.Setenv("GITHUB_ACTIONS", "")
 	t.Setenv(ReleaseEnv, "")
-	require.NoError(t, ensureReleaseEnv())
+	require.NoError(t, ensureReleaseEnv("slopfix"))
 	assert.Equal(t, "", os.Getenv(gosmoReleaseEnv))
 }
 
 func TestEveryAPEJobAsksForTheReleaseFirst(t *testing.T) {
 	t.Serial()
 	old := ensureReleaseEnvFunc
-	ensureReleaseEnvFunc = func() error { return errors.New("buildhost said no") }
+	ensureReleaseEnvFunc = func(string) error { return errors.New("buildhost said no") }
 	defer func() { ensureReleaseEnvFunc = old }()
 	_, err := forkBuildEnv{}.apeJob("example.com/m", "out")
 	assert.ErrorContains(t, err, "buildhost said no")
@@ -140,7 +140,7 @@ func TestCreateRunReleaseCreatesTheReleaseAndLocksItForTheRun(t *testing.T) {
 	defer srv.Close()
 	ciEnv(t, srv.URL)
 
-	got, err := createRunRelease()
+	got, err := createRunRelease("slopfix")
 	require.NoError(t, err)
 	assert.Equal(t, "231", got)
 	assert.Equal(t, "slopfix", fake.project)
@@ -148,10 +148,49 @@ func TestCreateRunReleaseCreatesTheReleaseAndLocksItForTheRun(t *testing.T) {
 	assert.Equal(t, "231", fake.lock)
 
 	// A second job of the same run reads the lock and creates nothing.
-	got, err = createRunRelease()
+	got, err = createRunRelease("slopfix")
 	require.NoError(t, err)
 	assert.Equal(t, "231", got)
 	assert.Equal(t, 1, fake.creates)
+}
+
+// The release lives where the publish uploads. A binary named apart from its
+// repo publishes to a child project, which numbers its releases on its own.
+func TestCreateRunReleaseCreatesTheReleaseInTheBinarysPublishProject(t *testing.T) {
+	t.Serial()
+	fake := &fakeBuildhost{release: "7"}
+	srv := httptest.NewServer(fake.handler(t))
+	defer srv.Close()
+	ciEnv(t, srv.URL)
+	t.Setenv("GITHUB_REPOSITORY", "wow-look-at-my/webhooks")
+
+	got, err := createRunRelease("webhook-runner")
+	require.NoError(t, err)
+	assert.Equal(t, "7", got)
+	assert.Equal(t, "webhooks/webhook-runner", fake.project)
+}
+
+func TestPublishProjectMatchesTheBuildhostPublishRule(t *testing.T) {
+	t.Serial()
+	for _, c := range []struct{ repo, binary, want string }{
+		{"slopfix", "slopfix", "slopfix"},
+		{"slopfix", "", "slopfix"},
+		{"buildhost", "buildhost-agent", "buildhost/agent"},
+		{"webhooks", "webhook-runner", "webhooks/webhook-runner"},
+	} {
+		assert.Equal(t, c.want, publishProject(c.repo, c.binary), "%s + %s", c.repo, c.binary)
+	}
+}
+
+func TestEveryAPEJobNamesItsBinaryForTheRelease(t *testing.T) {
+	t.Serial()
+	old := ensureReleaseEnvFunc
+	var got string
+	ensureReleaseEnvFunc = func(binary string) error { got = binary; return nil }
+	defer func() { ensureReleaseEnvFunc = old }()
+	_, err := forkBuildEnv{}.apeJob("example.com/m/cmd/webhook-runner", filepath.Join("build", "webhook-runner"))
+	require.NoError(t, err)
+	assert.Equal(t, "webhook-runner", got)
 }
 
 func TestCreateRunReleaseTakesTheNumberAnotherJobLocked(t *testing.T) {
@@ -161,7 +200,7 @@ func TestCreateRunReleaseTakesTheNumberAnotherJobLocked(t *testing.T) {
 	defer srv.Close()
 	ciEnv(t, srv.URL)
 
-	got, err := createRunRelease()
+	got, err := createRunRelease("slopfix")
 	require.NoError(t, err)
 	assert.Equal(t, "230", got)
 	assert.Equal(t, 0, fake.creates)
@@ -171,7 +210,7 @@ func TestCreateRunReleaseFailsLoudlyWithoutAnOIDCToken(t *testing.T) {
 	t.Serial()
 	ciEnv(t, "http://127.0.0.1:1")
 	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
-	_, err := createRunRelease()
+	_, err := createRunRelease("slopfix")
 	assert.ErrorContains(t, err, "id-token: write")
 }
 
@@ -179,7 +218,7 @@ func TestLookupReleaseOutsideCIHasNoRelease(t *testing.T) {
 	t.Serial()
 	t.Setenv("GITHUB_ACTIONS", "")
 	t.Setenv(ReleaseEnv, "")
-	got, err := lookupRelease()
+	got, err := lookupRelease("slopfix")
 	require.NoError(t, err)
 	assert.Equal(t, "", got)
 }
@@ -188,7 +227,7 @@ func TestLookupReleasePrefersTheExplicitNumber(t *testing.T) {
 	t.Serial()
 	t.Setenv("GITHUB_ACTIONS", "true")
 	t.Setenv(ReleaseEnv, " 55 ")
-	got, err := lookupRelease()
+	got, err := lookupRelease("slopfix")
 	require.NoError(t, err)
 	assert.Equal(t, "55", got)
 }
@@ -249,6 +288,16 @@ func TestVerifyReleaseStampFailsAnotherNumber(t *testing.T) {
 	m := runner.NewMock()
 	m.SetResponse("/fork/bin/go", []string{"version", "-m", "out"}, []byte("\tbuild\trelease=411\n\tbuild\trelease.revision=abc\n"), nil)
 	assert.Error(t, verifyReleaseStamp(m, stampJob(), "out"))
+}
+
+// A library-only module builds each package to an archive, which carries no build info.
+func TestVerifyReleaseStampSkipsAPackageArchive(t *testing.T) {
+	t.Serial()
+	t.Setenv(gosmoReleaseEnv, "412")
+	t.Setenv(gosmoReleaseRevisionEnv, "abc")
+	path := filepath.Join(t.TempDir(), "cachedisk")
+	require.NoError(t, os.WriteFile(path, []byte(packageArchiveMagic+"__.PKGDEF"), 0o644))
+	require.NoError(t, verifyReleaseStamp(runner.NewMock(), stampJob(), path))
 }
 
 func TestVerifyReleaseStampReadsNothingWithoutARelease(t *testing.T) {
