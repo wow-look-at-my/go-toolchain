@@ -282,11 +282,30 @@ runs:
           }
           for (const key of known) core.setOutput(key, out[key]);
 
+    # buildhost stores the bytes it is given, so the stamp goes on here, in the release the publish then names. see docs/RELEASE-STAMP.md
+    - name: Stamp the release into each binary
+      if: steps.publishable.outputs.publish == 'true'
+      id: stamp
+      uses: wow-look-at-my/actions@typescript#latest
+      env:
+        BUILDHOST_SERVER: https://pazer.build
+        RELEASE_VERSION: ${{ steps.autorelease_args.outputs.version }}
+        CREATE_SERVICE: ${{ steps.autorelease_args.outputs.create_service }}
+        APT_DEPENDS: ${{ inputs.apt-depends }}
+      with:
+        script: |
+          const { stampBuild } = require("${{ github.action_path }}/.github/scripts/release-stamp.ts") as typeof import("${{ github.action_path }}/.github/scripts/release-stamp");
+          try {
+            await stampBuild(path.resolve(env.GITHUB_WORKSPACE || process.cwd(), "${{ inputs.working-directory }}/build"));
+          } catch (e) {
+            core.setFailed(`release stamp: ${e instanceof Error ? e.message : String(e)}`);
+          }
+
     - name: Auto-release to buildhost
       if: steps.publishable.outputs.publish == 'true'
       uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
       with:
         path: ${{ inputs.working-directory }}/build
         create_service: ${{ steps.autorelease_args.outputs.create_service }}
-        version: ${{ steps.autorelease_args.outputs.version }}
+        version: ${{ steps.stamp.outputs.version }}
         apt_depends: ${{ inputs.apt-depends }}
