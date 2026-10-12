@@ -64,7 +64,6 @@ func (t *Trace) Events() []Event {
 	return append([]Event(nil), t.events...)
 }
 
-// threadID assigns a stable numeric ID to each thread name.
 func resolveThreadID(name string, seen map[string]int) int {
 	if id, ok := seen[name]; ok {
 		return id
@@ -74,8 +73,7 @@ func resolveThreadID(name string, seen map[string]int) int {
 	return id
 }
 
-// WriteChrome writes all collected events plus pipeline timeline entries as a
-// Chrome trace JSON file. Loadable in chrome://tracing or DevTools Performance tab.
+// WriteChrome writes all collected events plus pipeline timeline entries.
 func WriteChrome(path string, timeline []summary.TimelineEntry, trace *Trace) error {
 	threads := make(map[string]int)
 	var out []chromeEvent
