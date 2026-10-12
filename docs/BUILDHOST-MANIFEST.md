@@ -26,8 +26,8 @@ go-toolchain writes `buildhost-artifacts.json` at the root of the directory it p
 ```
 
 - `schema` — must be 1. buildhost fails the publish on any other value rather than ignoring the file.
-- `file` — path relative to the published directory. Must exist, and must begin with the APE magic. `apeManifestEntries` checks both before writing. As a result, a broken manifest is caught where the artifact names are still in hand.
-- `platforms` — `os/arch` pairs, at least one. The FIRST is the row's canonical slot: what appears in the row's os/arch columns, and what `dl` canonicalizes every covered platform's redirect to. So all platforms resolve to one identical `static` URL, one digest, one ETag.
+- `file` — path relative to the published directory. Must exist, and must start with the APE magic. `apeManifestEntries` checks both before writing. As a result, a broken manifest is caught where the artifact names are still in hand.
+- `platforms` — `os/arch` pairs, at least one. The FIRST is the row's canonical slot: what appears in the row's os/arch columns, and what `dl` canonicalizes every covered platform's redirect to. So all platforms resolve to one same `static` URL, one digest, one ETag.
 - `filename` — what the download is served as. Without it a consumer will receive a file called `go-toolchain`.
 
 ## Two fields that are deliberately absent
@@ -44,6 +44,6 @@ One request, one blob, one row. The literal `ape` segment replaces the `{os}/{ar
 
 ## Producing it
 
-`src/cmd/apemanifest.go`. Written whenever a cosmo APE was built — it is the only way the APE publishes. So there is no build that produces one without the other. `checksums.txt` lists the APE once, under its real filename. Buildhost skips `checksums.txt` and never reads it.
+`src/cmd/apemanifest.go`. Written when a cosmo APE was built — it is the only way the APE publishes. So there is no build that produces one without the other. `checksums.txt` lists the APE once, under its real filename. Buildhost skips `checksums.txt` and never reads it.
 
-A build output that does not begin with `MZqFpD` is left out. A build with no entry left writes no manifest at all. A module with no main package still leaves a `build/<name>`, and listing it claimed it ran on every platform in the set. The server answered "declares N platforms but is not an Actually Portable Executable". Every library module in the org failed its publish that way. The skip prints a `SKIP` line naming the file, because a build that publishes nothing has to say why.
+A build output that does not start with `MZqFpD` is left out. A build with no entry left writes no manifest at all. A module with no main package still leaves a `build/<name>`, and listing it claimed it ran on every platform in the set. The server answered "declares N platforms but is not an Actually Portable Executable". Every library module in the org failed its publish that way. The skip prints a `SKIP` line naming the file, because a build that publishes nothing has to say why.
