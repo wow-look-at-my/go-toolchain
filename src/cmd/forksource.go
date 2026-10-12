@@ -214,7 +214,8 @@ const forkBranchScript = "src/submodulebranch.bash"
 // A pair of repositories developed in tandem carry the same branch name, and
 // the script falls back to the branch .gitmodules gives each submodule.
 //
-// A build that skips this step compiles the commit each gitlink names.
+// A build that skips this step compiles the commit each gitlink names. In CI
+// each submodule then takes the commit the run attempt locked.
 func branchForkSubmodules(r runner.CommandRunner) error {
 	script := filepath.Join(forkSubmoduleDir, filepath.FromSlash(forkBranchScript))
 	if _, err := os.Stat(script); err != nil {
@@ -231,6 +232,9 @@ func branchForkSubmodules(r runner.CommandRunner) error {
 	io.Copy(io.Discard, proc.Stdout())
 	if err := proc.Wait(); err != nil {
 		return fmt.Errorf("running the fork's %s: %w", forkBranchScript, err)
+	}
+	if isGHA() {
+		return lockForkSubmodules(r)
 	}
 	return nil
 }
