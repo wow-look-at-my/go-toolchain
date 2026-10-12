@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // endpointPatterns match a line that would send the go command, a workflow
@@ -23,7 +24,7 @@ var endpointPatterns = []*regexp.Regexp{
 }
 
 // scannedExt names the files the scan reads: source, workflows, scripts and docs.
-var scannedExt = map[string]bool{".go": true, ".yml": true, ".yaml": true, ".sh": true, ".mjs": true, ".md": true, ".dats": true}
+var scannedExt = set.Of[string](".go", ".yml", ".yaml", ".sh", ".mjs", ".md", ".dats")
 
 // No committed line outside a test names a golang.org endpoint or sets
 // GOTOOLCHAIN to auto. A test names them on purpose, to prove each is refused.
@@ -43,7 +44,7 @@ func TestNoLineReachesGolangOrg(t *testing.T) {
 			}
 			return nil
 		}
-		if !scannedExt[filepath.Ext(name)] || strings.HasSuffix(name, "_test.go") {
+		if !scannedExt.Contains(filepath.Ext(name)) || strings.HasSuffix(name, "_test.go") {
 			return nil
 		}
 		data, err := os.ReadFile(path)
