@@ -407,9 +407,8 @@ func TestUpToDateTracksEmbeddedFiles(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
-	// Keep go list hermetic: never download a toolchain, ignore any workspace.
+	// Keep go list hermetic: never download a toolchain.
 	t.Setenv("GOTOOLCHAIN", "local")
-	t.Setenv("GOWORK", "off")
 
 	dir := t.TempDir()
 	t.Chdir(dir)
