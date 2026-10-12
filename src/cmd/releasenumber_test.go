@@ -251,6 +251,16 @@ func TestVerifyReleaseStampFailsAnotherNumber(t *testing.T) {
 	assert.Error(t, verifyReleaseStamp(m, stampJob(), "out"))
 }
 
+// A library-only module builds each package to an archive, which carries no build info.
+func TestVerifyReleaseStampSkipsAPackageArchive(t *testing.T) {
+	t.Serial()
+	t.Setenv(gosmoReleaseEnv, "412")
+	t.Setenv(gosmoReleaseRevisionEnv, "abc")
+	path := filepath.Join(t.TempDir(), "cachedisk")
+	require.NoError(t, os.WriteFile(path, []byte(packageArchiveMagic+"__.PKGDEF"), 0o644))
+	require.NoError(t, verifyReleaseStamp(runner.NewMock(), stampJob(), path))
+}
+
 func TestVerifyReleaseStampReadsNothingWithoutARelease(t *testing.T) {
 	t.Serial()
 	t.Setenv(gosmoReleaseEnv, "")
