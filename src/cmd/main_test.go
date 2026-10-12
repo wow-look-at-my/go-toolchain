@@ -9,5 +9,7 @@ import (
 // calls ensureReleaseEnv directly.
 func TestMain(m *testing.M) {
 	ensureReleaseEnvFunc = func() error { return nil }
+	os.Unsetenv(gosmoReleaseEnv)
+	os.Unsetenv(gosmoReleaseRevisionEnv)
 	os.Exit(m.Run())
 }
