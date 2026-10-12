@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
 // freshReleaseEnv clears the per-process answers so a test resolves again,
@@ -197,8 +198,61 @@ func TestWriteReleaseOutputAppendsForThePublish(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "output")
 	require.NoError(t, os.WriteFile(out, []byte("id=root\n"), 0o644))
 	t.Setenv("GITHUB_OUTPUT", out)
-	writeReleaseOutput("77")
+	require.NoError(t, writeReleaseOutput("77"))
 	data, err := os.ReadFile(out)
 	require.NoError(t, err)
 	assert.Equal(t, "id=root\nrelease_version=77\n", string(data))
+}
+
+func TestWriteReleaseOutputFailsWhenThePublishCannotReadIt(t *testing.T) {
+	t.Serial()
+	t.Setenv("GITHUB_OUTPUT", filepath.Join(t.TempDir(), "missing-dir", "output"))
+	assert.ErrorContains(t, writeReleaseOutput("77"), "GITHUB_OUTPUT")
+}
+
+func TestBuildInfoSettingsReadsTheBuildLines(t *testing.T) {
+	t.Serial()
+	out := "build/slopfix: go1.26\n\tpath\tgithub.com/x/slopfix\n\tbuild\t-trimpath=true\n\tbuild\trelease=412\n\tbuild\trelease.revision=abc\n"
+	got := buildInfoSettings(out)
+	assert.Equal(t, "412", got["release"])
+	assert.Equal(t, "abc", got["release.revision"])
+	assert.Equal(t, "true", got["-trimpath"])
+	assert.NotContains(t, got, "path")
+}
+
+func stampJob() buildJob {
+	return buildJob{goCmd: []string{"/fork/bin/go"}, goroot: "/fork"}
+}
+
+func TestVerifyReleaseStampPassesAStampedBinary(t *testing.T) {
+	t.Serial()
+	t.Setenv(gosmoReleaseEnv, "412")
+	t.Setenv(gosmoReleaseRevisionEnv, "abc")
+	m := runner.NewMock()
+	m.SetResponse("/fork/bin/go", []string{"version", "-m", "out"}, []byte("out: go1.26\n\tbuild\trelease=412\n\tbuild\trelease.revision=abc\n"), nil)
+	require.NoError(t, verifyReleaseStamp(m, stampJob(), "out"))
+}
+
+func TestVerifyReleaseStampFailsABinaryTheGoCommandDidNotStamp(t *testing.T) {
+	t.Serial()
+	t.Setenv(gosmoReleaseEnv, "412")
+	t.Setenv(gosmoReleaseRevisionEnv, "abc")
+	m := runner.NewMock()
+	m.SetResponse("/fork/bin/go", []string{"version", "-m", "out"}, []byte("out: go1.26\n\tbuild\t-trimpath=true\n"), nil)
+	assert.ErrorContains(t, verifyReleaseStamp(m, stampJob(), "out"), "did not stamp the release")
+}
+
+func TestVerifyReleaseStampFailsAnotherNumber(t *testing.T) {
+	t.Serial()
+	t.Setenv(gosmoReleaseEnv, "412")
+	t.Setenv(gosmoReleaseRevisionEnv, "abc")
+	m := runner.NewMock()
+	m.SetResponse("/fork/bin/go", []string{"version", "-m", "out"}, []byte("\tbuild\trelease=411\n\tbuild\trelease.revision=abc\n"), nil)
+	assert.Error(t, verifyReleaseStamp(m, stampJob(), "out"))
+}
+
+func TestVerifyReleaseStampReadsNothingWithoutARelease(t *testing.T) {
+	t.Serial()
+	t.Setenv(gosmoReleaseEnv, "")
+	require.NoError(t, verifyReleaseStamp(runner.NewMock(), stampJob(), "out"))
 }

@@ -12,7 +12,9 @@ The build itself stamps it, into every binary it links. No program declares anyt
 - The build writes `release_version` to `GITHUB_OUTPUT`. The action's publish names that release, so the uploaded binaries land in the release whose number they carry.
 - `GO_TOOLCHAIN_RELEASE_VERSION` names the number for a build that already has one.
 
-In CI, a failure to get the number or the commit fails the build. It never falls back to an unstamped binary.
+In CI, a failure to get the number or the commit fails the build. So does a failure to hand the number to the publish. It never falls back to an unstamped binary.
+
+After each link, `verifyReleaseStamp` reads the binary's build info with the same go command and fails the build unless it carries this release and commit. A go command without gosmopolitan's release settings ignores the variables. This check is what turns that into a red build instead of an unstamped release.
 
 A build outside CI with no `GO_TOOLCHAIN_RELEASE_VERSION` has no buildhost release. It warns, and its binaries carry no release setting. Such a binary is never published.
 

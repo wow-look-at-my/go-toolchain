@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -10,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
 // ReleaseEnv names the buildhost release number for a build that already has one.
@@ -36,7 +39,7 @@ func resolveRelease() (string, error) {
 	releaseOnce.Do(func() {
 		releaseValue, releaseErr = lookupRelease()
 		if releaseErr == nil && releaseValue != "" {
-			writeReleaseOutput(releaseValue)
+			releaseErr = writeReleaseOutput(releaseValue)
 		}
 	})
 	return releaseValue, releaseErr
@@ -183,16 +186,65 @@ func releaseDo(target, token string, body []byte, answer any) error {
 }
 
 // writeReleaseOutput hands the number to the action's publish, which releases under the same number.
-func writeReleaseOutput(v string) {
+// A number the publish cannot read would ship the binaries under another release, so a failed write fails the build.
+func writeReleaseOutput(v string) error {
 	path := os.Getenv("GITHUB_OUTPUT")
 	if path == "" {
-		return
+		return nil
 	}
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
-		logger.Warn("⇒ Warning: cannot record release %s in GITHUB_OUTPUT: %v", v, err)
-		return
+		return fmt.Errorf("release %s: recording it in GITHUB_OUTPUT for the publish: %w", v, err)
 	}
-	defer f.Close()
-	fmt.Fprintf(f, "release_version=%s\n", v)
+	if _, err := fmt.Fprintf(f, "release_version=%s\n", v); err != nil {
+		f.Close()
+		return fmt.Errorf("release %s: recording it in GITHUB_OUTPUT for the publish: %w", v, err)
+	}
+	return f.Close()
+}
+
+// verifyReleaseStamp fails a build whose binary lacks the release this process
+// handed the go command. A go command without gosmopolitan's release settings
+// ignores the variables, and its binary would otherwise ship unstamped.
+func verifyReleaseStamp(r runner.CommandRunner, job buildJob, path string) error {
+	rel := os.Getenv(gosmoReleaseEnv)
+	if rel == "" {
+		return nil
+	}
+	rev := os.Getenv(gosmoReleaseRevisionEnv)
+	args := append(append([]string{}, job.goCmd[1:]...), "version", "-m", path)
+	proc, err := runner.Cmd(job.goCmd[0], args...).
+		WithEnv("GOTOOLCHAIN", "local").
+		WithEnv("GOROOT", job.goroot).
+		WithQuiet().
+		Run(r)
+	if err != nil {
+		return fmt.Errorf("reading the build info of %s: %w", path, err)
+	}
+	stdout, _ := io.ReadAll(proc.Stdout())
+	stderr, _ := io.ReadAll(proc.Stderr())
+	if err := proc.Wait(); err != nil {
+		return fmt.Errorf("reading the build info of %s: %w\n%s", path, err, bytes.TrimSpace(stderr))
+	}
+	got := buildInfoSettings(string(stdout))
+	if got["release"] != rel || got["release.revision"] != rev {
+		return fmt.Errorf("%s carries release %q and revision %q, not %s and %s: the go command %s did not stamp the release, which needs gosmopolitan's release build settings",
+			path, got["release"], got["release.revision"], rel, rev, job.goCmd[0])
+	}
+	return nil
+}
+
+// buildInfoSettings reads the build settings from `go version -m` output, whose setting lines are "\tbuild\tkey=value".
+func buildInfoSettings(out string) map[string]string {
+	settings := map[string]string{}
+	for line := range strings.SplitSeq(out, "\n") {
+		kind, setting, ok := strings.Cut(strings.TrimSpace(line), "\t")
+		if !ok || kind != "build" {
+			continue
+		}
+		if key, value, ok := strings.Cut(setting, "="); ok {
+			settings[key] = value
+		}
+	}
+	return settings
 }
