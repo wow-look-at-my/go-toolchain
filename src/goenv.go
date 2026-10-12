@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/wow-look-at-my/go-toolchain/src/cmd"
+	"github.com/wow-look-at-my/go-toolchain/src/golangorg"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
@@ -52,43 +53,22 @@ func localRunName() string {
 // localRunSeq numbers each local run of this process.
 var localRunSeq atomic.Uint64
 
-// PublicSumDB is the checksum database this toolchain refuses to talk to.
-const PublicSumDB = "sum.golang.org"
-
-// usesPublicSumDB reports whether a GOSUMDB value would have Go contact the
-// public checksum database ITSELF. GOSUMDB is "<name>", "<name>+<key>", or
-// "<name>+<key> <url>"; only the URL form redirects lookups elsewhere, so
-// sum.golang.org named WITH a proxy URL (the org's "<proxy>/sumdb/<name>"
-// mirror) stays allowed.
-func usesPublicSumDB(gosumdb string) bool {
-	fields := strings.Fields(gosumdb)
-	if len(fields) == 0 {
-		return false
-	}
-	name, _, _ := strings.Cut(fields[0], "+")
-	if name != PublicSumDB {
-		// A URL pointing at the public host counts even under another name.
-		return len(fields) > 1 && sumDBURLHost(fields[1]) == PublicSumDB
-	}
-	if len(fields) == 1 {
-		return true // bare name: Go contacts sum.golang.org directly
-	}
-	return sumDBURLHost(fields[1]) == PublicSumDB
-}
-
-// sumDBURLHost extracts the host from a GOSUMDB proxy URL, which may or may
-// not carry a scheme.
-func sumDBURLHost(raw string) string {
-	s := strings.TrimPrefix(strings.TrimPrefix(raw, "https://"), "http://")
-	host, _, _ := strings.Cut(s, "/")
-	host, _, _ = strings.Cut(host, ":")
-	return host
+// pinGoEnv sets what every run holds, whatever the caller set: no toolchain
+// download, no telemetry upload, and no setting that names golang.org.
+func pinGoEnv() error {
+	golangorg.Install()
+	os.Setenv("GOTOOLCHAIN", "local")
+	os.Setenv("GOTELEMETRY", "off")
+	return golangorg.CheckEnv()
 }
 
 // configureGoEnv sets GOPROXY, GOSUMDB, GONOSUMDB, and GONOSUMCHECK from the
 // GOPROXY/GOSUMDB env vars. With neither set, it uses GOPROXY=direct with
-// sumdb disabled. GO_PROXY_CONFIG is ignored: the org proxy it names is gone.
-func configureGoEnv() {
+// GOSUMDB=off. GO_PROXY_CONFIG is ignored: the org proxy it names is gone.
+func configureGoEnv() error {
+	if err := pinGoEnv(); err != nil {
+		return err
+	}
 	nameRun()
 	proxyLog := logger.WithSubsystem("proxy")
 	defer func() {
@@ -109,31 +89,20 @@ func configureGoEnv() {
 		os.Setenv("GOPROXY", "direct")
 	}
 
-	// GOSUMDB: use configured value (full "<key> <url>" form or short name),
-	// or disable sumdb phone-home.
-	if gosumdb != "" {
-		// The PUBLIC checksum database is never an option: querying it for a
-		// private module announces that module's path to an outside party. This
-		// is refused LOUDLY, not silently, so a misconfigured setting is not
-		// believed for months.
-		if usesPublicSumDB(gosumdb) {
-			proxyLog.Error("GOSUMDB=%q names the public checksum database directly.", gosumdb)
-			proxyLog.Error("sum.golang.org can never hold a private module, and querying it discloses the module path.")
-			proxyLog.Error("Point GOSUMDB at the org proxy's /sumdb/ mirror, or leave it unset to disable sumdb entirely.")
-			os.Exit(1)
-		}
+	// GOSUMDB: a configured value names a database off golang.org, because
+	// pinGoEnv refused every other.
+	if gosumdb != "" && gosumdb != "off" {
 		os.Setenv("GOSUMDB", gosumdb)
 		// A sumdb holds public modules only, so it refuses an org module.
 		os.Setenv("GONOSUMDB", orgSumDBExemptions())
 		os.Setenv("GONOSUMCHECK", orgSumDBExemptions())
-		return
+		return nil
 	}
 
-	// A GOSUMDB this run declined still sits in the environment every child reads.
-	os.Unsetenv("GOSUMDB")
-	// GONOSUMDB, not GOSUMDB=off, so toolchain auto-downloads still work.
+	os.Setenv("GOSUMDB", "off")
 	os.Setenv("GONOSUMDB", "*")
 	os.Setenv("GONOSUMCHECK", "*")
+	return nil
 }
 
 // orgSumDBExemptions is the GONOSUMDB glob list covering every org module path.
