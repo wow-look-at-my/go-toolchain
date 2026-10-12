@@ -2,12 +2,10 @@ package cmd
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -117,37 +115,9 @@ func isVanityHostReachable(host string) bool {
 	return true
 }
 
-// resolveVanityVCSURL discovers the VCS repository URL and import prefix for
-// a vanity module. The import prefix identifies the root of the vanity
-// namespace that maps to the repository. Any path beyond the prefix is a
-// sub-module path within the repo.
-//
-// It queries the Go module proxy (go mod download -json) for the Origin URL
-// and Subdir, then falls back to the go-import meta tag. On the vanity host.
+// resolveVanityVCSURL reads a vanity module's repository from its own host.
+// It never asks a module proxy.
 func resolveVanityVCSURL(modulePath, version string) (string, string, error) {
-	// The proxy strategy: go mod download -json gives Origin.URL
-	cmd := exec.Command("go", "mod", "download", "-json", modulePath+"@"+version)
-	// Outside the module dir, so this can't pull in the full requirement graph.
-	cmd.Dir = os.TempDir()
-	cmd.Env = append(os.Environ(), "GOPROXY=https://proxy.golang.org,direct", "GOWORK=off", "GOFLAGS=")
-	output, err := cmd.Output()
-	if err == nil {
-		var info struct {
-			Origin *struct {
-				URL    string `json:"URL"`
-				Subdir string `json:"Subdir"`
-			} `json:"Origin"`
-		}
-		if json.Unmarshal(output, &info) == nil && info.Origin != nil && info.Origin.URL != "" {
-			importPrefix := modulePath
-			if info.Origin.Subdir != "" {
-				importPrefix = strings.TrimSuffix(modulePath, "/"+info.Origin.Subdir)
-			}
-			return info.Origin.URL, importPrefix, nil
-		}
-	}
-
-	// The fallback strategy: the go-import meta tag (host may be intermittently available)
 	return resolveGoImportMeta(modulePath)
 }
 
