@@ -8,7 +8,7 @@ The build itself stamps it, into every binary it links. No program declares anyt
 
 - Before the first main package links, `ensureReleaseEnv` (`src/cmd/releasenumber.go`) puts `GOSMOPOLITAN_RELEASE` and `GOSMOPOLITAN_RELEASE_REVISION` in the process environment. Every go command go-toolchain starts inherits them.
 - The fork's go command writes them into every binary's build info as the settings `release` and `release.revision` (`cmd/go/internal/load/release.go` in gosmopolitan). They are independent of `-buildvcs` and of the build running in a checkout.
-- In CI the number comes from buildhost. The build creates the project's release over the job's OIDC token, at the store the run locks use. The `buildhost-release` run lock holds the number, so every job of a run try stamps the same one. A job that finds it locked creates no release.
+- In CI the number comes from buildhost. The build creates the release over the job's OIDC token, at the store the run locks use. It creates it in the project the publish uploads the first linked binary to: the repo's project, or `<repo>/<name>` for a binary named apart from the repo (`publishProject`, the same rule as buildhost-publish). A release in any other project counts its numbers apart, and the publish finds that number already published. The `buildhost-release` run lock holds the number, so every job of a run try stamps the same one. A job that finds it locked creates no release.
 - The build writes `release_version` to `GITHUB_OUTPUT`. The action's publish names that release, so the uploaded binaries land in the release whose number they carry.
 - `GO_TOOLCHAIN_RELEASE_VERSION` names the number for a build that already has one.
 

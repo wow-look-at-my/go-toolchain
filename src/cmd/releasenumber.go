@@ -35,9 +35,10 @@ var (
 
 // resolveRelease answers the buildhost release number this run builds, once per process.
 // Outside CI with no ReleaseEnv there is no release, and it answers "".
-func resolveRelease() (string, error) {
+// binary is the first binary the build links. Its publish project holds the release.
+func resolveRelease(binary string) (string, error) {
 	releaseOnce.Do(func() {
-		releaseValue, releaseErr = lookupRelease()
+		releaseValue, releaseErr = lookupRelease(binary)
 		if releaseErr == nil && releaseValue != "" {
 			releaseErr = writeReleaseOutput(releaseValue)
 		}
@@ -45,14 +46,28 @@ func resolveRelease() (string, error) {
 	return releaseValue, releaseErr
 }
 
-func lookupRelease() (string, error) {
+func lookupRelease(binary string) (string, error) {
 	if v := strings.TrimSpace(os.Getenv(ReleaseEnv)); v != "" {
 		return usableRelease(v)
 	}
 	if os.Getenv("GITHUB_ACTIONS") != "true" {
 		return "", nil
 	}
-	return createRunRelease()
+	return createRunRelease(binary)
+}
+
+// publishProject is the buildhost project the publish uploads binary to.
+// A release made in another project counts its numbers apart, and the
+// publish then finds the number already published in its own project.
+func publishProject(repo, binary string) string {
+	switch {
+	case binary == "" || binary == repo:
+		return repo
+	case strings.HasPrefix(binary, repo+"-"):
+		return repo + "/" + strings.TrimPrefix(binary, repo+"-")
+	default:
+		return repo + "/" + binary
+	}
 }
 
 // usableRelease rejects what a build setting cannot carry, the same rule as a revision.
@@ -76,9 +91,9 @@ var ensureReleaseEnvFunc = ensureReleaseEnv
 // command then stamps both into the build info of every binary it links.
 // In CI a missing number or commit fails the build. Outside CI with no
 // ReleaseEnv there is no release, and it warns once.
-func ensureReleaseEnv() error {
+func ensureReleaseEnv(binary string) error {
 	releaseEnvOnce.Do(func() {
-		rel, err := resolveRelease()
+		rel, err := resolveRelease(binary)
 		if err != nil {
 			releaseEnvErr = err
 			return
@@ -103,7 +118,7 @@ func ensureReleaseEnv() error {
 
 // createRunRelease creates the buildhost release this run publishes, or answers
 // the one another job of the same run attempt already created.
-func createRunRelease() (string, error) {
+func createRunRelease(binary string) (string, error) {
 	store := strings.TrimSuffix(os.Getenv(runLockStoreEnv), "/")
 	if store == "" {
 		store = defaultRunLockStore
@@ -127,10 +142,11 @@ func createRunRelease() (string, error) {
 	if held.Found && held.Value != "" {
 		return usableRelease(held.Value)
 	}
-	project := lock.Repository[strings.LastIndex(lock.Repository, "/")+1:]
-	if project == "" {
+	repo := lock.Repository[strings.LastIndex(lock.Repository, "/")+1:]
+	if repo == "" {
 		return fail(fmt.Errorf("GITHUB_REPOSITORY is unset, so the build cannot name its project"))
 	}
+	project := publishProject(repo, binary)
 	body, err := json.Marshal(map[string]string{
 		"git_branch": os.Getenv("GITHUB_REF_NAME"),
 		"git_commit": os.Getenv("GITHUB_SHA"),
