@@ -62,10 +62,10 @@ func goVersionCore(v string) string {
 // verifyGoToolchain loads "runtime" via goPath, catching a go command that runs and carries no
 // standard library it can resolve that package from.
 // GOTOOLCHAIN=local, an emptied GOFLAGS and a go.mod-free directory keep a downloaded toolchain
-// and the caller's own -race out of the answer.
+// and the caller's own -race out of the answer. GOWORK=off stops a stock go from reading a go.work.
 func verifyGoToolchain(goPath string) error {
 	cmd := exec.Command(goPath, "list", "runtime")
-	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local", "GOFLAGS=")
+	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local", "GOFLAGS=", "GOWORK=off")
 	cmd.Dir = os.TempDir()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("%w: %s", err, bytes.TrimSpace(out))

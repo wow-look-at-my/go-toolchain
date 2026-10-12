@@ -228,6 +228,18 @@ func TestVerifyGoToolchainIgnoresTheCallersGOFLAGS(t *testing.T) {
 	assert.NoError(t, verifyGoToolchain(goPath))
 }
 
+// A stock go command reads a go.work it finds above the probe directory. The
+// stand-in fails as a stock go would, unless the probe turns go.work off.
+func TestVerifyGoToolchainTurnsGoWorkOff(t *testing.T) {
+	t.Serial()
+	goPath := filepath.Join(t.TempDir(), "go")
+	script := "#!/bin/sh\n[ \"$GOWORK\" = off ] || { echo 'go: cannot load module listed in go.work' >&2; exit 1; }\n"
+	require.NoError(t, os.WriteFile(goPath, []byte(script), 0o755))
+
+	t.Setenv("GOWORK", "")
+	assert.NoError(t, verifyGoToolchain(goPath))
+}
+
 // This binary is the go command, and it carries the standard library it
 // compiles. The tree GOROOT names decides nothing about whether runtime
 // resolves. A half-extracted GOROOT therefore stops no build, and the probe

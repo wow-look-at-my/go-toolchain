@@ -129,7 +129,7 @@ runs:
             exit 1
           fi
           echo "::warning::buildhost binary not usable; building from source (allow-source-build=true)"
-          (cd "$GITHUB_ACTION_PATH" && GOTOOLCHAIN=auto go install ./src)
+          (cd "$GITHUB_ACTION_PATH" && GOTOOLCHAIN=auto GOWORK=off go install ./src)
           cp "$(go env GOPATH)/bin/src" "${BIN_DIR}/go-toolchain"
         fi
 
