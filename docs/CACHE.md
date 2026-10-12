@@ -4,7 +4,11 @@ go-toolchain ships no cache server of its own. The gosmopolitan fork's `cmd/go` 
 
 ## What this repo still does
 
-Nothing. The CI cache-config check moved into gosmopolitan itself (`cmd/go/internal/cache`'s `validateCIShared`, called from `initDefaultCache`). It now fails outright, with no downgrade-to-warning knob, whenever CI is set and `GO_BUILDCACHE_CONFIG` is not. `GO_BUILDCACHE_CONFIG` (base64 JSON: `endpoint`, `bucket`, `username`, `password` — the deprecated S3-style `key_id`/`access_key`/`region` spellings still parse, with a warning) reaches gosmopolitan's `cmd/go` through plain environment inheritance, since every `go build`/`go test` invocation is a child process of this binary.
+It owns the cache for the whole run. `cacheclient.OpenCache` makes the earliest process of a build the owner. It opens the directory, loads the key index, holds the store connection. It serves every process it starts over go-ipc shared memory, named by `GO_BUILDCACHE_BROKER`. The pipeline starts its go commands side by side. `src/buildcache` opens the cache in the pipeline itself, before the earliest go command, when `GO_BUILDCACHE_CONFIG` names a store.
+
+It sets `GOCACHE` to the directory it opened, because a go command refuses an owner of another directory. Every go command is then a child: no index download and no store connection of its own. The pipeline drains the uploads and releases the names as it exits. `TestPipelineIsTheOnlyStoreClient` runs a whole pipeline against a fake store and fails when the store sees more than one client or more than one index download.
+
+The CI cache-config check moved into gosmopolitan itself (`cmd/go/internal/cache`'s `validateCIShared`, called from `initDefaultCache`). It now fails outright, with no downgrade-to-warning knob, when CI is set and `GO_BUILDCACHE_CONFIG` is not. `GO_BUILDCACHE_CONFIG` (base64 JSON: `endpoint`, `bucket`, `username`, `password` — the deprecated S3-style `key_id`/`access_key`/`region` spellings still parse, with a warning) reaches gosmopolitan's `cmd/go` through plain environment inheritance, since every `go build`/`go test` invocation is a child process of this binary.
 
 ## History
 
