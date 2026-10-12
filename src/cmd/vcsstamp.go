@@ -44,14 +44,20 @@ func usableRevision(rev string) string {
 	return rev
 }
 
-// stampLDFlags is the -X list filling importPath's revision variables, empty
-// when the package declares none. Depth: docs/VCS-STAMP.md.
-func stampLDFlags(importPath string) string {
+// stampLDFlags is the -X list filling importPath's revision and release
+// variables, empty when the package declares none. Depth: docs/VCS-STAMP.md
+// and docs/RELEASE-STAMP.md.
+func stampLDFlags(importPath string) (string, error) {
 	dir := packageDir(gomod.ReadModulePath("."), importPath)
 	if dir == "" {
-		return ""
+		return "", nil
 	}
-	return revisionStamp(importPath, gomod.PackageStringVars(dir), resolveRevision())
+	declared := gomod.PackageStringVars(dir)
+	release, err := releaseStamp(importPath, declared, resolveRelease)
+	if err != nil {
+		return "", err
+	}
+	return joinLDFlags(revisionStamp(importPath, declared, resolveRevision()), release), nil
 }
 
 // revisionStamp writes the -X flags for the stamp variables declared holds,
