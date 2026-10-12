@@ -211,28 +211,6 @@ runs:
         fi
         timeout "${TIMEOUT_SECONDS}" go-toolchain matrix $ARGS
 
-    # The name must stay unique per job, per matrix leg, AND per build (working-directory). see docs/ACTION.md
-    - name: Compute hand-off build identity
-      id: build-id
-      shell: bash
-      run: |
-        wd="${{ inputs.working-directory }}"
-        id="$(printf '%s' "$wd" | tr '/.' '-' | sed -E 's/^-+//; s/-+$//')"
-        [ -n "$id" ] || id="root"
-        echo "id=$id" >> "$GITHUB_OUTPUT"
-
-    - name: Hand off build outputs (go-build-<job>.<build>)
-      uses: wow-look-at-my/actions@cache-upload#latest
-      with:
-        name: go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}.b${{ steps.build-id.outputs.id }}
-        path: ${{ inputs.working-directory }}/build
-
-    - name: Analyze with CodeQL
-      if: inputs.codeql == 'true'
-      uses: github/codeql-action/analyze@v4
-      with:
-        category: /language:go
-
     # Every executable binary publishes. A build with none (a library module, or a wasm-only build with publishing opted out) has nothing buildhost can upload. see docs/ACTION.md
     - name: Select publishable artifacts
       id: publishable
@@ -280,10 +258,52 @@ runs:
           }
           for (const key of known) core.setOutput(key, out[key]);
 
+    # buildhost assigns the release number here, so it can be written into the binaries before anything leaves this job. see docs/RELEASE-STAMP.md
+    - name: Create the buildhost release
+      if: steps.publishable.outputs.publish == 'true'
+      id: release
+      uses: wow-look-at-my/buildhost/.github/actions/buildhost-create-release@master
+      with:
+        project: ${{ github.event.repository.name }}
+        create_service: ${{ steps.autorelease_args.outputs.create_service }}
+        apt_depends: ${{ inputs.apt-depends }}
+
+    - name: Stamp the release number into the build outputs
+      if: steps.publishable.outputs.publish == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        build="$(cd "${{ inputs.working-directory }}/build" && pwd)"
+        cd "$GITHUB_ACTION_PATH"
+        "$RUNNER_TEMP/gt-go/go" run ./src/releasestamp/stamp-release "${{ steps.release.outputs.version }}" "$build"
+
+    # The name must stay unique per job, per matrix leg, AND per build (working-directory). see docs/ACTION.md
+    - name: Compute hand-off build identity
+      id: build-id
+      shell: bash
+      run: |
+        wd="${{ inputs.working-directory }}"
+        id="$(printf '%s' "$wd" | tr '/.' '-' | sed -E 's/^-+//; s/-+$//')"
+        [ -n "$id" ] || id="root"
+        echo "id=$id" >> "$GITHUB_OUTPUT"
+
+    - name: Hand off build outputs (go-build-<job>.<build>)
+      uses: wow-look-at-my/actions@cache-upload#latest
+      with:
+        name: go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}.b${{ steps.build-id.outputs.id }}
+        path: ${{ inputs.working-directory }}/build
+
+    - name: Analyze with CodeQL
+      if: inputs.codeql == 'true'
+      uses: github/codeql-action/analyze@v4
+      with:
+        category: /language:go
+
     - name: Auto-release to buildhost
       if: steps.publishable.outputs.publish == 'true'
       uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
       with:
         path: ${{ inputs.working-directory }}/build
+        version: ${{ steps.release.outputs.version }}
         create_service: ${{ steps.autorelease_args.outputs.create_service }}
         apt_depends: ${{ inputs.apt-depends }}
