@@ -10,8 +10,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 )
 
-// chromeEvent is a Chrome Trace Event Format event.
-// Spec: https://docs.google.com/document/d/1CvAClvFfyA5R-PhYUmn5OOQtYMH4h6I0nSsKchNAySU
+// chromeEvent is an event in Chrome's Trace Event Format.
 type chromeEvent struct {
 	Name string      `json:"name"`
 	Cat  string      `json:"cat,omitempty"`
