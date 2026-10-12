@@ -13,8 +13,8 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// runGit runs git in dir and answers its trimmed stdout.
-func runGit(t *testing.T, dir string, args ...string) string {
+// gitInFork runs git in dir and answers its trimmed stdout.
+func gitInFork(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "protocol.file.allow=always"}, args...)...)
 	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
@@ -31,21 +31,21 @@ func forkWithOrgSubmodule(t *testing.T) (string, string) {
 	root := t.TempDir()
 	dep := filepath.Join(root, "dep")
 	require.NoError(t, os.MkdirAll(dep, 0o755))
-	runGit(t, dep, "init", "--quiet", "--initial-branch", "master")
-	runGit(t, dep, "commit", "--quiet", "--allow-empty", "-m", "older")
-	older := runGit(t, dep, "rev-parse", "HEAD")
-	runGit(t, dep, "commit", "--quiet", "--allow-empty", "-m", "newer")
-	newer := runGit(t, dep, "rev-parse", "HEAD")
+	gitInFork(t, dep, "init", "--quiet", "--initial-branch", "master")
+	gitInFork(t, dep, "commit", "--quiet", "--allow-empty", "-m", "older")
+	older := gitInFork(t, dep, "rev-parse", "HEAD")
+	gitInFork(t, dep, "commit", "--quiet", "--allow-empty", "-m", "newer")
+	newer := gitInFork(t, dep, "rev-parse", "HEAD")
 
 	t.Chdir(root)
 	require.NoError(t, os.MkdirAll(forkSubmoduleDir, 0o755))
-	runGit(t, forkSubmoduleDir, "init", "--quiet")
+	gitInFork(t, forkSubmoduleDir, "init", "--quiet")
 	gitmodules := "[submodule \"ipc\"]\n\tpath = src/vendor/ipc\n\turl = https://github.com/wow-look-at-my/go-ipc.git\n" +
 		"[submodule \"stock\"]\n\tpath = src/vendor/stock\n\turl = https://github.com/golang/mod.git\n"
 	require.NoError(t, os.WriteFile(filepath.Join(forkSubmoduleDir, ".gitmodules"), []byte(gitmodules), 0o644))
-	runGit(t, forkSubmoduleDir, "config", "submodule.ipc.branch", "master")
-	runGit(t, forkSubmoduleDir, "config", "submodule.stock.branch", "master")
-	runGit(t, ".", "clone", "--quiet", "file://"+dep, filepath.Join(forkSubmoduleDir, "src", "vendor", "ipc"))
+	gitInFork(t, forkSubmoduleDir, "config", "submodule.ipc.branch", "master")
+	gitInFork(t, forkSubmoduleDir, "config", "submodule.stock.branch", "master")
+	gitInFork(t, ".", "clone", "--quiet", "file://"+dep, filepath.Join(forkSubmoduleDir, "src", "vendor", "ipc"))
 	return older, newer
 }
 
@@ -58,7 +58,7 @@ func TestLockForkSubmodulesTakesTheCommitTheRunLocked(t *testing.T) {
 
 	require.NoError(t, lockForkSubmodules(runner.New()))
 
-	assert.Equal(t, older, runGit(t, filepath.Join(forkSubmoduleDir, "src", "vendor", "ipc"), "rev-parse", "HEAD"))
+	assert.Equal(t, older, gitInFork(t, filepath.Join(forkSubmoduleDir, "src", "vendor", "ipc"), "rev-parse", "HEAD"))
 	assert.NotEqual(t, older, newer)
 	assert.Len(t, locked, 1, "a submodule outside the org follows no branch head, so nothing locks it")
 }
@@ -73,7 +73,7 @@ func TestLockForkSubmodulesClaimsTheHead(t *testing.T) {
 	require.NoError(t, lockForkSubmodules(runner.New()))
 
 	assert.Equal(t, newer, locked["commit:github.com/wow-look-at-my/go-ipc@master"])
-	assert.Equal(t, newer, runGit(t, filepath.Join(forkSubmoduleDir, "src", "vendor", "ipc"), "rev-parse", "HEAD"))
+	assert.Equal(t, newer, gitInFork(t, filepath.Join(forkSubmoduleDir, "src", "vendor", "ipc"), "rev-parse", "HEAD"))
 }
 
 // A store that cannot answer fails the build. Nothing stands in for the lock.
