@@ -186,7 +186,7 @@ func checkDepLive(path string) (update string, needsUpdate bool, err error) {
 		proxy = "https://" + proxy
 	}
 
-	// Query $GOPROXY/<module>/@latest; module paths are case-encoded per module#EscapePath.
+	// Query $GOPROXY/<module>/@latest; escapePath case-encodes the module path.
 	escapedPath, err := escapePath(path)
 	if err != nil {
 		return "", false, err
