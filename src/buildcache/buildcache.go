@@ -18,6 +18,7 @@ import (
 
 	"github.com/wow-look-at-my/go-s3-server/cacheclient"
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // cacheLogEnv names a file that takes the cache's notices in place of stderr. The go command reads the same variable.
@@ -62,7 +63,7 @@ func Open() error {
 	store, err := cacheclient.NewWebBackend(cfg)
 	if err != nil {
 		// The go command takes the same failure as a slower build.
-		fmt.Fprintf(os.Stderr, "go: shared build cache disabled: %v\n", err)
+		cacheLog().Warn("shared build cache disabled: %v", err)
 		store = nil
 	}
 	if _, err := cacheclient.OpenCache(dir, store); err != nil {
@@ -83,10 +84,10 @@ func Close() {
 	}
 	opened = false
 	if err := cacheclient.CloseStore(); err != nil {
-		fmt.Fprintf(os.Stderr, "go: closing the shared build cache: %v\n", err)
+		cacheLog().Error("closing the shared build cache: %v", err)
 	}
 	if err := cacheclient.Exit(); err != nil {
-		fmt.Fprintf(os.Stderr, "go: releasing the build cache owner: %v\n", err)
+		cacheLog().Error("releasing the build cache owner: %v", err)
 	}
 }
 
@@ -157,7 +158,7 @@ var (
 	noticeFile *os.File
 )
 
-func notice(format string, args ...any) {
+func notice(warn bool, format string, args ...any) {
 	noticeOnce.Do(func() {
 		path := os.Getenv(cacheLogEnv)
 		if path == "" {
@@ -165,21 +166,31 @@ func notice(format string, args ...any) {
 		}
 		file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o666)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "go: %s: %v; the cache notices go to stderr\n", cacheLogEnv, err)
+			cacheLog().Warn("%s: %v; the cache notices go to the console", cacheLogEnv, err)
 			return
 		}
 		noticeFile = file
 	})
-	if noticeFile == nil {
-		fmt.Fprintf(os.Stderr, "go: "+format+"\n", args...)
+	if noticeFile != nil {
+		stamp := fmt.Sprintf("%s [%d] ", time.Now().Format(time.TimeOnly), os.Getpid())
+		fmt.Fprintf(noticeFile, stamp+format+"\n", args...)
 		return
 	}
-	stamp := fmt.Sprintf("%s [%d] ", time.Now().Format(time.TimeOnly), os.Getpid())
-	fmt.Fprintf(noticeFile, stamp+format+"\n", args...)
+	if warn {
+		cacheLog().Warn(format, args...)
+		return
+	}
+	cacheLog().Info(format, args...)
 }
 
-func (noticeLogger) Infof(format string, args ...any) { notice(format, args...) }
+// cacheLog is the logger the cache's console notices go through, prefixed
+// as the go command prefixes its own.
+func cacheLog() *logger.Logger {
+	return logger.WithSubsystem("go")
+}
 
-func (noticeLogger) Warnf(format string, args ...any) { notice(format, args...) }
+func (noticeLogger) Infof(format string, args ...any) { notice(false, format, args...) }
+
+func (noticeLogger) Warnf(format string, args ...any) { notice(true, format, args...) }
 
 func (noticeLogger) Debugf(string, ...any) {}
