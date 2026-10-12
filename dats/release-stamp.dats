@@ -7,7 +7,9 @@ sandbox:
 
 tests:
 	- desc: the stamp names the release of the project the publish uploads to, and the binary still runs
-	  cmd: node .github/scripts/release-stamp.test.ts
+	  cmd: |
+		node --version
+		node .github/scripts/release-stamp.test.ts 2>&1
 	  outputs:
 		stdout:
 			- "release-stamp: all checks passed"

@@ -142,7 +142,11 @@ assert.equal(decode(Buffer.from("plain")), null);
 {
 	const srv = await fakeServer(() => ({ status: 201, body: { version: "2" } }));
 	const dir = buildDir({});
-	fs.copyFileSync("/bin/true", path.join(dir, "webhooks_linux_amd64"));
+	// the host's own true: an ELF on linux, a signed Mach-O on darwin
+	const trueBin = ["/usr/bin/true", "/bin/true"].find((p) => fs.existsSync(p));
+	assert.ok(trueBin, "no true binary at /usr/bin/true or /bin/true");
+	fs.copyFileSync(trueBin, path.join(dir, "webhooks_linux_amd64"));
+	fs.chmodSync(path.join(dir, "webhooks_linux_amd64"), 0o755);
 	const r = await run(dir, srv.url);
 	srv.close();
 	assert.equal(r.code, 0, r.stderr);
