@@ -224,7 +224,7 @@ func writeReleaseOutput(v string) error {
 // ignores the variables, and its binary would otherwise ship unstamped.
 func verifyReleaseStamp(r runner.CommandRunner, job buildJob, path string) error {
 	rel := os.Getenv(gosmoReleaseEnv)
-	if rel == "" {
+	if rel == "" || isPackageArchive(path) {
 		return nil
 	}
 	rev := os.Getenv(gosmoReleaseRevisionEnv)
@@ -249,6 +249,23 @@ func verifyReleaseStamp(r runner.CommandRunner, job buildJob, path string) error
 	}
 	return nil
 }
+
+// isPackageArchive reports whether path is the archive a library-only module's
+// compile check writes. An archive has no build info to stamp.
+func isPackageArchive(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	magic := make([]byte, len(packageArchiveMagic))
+	if _, err := io.ReadFull(f, magic); err != nil {
+		return false
+	}
+	return string(magic) == packageArchiveMagic
+}
+
+const packageArchiveMagic = "!<arch>\n"
 
 // buildInfoSettings reads the build settings from `go version -m` output, whose setting lines are "\tbuild\tkey=value".
 func buildInfoSettings(out string) map[string]string {
