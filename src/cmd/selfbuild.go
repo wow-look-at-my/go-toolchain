@@ -47,6 +47,10 @@ func buildSelf(r runner.CommandRunner, job buildJob, onFirstOutput func()) error
 	if err := os.Chmod(build.TempOutputPath(job.outputPath), 0o755); err != nil {
 		return err
 	}
+	if err := verifyReleaseStamp(r, job, build.TempOutputPath(job.outputPath)); err != nil {
+		build.DiscardOutput(job.outputPath)
+		return err
+	}
 	return build.CommitOutput(job.outputPath)
 }
 
