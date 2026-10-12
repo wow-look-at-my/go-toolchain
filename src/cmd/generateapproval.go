@@ -28,7 +28,7 @@ func parseGenerateMarker(line *modfile.Line) string {
 }
 
 // setGenerateMarker replaces any generate approval on a line with hash, joined
-// to an existing comment the same way x/mod's setIndirect joins "// indirect".
+// to an existing comment the same way x/mod joins "// indirect".
 // A further Suffix comment would render on its own line below, which corrupts
 // the block.
 func setGenerateMarker(line *modfile.Line, hash string) {

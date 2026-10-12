@@ -197,7 +197,6 @@ func applyMath32Fix(filename string, fix *math32FileFix) (bool, error) {
 		})
 	}
 
-	// Fix math32.wrongCase → correct package and case
 	if len(fix.caseFixes) > 0 {
 		ast.Inspect(f, func(n ast.Node) bool {
 			sel, ok := n.(*ast.SelectorExpr)

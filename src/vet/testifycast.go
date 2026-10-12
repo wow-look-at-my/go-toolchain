@@ -310,8 +310,9 @@ func fileQualifier(self *types.Package, file *ast.File) types.Qualifier {
 	}
 }
 
-// isForkNumeric reports whether a basic type is numeric in the sense. The fork's isNumericType used (reflect kinds Int..Complex128), excluding complex. The fork's numeric comparison path (toFloat64) does not handle complex, and constant
-// casts into complex are out of scope.
+// isForkNumeric reports whether a basic type is an integer or a float. The
+// testify fork's numeric comparison does not handle complex, so complex is
+// excluded.
 func isForkNumeric(b *types.Basic) bool {
 	switch b.Kind() {
 	case types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
