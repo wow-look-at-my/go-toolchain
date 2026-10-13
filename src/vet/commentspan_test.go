@@ -16,9 +16,8 @@ import (
 )
 
 // fixtureComment returns a comment with exactly n non-blank lines and total
-// non-whitespace chars, for exact boundary tests. Every line needs at least its
-// "//" marker, so chars must cover a marker per line. The prose holds sentences
-// where it has room, because one short sentence escapes the char measure.
+// non-whitespace chars, for exact boundary tests. Every line needs at least
+// its "//" marker, so chars must cover a marker per line.
 func fixtureComment(t *testing.T, lines, chars int) string {
 	t.Helper()
 	require.GreaterOrEqual(t, chars, 2*lines, "need at least // per line")

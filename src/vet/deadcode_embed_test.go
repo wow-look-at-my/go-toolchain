@@ -10,9 +10,9 @@ import (
 )
 
 // A method that a type gets through an embedded field is in that type's
-// method set. When the type satisfies an interface that names the method,
-// a call through the interface uses the method, although the base type alone
-// does not implement the interface.
+// method set. When the type satisfies an interface that names the method, a
+// call through the interface uses the method. This happens although the base
+// type alone does not implement the interface.
 func TestDeadCodeKeepsAMethodPromotedIntoAnInterfaceImplementation(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()

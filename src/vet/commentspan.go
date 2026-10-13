@@ -16,9 +16,9 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// CommentSpanAnalyzer reports a comment bigger than the code it documents,
-// by lines or by chars past commentSpanCharFloor. A directive line, and the
-// package doc, are never measured. A single short sentence is never measured by chars.
+// CommentSpanAnalyzer reports a comment bigger than the code it documents, by
+// lines or by chars past commentSpanCharFloor. A directive line, and the
+// package doc, are never measured.
 var CommentSpanAnalyzer = &analysis.Analyzer{
 	Name:       "commentspan",
 	Doc:        "reports a comment longer than the code it documents",
@@ -141,7 +141,7 @@ func commentSpanText(g *ast.CommentGroup) (string, bool) {
 	return sb.String(), kept
 }
 
-// commentSpanOneSentence mirrors slopfix's oneSentence: one sentence of at most
+// commentSpanOneSentence mirrors slopfix's one-sentence rule: one sentence of at most
 // the STE word cap, and no banner line, is never too long by characters.
 func commentSpanOneSentence(text string) bool {
 	var words []string
