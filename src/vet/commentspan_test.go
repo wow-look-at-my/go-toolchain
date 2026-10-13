@@ -17,7 +17,8 @@ import (
 
 // fixtureComment returns a comment with exactly n non-blank lines and total
 // non-whitespace chars, for exact boundary tests. Every line needs at least
-// its "//" marker, so chars must cover a marker per line.
+// its "//" marker, so chars must cover a marker per line. The prose holds two
+// sentences where it has room, because one short sentence escapes the char measure.
 func fixtureComment(t *testing.T, lines, chars int) string {
 	t.Helper()
 	require.GreaterOrEqual(t, chars, 2*lines, "need at least // per line")
@@ -25,8 +26,19 @@ func fixtureComment(t *testing.T, lines, chars int) string {
 	for i := range rows {
 		rows[i] = "//"
 	}
-	rows[lines-1] += strings.Repeat("x", chars-2*lines)
+	rows[lines-1] += twoSentences(chars - 2*lines)
 	return strings.Join(rows, "\n")
+}
+
+// twoSentences returns prose of two sentences with exactly chars
+// non-whitespace characters, or a run of x when chars is too small for two.
+func twoSentences(chars int) string {
+	const head = "One. Two"
+	_, headChars := commentSpanMeasure(head)
+	if chars < headChars {
+		return strings.Repeat("x", chars)
+	}
+	return head + strings.Repeat("x", chars-headChars)
 }
 
 // runCommentSpanOn writes src to a real file (checkCommentSpanFile reads the
@@ -147,7 +159,7 @@ func TestCommentSpanExemptsDirectivesAndPackageDoc(t *testing.T) {
 // them, not to something. So big the check never fires.
 func TestCommentSpanAttachesToTheRightNode(t *testing.T) {
 	t.Serial()
-	filler := strings.Repeat("x", 130)
+	filler := twoSentences(130)
 	cases := []struct {
 		name string
 		src  string
@@ -207,4 +219,26 @@ func TestCommentSpanWarnsOncePerSite(t *testing.T) {
 	_, err = runCommentSpan(pass)
 	require.NoError(t, err)
 	require.EqualValues(t, 2, logger.TotalWarnCount())
+}
+
+// One sentence under the STE word cap is never too long by chars, as slopfix
+// judges it. The comment is the foundation-shell lexer's EscapeMarker doc.
+func TestCommentSpanExemptsOneShortSentenceFromTheCharMeasure(t *testing.T) {
+	t.Serial()
+	src := "package p\n\n" +
+		"// EscapeMarker is a special character used to mark escaped $ and ` characters that must not be treated as expansion/substitution syntax by later stages.\n" +
+		"const EscapeMarker = '\\x01'\n"
+	assert.Empty(t, runCommentSpanOn(t, src))
+}
+
+// Two sentences over the char limit still warn: the exemption covers one sentence only.
+func TestCommentSpanWarnsOnTwoSentencesPastTheCharLimit(t *testing.T) {
+	t.Serial()
+	src := "package p\n\n" +
+		"// EscapeMarker marks an escaped dollar sign or backtick in the lexer output. Later stages must not read it as expansion or substitution syntax.\n" +
+		"const EscapeMarker = '\\x01'\n"
+	warnings := runCommentSpanOn(t, src)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0].Message, "comment chars > 120 code chars")
+	assert.NotContains(t, warnings[0].Message, "comment lines >")
 }
