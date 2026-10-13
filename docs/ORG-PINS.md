@@ -45,7 +45,7 @@ A name is resolved the same way the branch this repository is on is. A dependenc
 
 ## A submodule pin only moves forward (`src/cmd/submoduleforward.go`)
 
-Every gitlink on HEAD must equal the gitlink at the same path on the default branch of `origin`, or descend from it. A pin that is older, or on a side line, fails the run and names the path. The check reads the default branch with `git ls-remote`. It fetches the commit graph into a scratch bare repository, so the checkout and its submodules stay as they were. A scratch fetch carries the `http.*.extraheader` that `actions/checkout` writes, so a private submodule resolves in CI. It applies to every submodule, not only org ones.
+Every gitlink on HEAD must equal the gitlink at the same path on the default branch of `origin`, or descend from it. A pin that is older, or on a side line, fails the run and names the path. The check reads the default branch with `git ls-remote`. It fetches the commit graph into a scratch bare repository, so the checkout and its submodules stay as they were. A scratch fetch carries the `http.*.extraheader` that `actions/checkout` writes, so a private submodule resolves in CI. It applies to every submodule, not only org ones. Every git read trusts the tree whatever user owns it, because a CI container checks the tree out as another user. A git failure other than "not a git repository" fails the run.
 
 ## One head per CI run: the buildhost run lock
 
