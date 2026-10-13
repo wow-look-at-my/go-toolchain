@@ -173,6 +173,23 @@ func TestCreateRunReleaseCreatesTheReleaseInTheBinarysPublishProject(t *testing.
 	assert.Equal(t, "webhooks/webhook-runner", fake.project)
 }
 
+// buildhost answers 404 for a project name with a capital letter, so a
+// repository named in mixed case creates its release in the lowercase project.
+func TestCreateRunReleaseLowercasesAMixedCaseRepository(t *testing.T) {
+	t.Serial()
+	fake := &fakeBuildhost{release: "12"}
+	srv := httptest.NewServer(fake.handler(t))
+	defer srv.Close()
+	ciEnv(t, srv.URL)
+	t.Setenv("GITHUB_REPOSITORY", "wow-look-at-my/VictoriaLogs-compat-layer")
+
+	got, err := createRunRelease("victorialogs-compat-layer")
+	require.NoError(t, err)
+	assert.Equal(t, "12", got)
+	assert.Equal(t, "victorialogs-compat-layer", fake.project)
+	assert.Equal(t, "12", fake.locks["buildhost-release:victorialogs-compat-layer"])
+}
+
 // Jobs of one run that publish to different projects each get that
 // project's own number. A shared number collides with a release the other
 // project already published.
@@ -207,6 +224,9 @@ func TestPublishProjectMatchesTheBuildhostPublishRule(t *testing.T) {
 		{"slopfix", "", "slopfix"},
 		{"buildhost", "buildhost-agent", "buildhost/agent"},
 		{"webhooks", "webhook-runner", "webhooks/webhook-runner"},
+		{"VictoriaLogs-compat-layer", "victorialogs-compat-layer", "victorialogs-compat-layer"},
+		{"VictoriaLogs-compat-layer", "victorialogs-compat-layer-agent", "victorialogs-compat-layer/agent"},
+		{"VictoriaLogs-compat-layer", "", "victorialogs-compat-layer"},
 	} {
 		assert.Equal(t, c.want, publishProject(c.repo, c.binary), "%s + %s", c.repo, c.binary)
 	}

@@ -283,11 +283,21 @@ runs:
       with:
         permission: artifact-metadata
 
+    # buildhost accepts only a lowercase project name. The build creates its release under the same name (publishProject).
+    - name: Name the buildhost project
+      id: project
+      if: steps.publishable.outputs.publish == 'true'
+      uses: wow-look-at-my/actions@typescript#latest
+      with:
+        script: |
+          core.setOutput("name", context.repo.repo.toLowerCase());
+
     # The release the build stamped its number into, else an explicit version from autorelease_args. see docs/RELEASE-STAMP.md
     - name: Auto-release to buildhost
       if: steps.publishable.outputs.publish == 'true'
       uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
       with:
+        project: ${{ steps.project.outputs.name }}
         path: ${{ inputs.working-directory }}/build
         version: ${{ steps.build.outputs.release_version || steps.autorelease_args.outputs.version }}
         create_service: ${{ steps.autorelease_args.outputs.create_service }}

@@ -63,7 +63,10 @@ func lookupRelease(binary string) (string, error) {
 // publishProject is the buildhost project the publish uploads binary to.
 // A release made in another project counts its numbers apart, and the
 // publish then finds the number already published in its own project.
+// buildhost accepts only a lowercase project name, so the repository name
+// is lowercased. The action passes the same name to the publish.
 func publishProject(repo, binary string) string {
+	repo = strings.ToLower(repo)
 	switch {
 	case binary == "" || binary == repo:
 		return repo
