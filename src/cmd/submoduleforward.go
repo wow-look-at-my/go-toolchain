@@ -14,6 +14,12 @@ import (
 // A submodule pin only moves forward. A gitlink on HEAD must be the pin on the
 // default branch of origin, or a commit that descends from it.
 
+// trustedGit runs git with every directory trusted. A CI container checks the
+// tree out as another user, and a bare git refuses that tree.
+func trustedGit(r runner.CommandRunner, args ...string) ([]byte, error) {
+	return gitOutput(r, "git", append([]string{"-c", "safe.directory=*"}, args...)...)
+}
+
 var submodulesForwardOnce struct {
 	sync.Once
 	err error
@@ -31,13 +37,16 @@ func checkSubmodulesForward(r runner.CommandRunner, root string) error {
 // checkSubmodulesForwardIn fails when a gitlink on HEAD does not descend from
 // the gitlink at the same path on the default branch of origin.
 func checkSubmodulesForwardIn(r runner.CommandRunner, root string) error {
-	out, err := gitOutput(r, "git", "-C", root, "rev-parse", "--show-toplevel")
+	out, err := trustedGit(r, "-C", root, "rev-parse", "--show-toplevel")
 	if err != nil {
+		if !strings.Contains(err.Error(), "not a git repository") {
+			return fmt.Errorf("submodule pins: find the repository of %s: %w", root, err)
+		}
 		logger.Output("⇒ submodule pins: %s is not in a git repository, so there are no pins", root)
 		return nil
 	}
 	top := strings.TrimSpace(string(out))
-	if _, err := gitOutput(r, "git", "-C", top, "rev-parse", "--verify", "--quiet", "HEAD"); err != nil {
+	if _, err := trustedGit(r, "-C", top, "rev-parse", "--verify", "--quiet", "HEAD"); err != nil {
 		logger.Output("⇒ submodule pins: HEAD has no commit yet, so there are no pins")
 		return nil
 	}
@@ -48,13 +57,13 @@ func checkSubmodulesForwardIn(r runner.CommandRunner, root string) error {
 	if len(head) == 0 {
 		return nil
 	}
-	originURL, err := gitOutput(r, "git", "-C", top, "remote", "get-url", "origin")
+	originURL, err := trustedGit(r, "-C", top, "remote", "get-url", "origin")
 	if err != nil {
 		logger.Output("⇒ submodule pins: no origin remote, so no default branch to compare with")
 		return nil
 	}
 	origin := strings.TrimSpace(string(originURL))
-	lsOut, err := gitOutput(r, "git", "-C", top, "ls-remote", "--symref", "origin", "HEAD")
+	lsOut, err := trustedGit(r, "-C", top, "ls-remote", "--symref", "origin", "HEAD")
 	if err != nil {
 		return fmt.Errorf("submodule pins: read the default branch of %s: %w", origin, err)
 	}
@@ -95,7 +104,7 @@ func checkSubmodulesForwardIn(r runner.CommandRunner, root string) error {
 
 // gitlinks maps each submodule path in the tree of commit to its pinned commit.
 func gitlinks(r runner.CommandRunner, dir, commit string) (map[string]string, error) {
-	out, err := gitOutput(r, "git", "-C", dir, "ls-tree", "-r", "-z", commit)
+	out, err := trustedGit(r, "-C", dir, "ls-tree", "-r", "-z", commit)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +124,7 @@ func gitlinks(r runner.CommandRunner, dir, commit string) (map[string]string, er
 // baseGitlinks reads the gitlinks of commit from top when top holds it, and
 // from a scratch fetch of origin otherwise. The scratch fetch leaves top as it was.
 func baseGitlinks(r runner.CommandRunner, top, origin, commit string, auth []string) (map[string]string, error) {
-	if _, err := gitOutput(r, "git", "-C", top, "cat-file", "-e", commit+"^{commit}"); err == nil {
+	if _, err := trustedGit(r, "-C", top, "cat-file", "-e", commit+"^{commit}"); err == nil {
 		return gitlinks(r, top, commit)
 	}
 	scratch, err := scratchRepo(r, origin, "blob:none")
@@ -123,7 +132,7 @@ func baseGitlinks(r runner.CommandRunner, top, origin, commit string, auth []str
 		return nil, err
 	}
 	defer os.RemoveAll(scratch)
-	if _, err := gitOutput(r, "git", append(auth, "-C", scratch, "fetch", "--quiet", "--no-tags", "--depth=1", "origin", commit)...); err != nil {
+	if _, err := trustedGit(r, append(auth, "-C", scratch, "fetch", "--quiet", "--no-tags", "--depth=1", "origin", commit)...); err != nil {
 		return nil, err
 	}
 	return gitlinks(r, scratch, commit)
@@ -136,13 +145,13 @@ func requireDescendant(r runner.CommandRunner, url, base, commit string, auth []
 		return err
 	}
 	defer os.RemoveAll(scratch)
-	if _, err := gitOutput(r, "git", append(auth, "-C", scratch, "fetch", "--quiet", "--no-tags", "origin", base, commit)...); err != nil {
+	if _, err := trustedGit(r, append(auth, "-C", scratch, "fetch", "--quiet", "--no-tags", "origin", base, commit)...); err != nil {
 		return fmt.Errorf("fetch %s and %s from %s: %w", base, commit, url, err)
 	}
-	if _, err := gitOutput(r, "git", "-C", scratch, "merge-base", "--is-ancestor", base, commit); err == nil {
+	if _, err := trustedGit(r, "-C", scratch, "merge-base", "--is-ancestor", base, commit); err == nil {
 		return nil
 	}
-	if _, err := gitOutput(r, "git", "-C", scratch, "merge-base", "--is-ancestor", commit, base); err == nil {
+	if _, err := trustedGit(r, "-C", scratch, "merge-base", "--is-ancestor", commit, base); err == nil {
 		return fmt.Errorf("%s is older than %s, the pin on the default branch", commit, base)
 	}
 	return fmt.Errorf("%s does not descend from %s, the pin on the default branch", commit, base)
@@ -164,7 +173,7 @@ func scratchRepo(r runner.CommandRunner, url, filter string) (string, error) {
 		{"config", "remote.origin.partialclonefilter", filter},
 	}
 	for _, args := range steps {
-		if _, err := gitOutput(r, "git", append([]string{"-C", dir}, args...)...); err != nil {
+		if _, err := trustedGit(r, append([]string{"-C", dir}, args...)...); err != nil {
 			os.RemoveAll(dir)
 			return "", err
 		}
@@ -175,7 +184,7 @@ func scratchRepo(r runner.CommandRunner, url, filter string) (string, error) {
 // gitAuthArgs carries the http.*.extraheader entries of top to a scratch fetch.
 // actions/checkout writes its token there, in the local config of the checkout.
 func gitAuthArgs(r runner.CommandRunner, top string) ([]string, error) {
-	out, err := gitOutput(r, "git", "-C", top, "config", "--local", "--get-regexp", `^http\..*\.extraheader$`)
+	out, err := trustedGit(r, "-C", top, "config", "--local", "--get-regexp", `^http\..*\.extraheader$`)
 	if err != nil {
 		return nil, nil
 	}
@@ -192,7 +201,7 @@ func gitAuthArgs(r runner.CommandRunner, top string) ([]string, error) {
 // submoduleURL is the url .gitmodules gives the submodule at p. A relative url
 // is resolved against origin, as git does.
 func submoduleURL(r runner.CommandRunner, top, p, origin string) (string, error) {
-	out, err := gitOutput(r, "git", "-C", top, "config", "-f", ".gitmodules", "--get-regexp", `^submodule\..*\.path$`)
+	out, err := trustedGit(r, "-C", top, "config", "-f", ".gitmodules", "--get-regexp", `^submodule\..*\.path$`)
 	if err != nil {
 		return "", fmt.Errorf("submodule pins: %s has no entry in .gitmodules: %w", p, err)
 	}
@@ -202,7 +211,7 @@ func submoduleURL(r runner.CommandRunner, top, p, origin string) (string, error)
 			continue
 		}
 		name := strings.TrimSuffix(strings.TrimPrefix(key, "submodule."), ".path")
-		url, err := gitOutput(r, "git", "-C", top, "config", "-f", ".gitmodules", "--get", "submodule."+name+".url")
+		url, err := trustedGit(r, "-C", top, "config", "-f", ".gitmodules", "--get", "submodule."+name+".url")
 		if err != nil {
 			return "", fmt.Errorf("submodule pins: %s has no url in .gitmodules: %w", p, err)
 		}
