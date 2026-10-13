@@ -81,7 +81,7 @@ func TestUsableReleaseRejectsWhatABuildSettingCannotCarry(t *testing.T) {
 // fakeBuildhost serves the OIDC token, the run lock and the create-release route.
 type fakeBuildhost struct {
 	mu       sync.Mutex
-	lock     string
+	locks    map[string]string
 	creates  int
 	release  string
 	project  string
@@ -96,17 +96,20 @@ func (f *fakeBuildhost) handler(t *testing.T) http.Handler {
 	mux.HandleFunc("/api/v1/run-locks", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
+		if f.locks == nil {
+			f.locks = map[string]string{}
+		}
 		if r.Method == http.MethodGet {
-			assert.Equal(t, releaseRunLock, r.URL.Query().Get("name"))
-			json.NewEncoder(w).Encode(runLockBody{Found: f.lock != "", Value: f.lock})
+			v := f.locks[r.URL.Query().Get("name")]
+			json.NewEncoder(w).Encode(runLockBody{Found: v != "", Value: v})
 			return
 		}
 		var body runLockBody
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
-		if f.lock == "" {
-			f.lock = body.Value
+		if f.locks[body.Name] == "" {
+			f.locks[body.Name] = body.Value
 		}
-		json.NewEncoder(w).Encode(runLockBody{Found: true, Value: f.lock})
+		json.NewEncoder(w).Encode(runLockBody{Found: true, Value: f.locks[body.Name]})
 	})
 	mux.HandleFunc("/api/v1/projects/", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
@@ -145,7 +148,7 @@ func TestCreateRunReleaseCreatesTheReleaseAndLocksItForTheRun(t *testing.T) {
 	assert.Equal(t, "231", got)
 	assert.Equal(t, "slopfix", fake.project)
 	assert.Equal(t, "Bearer oidc-token", fake.gotToken)
-	assert.Equal(t, "231", fake.lock)
+	assert.Equal(t, "231", fake.locks["buildhost-release:slopfix"])
 
 	// A second job of the same run reads the lock and creates nothing.
 	got, err = createRunRelease("slopfix")
@@ -168,6 +171,33 @@ func TestCreateRunReleaseCreatesTheReleaseInTheBinarysPublishProject(t *testing.
 	require.NoError(t, err)
 	assert.Equal(t, "7", got)
 	assert.Equal(t, "webhooks/webhook-runner", fake.project)
+}
+
+// Jobs of one run that publish to different projects each get that
+// project's own number. A shared number collides with a release the other
+// project already published.
+func TestCreateRunReleaseLocksEachProjectApart(t *testing.T) {
+	t.Serial()
+	fake := &fakeBuildhost{release: "350"}
+	srv := httptest.NewServer(fake.handler(t))
+	defer srv.Close()
+	ciEnv(t, srv.URL)
+	t.Setenv("GITHUB_REPOSITORY", "wow-look-at-my/webhooks")
+
+	got, err := createRunRelease("webhook-runner")
+	require.NoError(t, err)
+	assert.Equal(t, "350", got)
+
+	fake.release = "662"
+	got, err = createRunRelease("comment-guard")
+	require.NoError(t, err)
+	assert.Equal(t, "662", got)
+	assert.Equal(t, "webhooks/comment-guard", fake.project)
+	assert.Equal(t, 2, fake.creates)
+	assert.Equal(t, map[string]string{
+		"buildhost-release:webhooks/webhook-runner": "350",
+		"buildhost-release:webhooks/comment-guard":  "662",
+	}, fake.locks)
 }
 
 func TestPublishProjectMatchesTheBuildhostPublishRule(t *testing.T) {
@@ -195,7 +225,7 @@ func TestEveryAPEJobNamesItsBinaryForTheRelease(t *testing.T) {
 
 func TestCreateRunReleaseTakesTheNumberAnotherJobLocked(t *testing.T) {
 	t.Serial()
-	fake := &fakeBuildhost{lock: "230", release: "999"}
+	fake := &fakeBuildhost{locks: map[string]string{"buildhost-release:slopfix": "230"}, release: "999"}
 	srv := httptest.NewServer(fake.handler(t))
 	defer srv.Close()
 	ciEnv(t, srv.URL)
