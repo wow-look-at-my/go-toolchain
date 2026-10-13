@@ -100,7 +100,7 @@ func TestParseCosmoPlatforms(t *testing.T) {
 }
 
 // "all" publishes the platforms the APE is PROVEN to run on, never the extra
-// ones the fork can also emit — the published set is a promise.
+// ones the fork can also emit. The published set is a promise.
 func TestApeCoverageForAll(t *testing.T) {
 	t.Serial()
 	assert.Equal(t, []buildPlatform{

@@ -26,7 +26,7 @@ const selfBuildPasses = 3
 // fixedPointSelf is the binary this run proved reproduces itself, or empty.
 var fixedPointSelf string
 
-// buildSelf builds this pipeline's own binary: the fork checkout is the
+// buildSelf builds this pipeline's own binary. The fork checkout is the
 // GOROOT, the standard library it compiles is embedded in the result, and
 // the build repeats until a binary reproduces itself.
 func buildSelf(r runner.CommandRunner, job buildJob, onFirstOutput func()) error {
@@ -46,6 +46,10 @@ func buildSelf(r runner.CommandRunner, job buildJob, onFirstOutput func()) error
 		return err
 	}
 	if err := os.Chmod(build.TempOutputPath(job.outputPath), 0o755); err != nil {
+		return err
+	}
+	if err := verifyReleaseStamp(r, job, build.TempOutputPath(job.outputPath)); err != nil {
+		build.DiscardOutput(job.outputPath)
 		return err
 	}
 	return build.CommitOutput(job.outputPath)
@@ -75,7 +79,7 @@ func buildSelfPasses(r runner.CommandRunner, job buildJob, work string, onFirstO
 	return "", fmt.Errorf("the self-hosted build reached no fixed point in %d passes", selfBuildPasses)
 }
 
-// passGoCommand answers the go command of a pass output: a link named go
+// passGoCommand answers the go command of a pass output. A link named go
 // beside it, since the binary is the go command only under that name.
 func passGoCommand(out string) ([]string, error) {
 	dir := filepath.Join(filepath.Dir(out), "bin")

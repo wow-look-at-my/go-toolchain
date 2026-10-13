@@ -16,10 +16,10 @@ import (
 )
 
 // Go has no build step for a dependency, so a package whose data a generate
-// step writes ships without it: the module carries the directive and the
-// tracked half, and the generated half is absent. The package compiles and
-// panics naming the step. Nothing else in the toolchain runs it, which leaves
-// the consumer with a dependency it can build and cannot call.
+// step writes ships without it. The module carries the directive and the
+// tracked half. The generated half is absent. The package compiles and panics
+// naming the step. Nothing else in the toolchain runs it, which leaves the
+// consumer with a dependency it can build and cannot call.
 
 // depGenerateDirectives returns the directives of every dependency package
 // this module builds against, read from the module cache.
@@ -72,10 +72,10 @@ func depGenerateDirectives() ([]generateDirective, error) {
 
 // readDirs answers where the go command reads each package of the given
 // dependency modules from, keyed by the package's cached directory, for the
-// packages it reads from somewhere else. The go command generates a
+// packages it. Reads from somewhere else. The go command generates a
 // dependency package that carries directives into a copy beside the cached
-// module, and listing every package of a module is what makes it generate
-// them all, from the shared build cache when another build already has.
+// module. Listing every package of a module is what makes it generate them
+// all, from the shared build cache when another build already has.
 func readDirs(cache string, mods []depModule) map[string]string {
 	if len(mods) == 0 {
 		return nil
@@ -281,7 +281,7 @@ func generatedOutput(command string) string {
 }
 
 // owesOutput reports that a directive names a file it writes and that the file
-// is neither beside the directive nor in the copy the go command reads the
+// is neither beside the directive nor in the copy the go. Command reads the
 // package from.
 func owesOutput(d generateDirective) bool {
 	out := generatedOutput(d.Command)

@@ -113,11 +113,11 @@ func listTestPackages(root string) []string {
 // RunTests executes go test with coverage under EVERY build-tag configuration
 // the module needs, and returns the merged results.
 //
-// Running only the default configuration meant a test behind `//go:build
-// sometag` never compiled and never ran, so it could not fail -- a bypass by
-// omission. The tag sets come from buildtags.Scan, and verifyTagCoverage then
-// PROVES every gated file was compiled by some configuration; an unreachable file
-// fails the run rather than being skipped.
+// Running only the default configuration meant a test behind `//go:build sometag`
+// never compiled and never ran, so it could not fail -- a bypass by omission. The
+// tag sets come from buildtags.Scan, and verifyTagCoverage then PROVES every
+// gated file was compiled by some configuration. An unreachable file fails the
+// run rather than being skipped.
 //
 // coverFile is the path where the coverage profile will be written.
 // onOutput is an optional callback called before any visible test output
@@ -195,7 +195,7 @@ func mergeTestResults(acc, next *TestResult) *TestResult {
 
 // verifyTagCoverage asks the go tool which files each configuration builds,
 // and fails when a build-tagged file was compiled by none of them. This is
-// the guarantee that a tag cannot hide a test: the check is on the real file
+// the guarantee that a tag cannot hide a test. The check is on the real file
 // set the toolchain saw, not on the enumeration that produced the tag sets.
 func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 	if len(d.Gated) == 0 {

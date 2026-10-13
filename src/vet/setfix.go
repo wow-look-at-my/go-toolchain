@@ -49,7 +49,7 @@ func setFixable(pass *analysis.Pass, obj types.Object) bool {
 
 // passHoldsWholePackage reports whether pass.Files covers every file in the
 // package's directory that can name an unexported package-level identifier.
-// Tests load as their own variant: the plain variant lacks the in-package test
+// Tests load as their own variant. The plain variant lacks the in-package test
 // files and must not rewrite, the internal-test variant holds them and may. An
 // external test file reaches only exported names, so it never counts. Any other
 // absent file -- excluded by this build configuration -- hides a use, and the

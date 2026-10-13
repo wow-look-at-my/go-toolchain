@@ -8,7 +8,7 @@ import (
 )
 
 // TestIsJSONDocument pins the classifier the whole check rests on: what counts
-// as a JSON document, and what is ordinary text that happens to hold a brace.
+// as a JSON document, and what is ordinary text that happens. To hold a brace.
 func TestIsJSONDocument(t *testing.T) {
 	t.Serial()
 	for _, c := range []struct {

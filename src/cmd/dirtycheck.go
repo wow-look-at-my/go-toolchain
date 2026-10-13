@@ -102,7 +102,7 @@ func dirtyDiffIn(dir, files string) string {
 }
 
 // noContentChangeReport covers the case where the paths are untracked or
-// already committed, and the case where status and diff disagree, which is a
+// already committed, and the case where status and diff disagree. This is a
 // stat cache the refresh could not settle. Naming both beats a shrug.
 func noContentChangeReport(dir string) string {
 	refresh := refreshGitIndex(dir)

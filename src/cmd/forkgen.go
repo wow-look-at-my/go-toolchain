@@ -33,7 +33,7 @@ var distFiles = []distFile{
 
 // generateForkFiles writes the generated sources a checkout of the fork
 // needs before its standard library and toolchain compile, leaving a file
-// that already holds the same bytes alone.
+// that already holds. The same bytes alone.
 func generateForkFiles(goroot string) error {
 	for _, file := range distFiles {
 		body, err := file.body(goroot)

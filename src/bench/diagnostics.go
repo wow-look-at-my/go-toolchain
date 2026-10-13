@@ -24,11 +24,10 @@ type diagnosticEvent struct {
 // errors, the FAIL lines, and whatever a failing benchmark printed.
 //
 // It exists because the stream is filtered on the way to the console — only
-// benchmark result lines are shown — so a run that never produced a result
+// benchmark result lines are shown — so a run that never produced. A result
 // showed the user nothing at all. A build that cannot link (a full disk is the
-// case that found this) then reported as a bare "benchmarks failed" exit
-// with no benchmarks and no reason, which is a failure with the evidence
-// removed.
+// case that found this) then reported as a bare "benchmarks failed" exit with
+// no benchmarks and no reason, which is a failure. With the evidence removed.
 //
 // Build errors arrive as `build-output` events and everything else as `output`
 // events, so both are read. The lines a passing run would print anyway are

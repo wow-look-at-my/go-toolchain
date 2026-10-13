@@ -16,7 +16,7 @@ import (
 // destination files with a temp file so we can inspect timestamped output.
 // It swaps the orig* package-level fields before/after Install.
 //
-// Every test here calls t.Serial: this swaps os.Stdout, os.Stderr and the
+// Every test here calls t.Serial. This swaps os.Stdout, os.Stderr and the
 // install state, and the fork runs tests in parallel unless told otherwise.
 func captureInstalled(t *testing.T, fn func()) string {
 	t.Helper()

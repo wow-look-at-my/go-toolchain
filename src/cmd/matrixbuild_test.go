@@ -104,7 +104,7 @@ func TestRunBuildStartsTheGoCommandOfTheJob(t *testing.T) {
 // The APE claims to run on every host, and that claim is honest only if every
 // host builds the same bytes. What differs between runners is where the source
 // is checked out and which fork build compiled it. Both reach the output
-// through the build-ID notes, and each flag closes its own channel, so a build
+// through the build-ID notes. Each flag closes its own channel, so a build
 // missing either still leaves the hosts disagreeing.
 func TestRunBuildIsReproducibleAcrossHosts(t *testing.T) {
 	t.Serial()
@@ -188,7 +188,7 @@ func TestRunBuild(t *testing.T) {
 	assert.True(t, hasOutput)
 }
 
-// CGO_ENABLED is assigned, never inherited: --cgo turns it on for the APE,
+// CGO_ENABLED is assigned, never inherited. Cgo turns it on for the APE,
 // whose C the fork compiles with cosmocc, and wasm has no cgo either way.
 func TestRunBuildAssignsCGOEnabled(t *testing.T) {
 	t.Serial()
@@ -290,7 +290,7 @@ func TestCreateHostSymlinksReplacesStale(t *testing.T) {
 }
 
 // TestRunBuildMovesOutputIntoPlace pins the write-then-move contract from
-// outside runBuild: the -o arg carries the .tmp- spelling, the result ends up
+// outside runBuild. The -o arg carries the .tmp- spelling, the result ends up
 // on the target file, and the temp name is gone.
 func TestRunBuildMovesOutputIntoPlace(t *testing.T) {
 	t.Serial()
@@ -339,7 +339,7 @@ func TestRunBuildDeletesTempOutputOnFailure(t *testing.T) {
 }
 
 // TestRunBuildRefusesToCommitMissingOutput: go build reporting success without
-// producing its -o target is not shippable — the run fails loudly instead of
+// producing its -o target is not shippable. The run fails loudly instead of
 // reporting a build whose output nobody can find.
 func TestRunBuildRefusesToCommitMissingOutput(t *testing.T) {
 	t.Serial()

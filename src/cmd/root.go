@@ -289,9 +289,9 @@ func findGoModules() []string {
 		found = append(found, ".")
 	}
 
-	// Then every nested module. A root go.mod does NOT end the search: a
+	// Then every nested module. A root go.mod does NOT end the search. A
 	// repo that keeps a tool, an example or another service in its own
-	// module still has to build and test it, and returning the root alone
+	// module still has to build and test it. Returning the root alone
 	// reported a whole module green without compiling a line of it.
 	filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -345,6 +345,9 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 	if err := checkOrgPins(moduleRoot()); err != nil {
 		return err
 	}
+	if err := checkSubmodulesForward(r, moduleRoot()); err != nil {
+		return err
+	}
 
 	// Check for dep updates before tests so we don't run the full
 	// test suite again when a dependency is outdated.
@@ -356,8 +359,8 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 	}
 
 	// Vet and the tests read the inputs, and the inputs are what they answer
-	// about. An unchanged tree that lost its outputs has to build again, and
-	// asking that question again only re-runs a suite whose answer is on file.
+	// about. An unchanged tree that lost its outputs has to build again.
+	// Asking that question again only re-runs a suite whose answer is on file.
 	// It is also the path that reaches the build with no coverage to report.
 	if treeUnchanged && !isRetry {
 		waitForCommentScan() // This path reaches no vet, so the sweep lands here.
@@ -462,7 +465,11 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, []datsArti
 		if buildStep != nil {
 			onFirstOutput = buildStep.noteOutput
 		}
-		if err := runBuild(r, forkEnv.apeJob(t.ImportPath, outPath), onFirstOutput); err != nil {
+		job, err := forkEnv.apeJob(t.ImportPath, outPath)
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := runBuild(r, job, onFirstOutput); err != nil {
 			return nil, nil, fmt.Errorf("go build failed: %w", err)
 		}
 		if buildStep != nil {

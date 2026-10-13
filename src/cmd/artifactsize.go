@@ -15,7 +15,7 @@ var (
 )
 
 // recordArtifactSize measures a built artifact for the run summary, and logs
-// it: an APE carries its whole standard library, so its size is worth a line.
+// it. An APE carries its whole standard library, so its size is worth a line.
 func recordArtifactSize(path string) {
 	info, err := os.Stat(path)
 	if err != nil {

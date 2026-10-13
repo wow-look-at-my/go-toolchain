@@ -10,7 +10,7 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// SliceSetAnalyzer reports a slice the package asks membership of: a literal
+// SliceSetAnalyzer reports a slice the package asks membership of. A literal
 // inside slices.Contains, an insert-if-absent append, or a slice whose every
 // use is a set operation. Org modules FAIL; others WARN. docs/VET.md
 var SliceSetAnalyzer = &analysis.Analyzer{

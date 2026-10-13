@@ -92,7 +92,7 @@ func checkJSONFormat(pass *analysis.Pass, call *ast.CallExpr, report func(token.
 }
 
 // checkJSONConcat reports a JSON document joined from pieces. The text checked
-// is every literal piece of the whole concatenation, so a fragment that is
+// is every literal piece of the whole concatenation. A fragment that is
 // meaningless alone is read as part of the document it belongs to.
 func checkJSONConcat(pass *analysis.Pass, expr *ast.BinaryExpr, inner set.Set[*ast.BinaryExpr], report func(token.Pos, string, ...any)) {
 	if expr.Op != token.ADD || inner.Contains(expr) {

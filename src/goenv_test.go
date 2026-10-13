@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/cmd"
 )
 
@@ -35,10 +36,10 @@ func TestConfigureGoEnvIgnoresGOProxyConfig(t *testing.T) {
 	t.Setenv("GONOSUMDB", "")
 	t.Setenv("GONOSUMCHECK", "")
 
-	configureGoEnv()
+	require.NoError(t, configureGoEnv())
 
 	assert.Equal(t, "direct", os.Getenv("GOPROXY"))
-	assert.Empty(t, os.Getenv("GOSUMDB"))
+	assert.Equal(t, "off", os.Getenv("GOSUMDB"))
 	assert.Equal(t, "*", os.Getenv("GONOSUMDB"))
 	assert.NoFileExists(t, home+"/.netrc")
 }
@@ -51,7 +52,7 @@ func TestConfigureGoEnv_Default(t *testing.T) {
 	t.Setenv("GONOSUMDB", "")
 	t.Setenv("GONOSUMCHECK", "")
 
-	configureGoEnv()
+	require.NoError(t, configureGoEnv())
 
 	assert.Equal(t, "direct", os.Getenv("GOPROXY"))
 	assert.Equal(t, "*", os.Getenv("GONOSUMDB"))
@@ -66,7 +67,7 @@ func TestConfigureGoEnv_ExplicitProxy(t *testing.T) {
 	t.Setenv("GONOSUMDB", "")
 	t.Setenv("GONOSUMCHECK", "")
 
-	configureGoEnv()
+	require.NoError(t, configureGoEnv())
 
 	assert.Equal(t, "https://proxy.example.com,direct", os.Getenv("GOPROXY"))
 	// No GOSUMDB → disabled.
@@ -77,12 +78,12 @@ func TestConfigureGoEnv_ExplicitProxyAndSumDB(t *testing.T) {
 	t.Serial()
 	t.Setenv("GO_PROXY_CONFIG", "")
 	t.Setenv("GOPROXY", "https://proxy.example.com,direct")
-	// A private checksum database: configureGoEnv refuses the public database outright (see TestUsesPublicSumDB).
+	// A private checksum database: configureGoEnv refuses one under golang.org (see TestConfigureGoEnvRefusesGolangOrg).
 	t.Setenv("GOSUMDB", "mydb+abc123 https://proxy.example.com/sumdb/mydb")
 	t.Setenv("GONOSUMDB", "leftover")
 	t.Setenv("GONOSUMCHECK", "leftover")
 
-	configureGoEnv()
+	require.NoError(t, configureGoEnv())
 
 	// A trailing ",direct" is kept, so a fails rather than resolving from git.
 	assert.Equal(t, "https://proxy.example.com,direct", os.Getenv("GOPROXY"))
@@ -99,7 +100,7 @@ func TestConfigureGoEnv_DirectPassthrough(t *testing.T) {
 	t.Setenv("GONOSUMDB", "")
 	t.Setenv("GONOSUMCHECK", "")
 
-	configureGoEnv()
+	require.NoError(t, configureGoEnv())
 
 	assert.Equal(t, "direct", os.Getenv("GOPROXY"))
 }
@@ -112,41 +113,111 @@ func TestConfigureGoEnv_OffPassthrough(t *testing.T) {
 	t.Setenv("GONOSUMDB", "")
 	t.Setenv("GONOSUMCHECK", "")
 
-	configureGoEnv()
+	require.NoError(t, configureGoEnv())
 
 	assert.Equal(t, "direct", os.Getenv("GOPROXY"))
 }
 
-// The public checksum database is never an option: it cannot hold a private
-// module, so it can only ever fail on such a module, and asking it about a
-// module announces that module's path to an outside party.
-func TestUsesPublicSumDB(t *testing.T) {
+// A GOPROXY, GOSUMDB or GOVULNDB that names golang.org, or a host under it, is
+// refused in any form, and the error names the setting.
+func TestConfigureGoEnvRefusesGolangOrg(t *testing.T) {
 	t.Serial()
-	// Refused: Go would contact sum.golang.org itself.
-	assert.True(t, usesPublicSumDB("sum.golang.org"))
-	assert.True(t, usesPublicSumDB("sum.golang.org+033de0ae+AkeyHere"))
-	assert.True(t, usesPublicSumDB("sum.golang.org+033de0ae https://sum.golang.org"))
-	// Refused even under another name, if the URL points back at the public host.
-	assert.True(t, usesPublicSumDB("mydb+abc https://sum.golang.org/sumdb/mydb"))
-
-	// Allowed: the org proxy's mirror, since the request goes to the proxy and discloses nothing to an outside party.
-	assert.False(t, usesPublicSumDB("sum.golang.org+033de0ae https://goproxy.example.com/sumdb/sum.golang.org"))
-	assert.False(t, usesPublicSumDB("mydb+abc123 https://goproxy.example.com/sumdb/mydb"))
-	assert.False(t, usesPublicSumDB("mydb+abc123"))
-	assert.False(t, usesPublicSumDB(""))
-	assert.False(t, usesPublicSumDB("off"))
+	cases := map[string][]string{
+		"GOPROXY":  {"https://proxy.golang.org", "https://proxy.golang.org,direct", "direct|https://proxy.golang.org", "https://golang.org/mod"},
+		"GOSUMDB":  {"sum.golang.org", "sum.golang.org+033de0ae+AkeyHere", "sum.golang.org+033de0ae https://goproxy.example.com/sumdb/sum.golang.org", "mydb+abc https://sum.golang.org/sumdb/mydb"},
+		"GOVULNDB": {"https://vuln.golang.org"},
+	}
+	for name, values := range cases {
+		for _, value := range values {
+			t.Setenv("GO_PROXY_CONFIG", "")
+			t.Setenv("GOPROXY", "")
+			t.Setenv("GOSUMDB", "")
+			t.Setenv("GOVULNDB", "")
+			t.Setenv(name, value)
+			err := configureGoEnv()
+			require.Error(t, err, "%s=%s", name, value)
+			assert.Contains(t, err.Error(), name)
+			assert.Contains(t, err.Error(), "golang.org")
+		}
+	}
 }
 
-func TestSumDBURLHost(t *testing.T) {
+// GOTOOLCHAIN is local and telemetry is off whatever the caller set, so the
+// go command downloads no toolchain and uploads nothing.
+func TestConfigureGoEnvPinsToolchainAndTelemetry(t *testing.T) {
 	t.Serial()
-	assert.Equal(t, "sum.golang.org", sumDBURLHost("https://sum.golang.org/sumdb/x"))
-	assert.Equal(t, "sum.golang.org", sumDBURLHost("sum.golang.org"))
-	assert.Equal(t, "proxy.example.com", sumDBURLHost("http://proxy.example.com:8080/sumdb/x"))
+	t.Setenv("GO_PROXY_CONFIG", "")
+	t.Setenv("GOPROXY", "")
+	t.Setenv("GOSUMDB", "")
+	t.Setenv("GOTOOLCHAIN", "auto")
+	t.Setenv("GOTELEMETRY", "on")
+
+	require.NoError(t, configureGoEnv())
+
+	assert.Equal(t, "local", os.Getenv("GOTOOLCHAIN"))
+	assert.Equal(t, "off", os.Getenv("GOTELEMETRY"))
 }
 
-// With nothing configured the default already disables sumdb phone-home, and
-// it must keep doing so via GONOSUMDB rather than GOSUMDB=off (which would
-// also break toolchain auto-downloads).
+// A build names its own run so every go command it starts shares one org-head
+// resolution. The name is the fork's owner/repo/run-id/attempt shape.
+func TestConfigureGoEnvNamesALocalRun(t *testing.T) {
+	t.Serial()
+	t.Setenv("GO_PROXY_CONFIG", "")
+	t.Setenv("GOPROXY", "")
+	t.Setenv("GOSUMDB", "")
+	t.Setenv("GONOSUMDB", "")
+	t.Setenv("GONOSUMCHECK", "")
+	t.Setenv(runEnv, "")
+	t.Setenv("GITHUB_RUN_ID", "")
+	t.Setenv("GITHUB_RUN_ATTEMPT", "")
+
+	require.NoError(t, configureGoEnv())
+
+	parts := strings.Split(os.Getenv(runEnv), "/")
+	assert.Len(t, parts, 4)
+	assert.NotContains(t, parts, "")
+	assert.Equal(t, "1", parts[3])
+}
+
+// A run the caller already named is the one every go command must share.
+func TestConfigureGoEnvKeepsANamedRun(t *testing.T) {
+	t.Serial()
+	t.Setenv("GO_PROXY_CONFIG", "")
+	t.Setenv("GOPROXY", "")
+	t.Setenv("GOSUMDB", "")
+	t.Setenv("GONOSUMDB", "")
+	t.Setenv("GONOSUMCHECK", "")
+	t.Setenv(runEnv, "wow-look-at-my/consumer/4242/1")
+
+	require.NoError(t, configureGoEnv())
+
+	assert.Equal(t, "wow-look-at-my/consumer/4242/1", os.Getenv(runEnv))
+}
+
+// A CI run takes its identity from the GitHub variables, which name the run of
+// every job. Naming a local run would replace none of that.
+func TestConfigureGoEnvLeavesTheCIRunAlone(t *testing.T) {
+	t.Serial()
+	t.Setenv("GO_PROXY_CONFIG", "")
+	t.Setenv("GOPROXY", "")
+	t.Setenv("GOSUMDB", "")
+	t.Setenv("GONOSUMDB", "")
+	t.Setenv("GONOSUMCHECK", "")
+	t.Setenv(runEnv, "")
+	t.Setenv("GITHUB_RUN_ID", "7")
+	t.Setenv("GITHUB_RUN_ATTEMPT", "2")
+
+	require.NoError(t, configureGoEnv())
+
+	assert.Empty(t, os.Getenv(runEnv))
+}
+
+// A new invocation is a new run, so the heads resolve again.
+func TestLocalRunNameIsUniquePerInvocation(t *testing.T) {
+	assert.NotEqual(t, localRunName(), localRunName())
+}
+
+// With nothing configured, the checksum database is off.
 func TestConfigureGoEnvDefaultDisablesSumDB(t *testing.T) {
 	t.Serial()
 	for _, k := range proxyEnvVars {
@@ -156,11 +227,11 @@ func TestConfigureGoEnvDefaultDisablesSumDB(t *testing.T) {
 	t.Setenv("GO_PROXY_CONFIG", "")
 	os.Unsetenv("GO_PROXY_CONFIG")
 
-	configureGoEnv()
+	require.NoError(t, configureGoEnv())
 
 	assert.Equal(t, "*", os.Getenv("GONOSUMDB"))
 	assert.Equal(t, "*", os.Getenv("GONOSUMCHECK"))
-	assert.Empty(t, os.Getenv("GOSUMDB"), "never set to the public database")
+	assert.Equal(t, "off", os.Getenv("GOSUMDB"))
 }
 
 // A checksum database holds public modules only, so a lookup of an org module
@@ -174,7 +245,7 @@ func TestConfigureGoEnvExemptsOrgModulesFromSumDB(t *testing.T) {
 	t.Setenv("GONOSUMDB", "")
 	t.Setenv("GONOSUMCHECK", "")
 
-	configureGoEnv()
+	require.NoError(t, configureGoEnv())
 
 	for _, prefix := range cmd.OrgModulePrefixes {
 		assert.Contains(t, os.Getenv("GONOSUMDB"), strings.TrimSuffix(prefix, "/")+"/*")

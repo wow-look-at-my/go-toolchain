@@ -17,7 +17,7 @@ var unignoreCmd = &cobra.Command{
 }
 
 // unignorePreRun confirms interactively, then chains to the root PersistentPreRunE via unignoreCmd's OWN
-// parent, not cmd.Parent(): cobra passes cmd as the subcommand, whose parent is unignoreCmd, so
+// parent, not cmd.Parent(). Cobra passes cmd as the subcommand, whose parent is unignoreCmd, so
 // cmd.Parent() recursed forever.
 func unignorePreRun(cmd *cobra.Command, args []string) error {
 	if parent := unignoreCmd.Parent(); parent != nil && parent.PersistentPreRunE != nil {

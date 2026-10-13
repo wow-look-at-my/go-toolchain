@@ -58,7 +58,7 @@ func TestDetectionGuessed(t *testing.T) {
 	}
 }
 
-// The rendering is what CI greps, so its shape is a contract: the host, the
+// The rendering is what CI greps. Its shape is a contract: the host, the
 // method, and a loud marker when the answer is a fallback rather than a
 // measurement.
 func TestDetectionString(t *testing.T) {

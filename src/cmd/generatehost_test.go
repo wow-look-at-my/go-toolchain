@@ -21,8 +21,8 @@ func writeTargetProbe(t *testing.T, dir string) string {
 	return testFile
 }
 
-// A directive builds a tool and then runs it on this machine, so the tool is
-// an APE for this machine's architecture, whatever target the pipeline
+// A directive builds a tool and then runs it on this machine. The tool is an
+// APE for this machine's architecture, whatever target the pipeline
 // inherited.
 func TestExecuteDirectiveBuildsAnAPE(t *testing.T) {
 	// Not parallel: the inherited target is what this test replaces.

@@ -122,7 +122,7 @@ func setHome(t *testing.T, dir string) {
 }
 
 // stubVetPhase keeps a pipeline test off the real vet pass: vet spawns a go
-// list per call, and this package runs the pipeline dozens of times.
+// list per call. This package runs the pipeline dozens of times.
 func stubVetPhase(t *testing.T) {
 	t.Helper()
 	old := vetRunFunc

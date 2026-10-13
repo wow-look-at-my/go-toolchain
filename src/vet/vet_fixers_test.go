@@ -229,11 +229,11 @@ func TestCheckFileCommittedGoGit_Dirty(t *testing.T) {
 	assert.Contains(t, err.Error(), "uncommitted changes")
 }
 
-// Pins support for repos whose index was written under feature.manyFiles, which on a recent git implies
-// index.skipHash and writes an empty index trailer hash that go-git v5 cannot read ("invalid checksum";
-// unreleased upstream fix https://github.com/go-git/go-git/pull/2181). This exercises checkFileCommittedByName's go-git-fails -> git-CLI
-// fallback path, which is load-bearing here. index.skipHash is set explicitly too, so the trigger holds
-// regardless of git version; on an older git the index stays normal and go-git succeeds directly.
+// Pins support for repos whose index was written under feature.manyFiles, which on a recent git implies index.skipHash and writes. An
+// empty index trailer hash that go-git v5 cannot read ("invalid checksum", unreleased upstream fix
+// https://github.com/go-git/go-git/pull/2181). This exercises checkFileCommittedByName's go-git-fails -> git-CLI fallback path, which is
+// load-bearing here. index.skipHash is set explicitly too. The trigger holds regardless of git version. On an older git the index stays
+// normal and go-git succeeds directly.
 func TestCheckFileCommittedByName_ManyFilesIndex(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()
@@ -255,11 +255,10 @@ func TestCheckFileCommittedByName_ManyFilesIndex(t *testing.T) {
 }
 
 // A linked worktree is where the org keeps a branch, at <repo>/.claude/worktrees/<branch>.
-// go-git v5 calls a committed file there dirty where git calls the tree clean, so the
-// verdict is confirmed against the CLI and a committed file passes.
-// worktreeWithAddedFile builds <repo>/.claude/worktrees/branch and commits a
-// file that exists only on the branch, which is the case that failed. It
-// answers that file's path.
+// go-git v5 calls a committed file there dirty where git calls the tree clean. The verdict
+// is confirmed against the CLI and a committed file passes. worktreeWithAddedFile builds
+// <repo>/.claude/worktrees/branch and commits a file that exists only on the branch, which
+// is the case that failed. It answers that file's path.
 func worktreeWithAddedFile(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

@@ -212,7 +212,7 @@ func funcSource(t *testing.T, src, name string) string {
 
 // TestAssertLintRewriteCompiles runs the fixer over the shapes that broke the
 // build and requires the result to type-check, compare what the if compared,
-// and leave alone every if it cannot rewrite without changing the test.
+// and leave. Alone every if it cannot rewrite without changing the test.
 func TestAssertLintRewriteCompiles(t *testing.T) {
 	t.Serial()
 	stub, err := filepath.Abs(filepath.Join("testdata", "src", "testifystub"))

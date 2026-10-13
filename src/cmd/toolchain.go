@@ -25,8 +25,8 @@ var goLinkDir string
 // selfExecutableFunc is os.Executable, as a seam.
 var selfExecutableFunc = os.Executable
 
-// EnsureGoVersion makes this executable the go command of the run: it goes
-// earliest on PATH under the name go, GOROOT names the standard library it
+// EnsureGoVersion makes this executable the go command of the run. It goes
+// earliest on PATH under the name go. GOROOT names the standard library it
 // builds against, and GOTOOLCHAIN is local so the go command fetches nothing.
 // Inside this module the fork checkout is the GOROOT and is put at its
 // branch's head earliest.
@@ -74,8 +74,8 @@ func EnsureGoVersion() error {
 }
 
 // linkGoToSelf answers the directory holding go, a link to exe. The directory
-// is named after exe, so every run of a single executable puts the same PATH
-// in front of the programs it starts: a test that resolves a program records
+// is named after exe. Every run of a single executable puts the same PATH in
+// front of the programs it starts: a test that resolves a program records
 // PATH as an input, and a name that changed per run kept every such test from
 // replaying. A link left by an earlier run of the same file is reused; a
 // single pointing elsewhere is replaced in a single rename. NT runs no

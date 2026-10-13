@@ -16,11 +16,11 @@ import (
 )
 
 // A hand-rolled chdir in a test leaves the whole package standing in a removed
-// directory whenever its restore is skipped or its os.Getwd error is dropped,
-// and every later os.Getwd in that process then fails. The casualty is some
-// other test, so the report never names the file that caused it. t.Chdir
-// restores the directory itself and fails the test that cannot chdir, so it is
-// the only spelling this suite allows.
+// directory. This happens whenever its restore is skipped or its os.Getwd
+// error is dropped, and every later os.Getwd in that process then fails. The
+// casualty is some other test, so the report never names the file that caused
+// it. t.Chdir restores the directory itself and fails the test that cannot
+// chdir, so it is the only spelling this suite allows.
 func TestNoTestCallsOsChdir(t *testing.T) {
 	t.Serial()
 

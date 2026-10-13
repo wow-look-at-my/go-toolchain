@@ -25,8 +25,9 @@ func TestJSONInterpAnalyzer(t *testing.T) {
 }
 
 // TestJSONInterpSeverityFollowsTheModule verifies the split the set checks
-// carry: the remedy is the standard library either way, but only an org module
-// is bound by this repo's conventions, so only there does a finding fail.
+// carry: the remedy is the standard library either way. However, only an org
+// module is bound by this repo's conventions, so only there does a finding
+// fail.
 func TestJSONInterpSeverityFollowsTheModule(t *testing.T) {
 	t.Serial()
 	const src = `package main
@@ -73,7 +74,7 @@ func main() { _ = body("x", "y") }
 }
 
 // TestJSONInterpLeavesOtherTextAlone pins the shapes that must stay silent.
-// Each shape either carries no value or is not a JSON document, and a check
+// Each shape either carries no value or is not a JSON document. A check
 // that cries wolf on ordinary formatting is a check nobody reads.
 func TestJSONInterpLeavesOtherTextAlone(t *testing.T) {
 	t.Serial()
@@ -121,9 +122,9 @@ func TestJSONInterpReadsTemplates(t *testing.T) {
 }
 
 // runJSONInterpOnSource type-checks src and returns what the analyzer reports.
-// The imports stay unresolved: supplying them means building export data
-// up front, and the analyzer reads the package off the selector when the type
-// checker could not resolve it.
+// The imports stay unresolved: supplying them means building export data up
+// front. The analyzer reads the package off the selector when the type checker
+// could not resolve it.
 func runJSONInterpOnSource(t *testing.T, src string, module *analysis.Module) []analysis.Diagnostic {
 	t.Helper()
 	t.Serial() // See runCommentSpanOn.

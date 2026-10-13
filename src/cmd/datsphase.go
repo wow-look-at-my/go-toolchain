@@ -152,8 +152,8 @@ var datsSandboxProbe = func() error {
 
 // datsSandbox picks the isolation the suites run under: auto wherever a
 // backend can exist, the host where none can. Refusing on an NT host would
-// take the suites away from the host they exist to cover, so the phase says
-// what it lost and runs them. A missing bwrap on linux is fixable, carries no
+// take the suites away from the host they exist to cover. The phase says what
+// it lost and runs them. A missing bwrap on linux is fixable, carries no
 // marker, and stays fatal.
 func datsSandbox() dats.Sandbox {
 	err := datsSandboxProbe()
@@ -166,11 +166,10 @@ func datsSandbox() dats.Sandbox {
 }
 
 // runDatsPhase runs the module's dats suites (if any) against the binaries
-// built, in this process: go-toolchain links the dats library, so the
+// built, in this process. Go-toolchain links the dats library, so the
 // suite-presence gate is the only thing standing between a module and its
-// suites — no download, no cache, no dats version to drift from the
-// linked-in copy. Modules without a dats/ directory pay nothing and print
-// nothing.
+// suites. No download, no cache, no dats version to drift from the linked-in
+// copy. Modules without a dats/ directory pay nothing and print nothing.
 //
 // dats itself always runs every discovered test — there is deliberately no
 // filtering, selection, or skip mechanism at either layer. Failures fail the

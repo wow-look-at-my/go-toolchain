@@ -3,12 +3,12 @@
 //
 // # Why
 //
-// Install() swaps os.Stdout and os.Stderr for pipe write-ends and starts
-// goroutines that read each complete line and forward it to the real stream
-// with an elapsed-time suffix — but only for a line slow enough to reach
-// minDurationToShow. A faster line prints unchanged, so the suffix marks the
-// handful of lines worth timing instead of stamping an instant duration onto
-// every line.
+// Install() swaps os.Stdout and os.Stderr for pipe write-ends. Install()
+// starts goroutines that read each complete line. Forward it to the real
+// stream with an elapsed-time suffix — but only for a line slow enough to
+// reach minDurationToShow. A faster line prints unchanged, so the suffix
+// marks the handful of lines worth timing instead of stamping an instant
+// duration onto every line.
 package logx
 
 import (

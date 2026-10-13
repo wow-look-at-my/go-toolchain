@@ -27,7 +27,7 @@ func TestVerifyTagCoverageDoesNotFailOnAnEmptyListing(t *testing.T) {
 }
 
 // The check still fails when the listing DID answer and the file is genuinely
-// out of reach -- otherwise the leniency above would have removed the guard.
+// out of reach. Otherwise the leniency above would have removed the guard.
 func TestVerifyTagCoverageStillFailsWhenTheListingAnswersWithoutTheFile(t *testing.T) {
 	t.Serial()
 	d := &buildtags.Discovery{

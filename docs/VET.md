@@ -6,7 +6,7 @@ Extracted verbatim from CLAUDE.md (1.85x over its 40,000-character budget).
 
   A `checkEditor` (CI) records them as violations and never writes. No fixer branches on the CI flag itself — each computes the canonical bytes for a file and hands them to the editor via. `ed.Err()` surfaces the accumulated violations (combined with vet diagnostics), each carrying a unified diff (`src/vet/diff.go`, `github.com/pmezard/go-difflib`) from the file's current content to the canonical. That is what makes it legible to an agent with no code-execution capability.
 
-  `ed.Writes()` gates write-only preconditions like the uncommitted-changes guard, and `ed.Wrote(path)` exempts a file this run itself rewrote. So fixers landing in one file (the testify rewrite and the set rewrite both reach `_test.go`) no longer strands the tree half-fixed. This keeps CI from passing green on a tree the local autofixer will have changed (e.g. a lingering fork import).
+  `ed.Writes()` gates write-only preconditions like the uncommitted-changes guard, and `ed.Wrote(path)` exempts a file this run itself rewrote. So fixers landing in one file (the testify rewrite and the set rewrite both reach `_test.go`) no longer strands the tree half-fixed. This keeps CI from passing green on a tree the local autofixer will changed (e.g. a lingering fork import).
 
   Any new in-place fixer MUST route its writes through the `Editor` (never a bare `os.WriteFile`), or CI will silently stop enforcing it. **Canonical emission (`src/vet/format.go`)**: gofmt's doc-comment formatter (`go/doc/comment`, since Go 1.19) rewrites a doubled apostrophe into U+201D. A doubled backtick into U+201C inside top-level doc comments. `RunGofmt` reverts this via `revertDocCommentSmartQuotes`. That restores the ASCII digraph for every U+201C/U+201D that lands **inside a comment**, located by parsing the gofmt-valid source.
 
@@ -14,7 +14,7 @@ Extracted verbatim from CLAUDE.md (1.85x over its 40,000-character budget).
 
   The plain surgical-byte-edit path never reprints) routes its bytes. Any new rewriter that prints a modified AST MUST emit through `canonicalizeGoSource`, or it will tab-align its output and corrupt comment quotes. The uncommitted-changes guard's go-git backend lives in `gogit.go` (`!cosmo`. Go-git's go-billy/osfs needs x/sys/unix, which has no cosmo port). `gogit_cosmo.go` stubs it, so `checkFileCommittedByName` always takes the git-CLI fallback under cosmo.
 
-  That same fallback is also what supports `feature.manyFiles`/`index.skipHash` repos, whose zero-hash index trailer (git >= 2.40) go-git v5 rejects with "invalid checksum" (regression-tested in vet_semantic_test.go, which also runs its test-repo git commands hermetically so host config cannot leak in).
+
 
 ## Which packages a vet run loads
 
@@ -23,7 +23,7 @@ Extracted verbatim from CLAUDE.md (1.85x over its 40,000-character budget).
 - **A nested module is not this module's code.** `Scan` stops at any directory holding its own `go.mod`. A pattern naming one fails to load outright ("main module does not contain package ..."), and its tags belong to its own pipeline.
 - **`cosmo` names a build target.** It is the gosmopolitan fork's GOOS. So it is absent from the `go tool dist list` values `knownOS` was built from. Under `-tags cosmo` on a normal host every `_linux.go` filename constraint still holds, so each cosmo variant collides with its linux sibling (`socketPeerPID redeclared`). The `GOOS=cosmo` matrix job checks those files.
 
-`packages.Config.Tests` then loads each package up to ways. Plain, the same code recompiled with its internal `_test.go` files, the external `_test` package, and the generated test main. The plain variant holds none of the test files, so **`deadcode` is answered by the richest variant of each package path** (`richestVariants`, `src/vet/loadvariants.go`). Reading the plain one instead made every unexported helper that only a test calls a violation, and reported a genuinely dead one once per variant.
+`packages.Config.Tests` then loads each package up to ways. Plain, the same code recompiled with its internal `_test.go` files, the external `_test` package, and the generated test main. The plain variant holds none of the test files, so **the richest variant of each package path answers `deadcode`** (`richestVariants`, `src/vet/loadvariants.go`). Reading the plain one instead made every unexported helper that only a test calls a violation, and reported a genuinely dead one once per variant.
 
 The loader runs under the fork's default target, cosmo, the target every artifact and test binary builds for. Without `--cgo`, `CGO_ENABLED=0` is set in the pipeline's environment. A file importing `"C"` then drops out of its package, and every symbol it declares reads as `undefined` at each use. Under `--cgo` the loader runs the cgo tool with the cosmocc compiler on PATH. The package is vetted as it builds.
 
@@ -32,12 +32,12 @@ The loader runs under the fork's default target, cosmo, the target every artifac
 
 ## mapset: a map[K]bool written where a set is meant
 
-`src/vet/mapset.go` reports the map that picks the wrong default and offers [`github.com/wow-look-at-my/go-containers/set`](https://github.com/wow-look-at-my/go-containers/tree/master/set) in its place. Shapes FAIL the build:
+`src/vet/mapset.go` reports the map that picks the incorrect default and offers [`github.com/wow-look-at-my/go-containers/set`](https://github.com/wow-look-at-my/go-containers/tree/master/set) in its place. Shapes FAIL the build:
 
 - a `map[K]bool` composite literal whose every value is the constant `true`.
 - a `map[K]bool` variable made empty -- `make(map[K]bool)`, `map[K]bool{}`, or a bare `var` -- that the package writes.
 
-A `map[K]struct{}` gets a WARNING instead, not a diagnostic. That map already carries no value, so which of the two to write is the author's call. The warning names `set.Set` once per site and counts against the warnings budget. Every package variant walks the same file. As a result, the sites are deduplicated by `file:line` for the length of one vet run (`resetMapSetWarnings`).
+A `map[K]struct{}` gets a WARNING instead, not a diagnostic. That map already carries no value, so which of the two to write is the author's call. The warning names `set.Set` once per site and counts against the warnings budget. Every package variant walks the same file. As a result, `file:line` for the length of one vet run deduplicates the sites (`resetMapSetWarnings`).
 
 The `set` package itself is exempt from that warning, under its own path and its `_test` variant (`isSetPackage`). `Set[T]` IS the `map[T]struct{}` the warning points at, and its storage sites will spend half the warnings budget telling the remedy to use itself.
 
@@ -104,7 +104,7 @@ The type argument is written out. `set.Of(1, 2)` off a `[]float64` literal will 
 
 The rewrite is only safe when this pass sees every use (`setFixable`). A local variable is used where it is declared. So it is always fixable. An exported package-level variable never is, because another package can reach it.
 
-An unexported package-level variable is fixed by whichever pass holds every file that can name it (`passHoldsWholePackage`). Tests load as their own package variant, so the plain variant lacks the in-package `_test.go` files and declines. An external test file (`package <name>_test`) reaches only exported names and never counts. A file this build configuration excludes does, and blocks the rewrite, since its uses are invisible here.
+Whichever pass holds every file that can name it fixes an unexported package-level variable (`passHoldsWholePackage`). Tests load as their own package variant, so the plain variant lacks the in-package `_test.go` files and declines. An external test file (`package <name>_test`) reaches only exported names and never counts. A file this build configuration excludes does, and blocks the rewrite, since its uses are invisible here.
 
 The `set` import is added only to the files whose rewrite actually spells `set.New`/`set.Of`/`set.Set` (`fixesNameSetPackage`). A file that only gained `m.Contains(k)` never names the package. And an unused import does not compile.
 
@@ -138,7 +138,7 @@ The finding ends when the document becomes one piece of text.
 - With values in it, that is a `text/template`. `src/summary/gantt.go` renders the whole chart from one template.
 - With no values in it, one string constant IS the document, and a single write of it ends the run. `src/hostos/detection.go` holds its banner that way. Note a raw string cannot hold text that quotes shell or markdown with backticks. That is why both templates here are interpreted strings joined by `+`.
 
-A refactor of this kind must not move a byte of the output. The chart is pinned by an equality test -- `TestRenderGanttRendersTheWholeDocument` -- because the `Contains` assertions that surrounded it pass on a message whose blank lines.
+A refactor of this kind must not move a byte of the output. An equality test pins the chart -- `TestRenderGanttRendersTheWholeDocument` -- because the `Contains` assertions that surrounded it pass on a message whose blank lines.
 
 ### What counts as a write
 
@@ -152,7 +152,7 @@ A writer that digests its input never counts, whatever it is handed (`isHashWrit
 
 The check runs on every module go-toolchain builds. `text/template` is in the standard library. So unlike `mapset`'s remedy it costs a consumer no dependency. And the severity is the same in every module: a warning.
 
-There is no opt-out marker. Every package variant walks the same file. As a result, the sites are deduplicated by `file:line` for the length of one vet run (`resetWriteRunWarnings`).
+There is no opt-out marker. Every package variant walks the same file. As a result, `file:line` for the length of one vet run deduplicates the sites (`resetWriteRunWarnings`).
 
 ## jsoninterp: a JSON document built out of string pieces
 
@@ -180,7 +180,7 @@ No. There is no `json/template`, and neither template package has a JSON context
 
 - **`text/template` escapes nothing at all.** It has no notion of an output language, and no reference to `encoding/json` anywhere in the package. Every action writes its value verbatim. A JSON template is therefore the concatenation case with extra steps.
 - **`html/template` escapes for HTML**, and its typed strings are the whole set of languages it knows: `HTML`, `HTMLAttr`, `CSS`, `JS`, `JSStr`, `URL` and `Srcset` (`content.go`). There is no `JSON` among them, and none for XML either.
-- The place the standard library JSON-escapes for a template is `jsValEscaper` (`html/template/js.go`), which marshals the value with `json.Marshal`. It is reachable only from `stateJS` (`escape.go`) -- that is, a value inside a `<script>` element of an HTML document. Handed a bare JSON document, `html/template` escapes it as HTML instead. That is a different and equally wrong answer: a `<` in your data becomes `&lt;`.
+- The place the standard library JSON-escapes for a template is `jsValEscaper` (`html/template/js.go`), which marshals the value with `json.Marshal`. It is reachable only from `stateJS` (`escape.go`) -- that is, a value inside a `<script>` element of an HTML document. Handed a bare JSON document, `html/template` escapes it as HTML instead. That is a different and equally incorrect answer: a `<` in your data becomes `&lt;`.
 
 So a template whose text is JSON is reported like the other shapes. This is the one place `writeruns` and `jsoninterp` point in opposite directions: `writeruns` names `text/template` as the remedy for a document written one line.
 
@@ -190,7 +190,7 @@ A finding needs a value entering the text AND text that is JSON.
 
 The value is a format verb (`fmt.Sprintf`, `Fprintf`, `Errorf`, `Printf`, `Appendf`), an operand of a `+` concatenation that is not a string literal, or a template action. A doubled `%%` interpolates nothing, and an expression the type checker folded to a constant carries no runtime value. Neither is reported.
 
-The text is judged by `isJSONDocument` (`src/vet/jsonshape.go`), on the whole document rather than one piece of it. The literal parts of a concatenation are joined first. So `` `{"sha":"` + sha + `"}` `` is read as `{"sha":""}` and a fragment that means nothing alone is still read in place. Things must hold.
+`isJSONDocument` judges the text (`src/vet/jsonshape.go`), on the whole document rather than one piece of it. The literal parts of a concatenation are joined first. So `` `{"sha":"` + sha + `"}` `` is read as `{"sha":""}` and a fragment that means nothing alone is still read in place. Things must hold.
 
 1. **Outside its quoted strings the text spells only JSON syntax** -- the punctuation, a number, `true`/`false`/`null`, whitespace, and the holes the values fill. This is what keeps prose out: `expected {"ok":true}, got %s` has the word `expected` outside every string. So it is a message about JSON rather than JSON.
 2. **It shows one of shapes**: a quoted key (a closed string a colon follows), an array holding a string or an object, or an object holding a string.
@@ -203,7 +203,7 @@ A document that is one string constant is never reported: it holds no value. So 
 
 Only `fmt` is read. A logging call that formats JSON-looking text writes a log line. A log line is not a document anybody parses.
 
-The remedy is the standard library. So it costs a consumer no dependency. The severity is still the split the set checks carry: an org module FAILS (`isOrgModule`), and everywhere else WARNS. There is no opt-out marker. Every package variant walks the same file, so warned sites are deduplicated by `file:line` for one vet run (`resetJSONInterpWarnings`).
+The remedy is the standard library. So it costs a consumer no dependency. The severity is still the split the set checks carry: an org module FAILS (`isOrgModule`), and everywhere else WARNS. There is no opt-out marker. Every package variant walks the same file, so `file:line` for one vet run deduplicates warned sites (`resetJSONInterpWarnings`).
 
 ## commentnumbers: moved out of vet
 

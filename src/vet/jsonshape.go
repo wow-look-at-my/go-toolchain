@@ -6,9 +6,9 @@ import "strings"
 const jsonHole = '\x00'
 
 // isJSONDocument reports whether text is JSON with values dropped into it: the
-// text outside its quoted strings spells only JSON syntax, and it shows a
-// quoted key, an array holding a string or an object, or an object holding a
-// string. Depth: docs/VET.md
+// text outside its quoted strings spells only JSON syntax. It shows a quoted
+// key, an array holding a string or an object, or an object holding a string.
+// Depth: docs/VET.md
 func isJSONDocument(text string) bool {
 	outside, key := scanJSONStrings(text)
 	if !onlyJSONSyntax(outside) {

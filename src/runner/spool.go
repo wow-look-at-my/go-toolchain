@@ -45,7 +45,7 @@ func (s *spool) fill(r io.Reader) {
 	}
 }
 
-// Read hands out what the child has produced so far, waiting for more when
+// Read hands out what the child has produced. Do this so far, waiting for more when
 // the reader has caught up, and reports the end a single time the child's stream ends.
 func (s *spool) Read(p []byte) (int, error) {
 	s.mu.Lock()

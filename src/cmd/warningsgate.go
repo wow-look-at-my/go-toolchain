@@ -43,11 +43,11 @@ func checkWarningsGate() error {
 }
 
 // warningsRecap renders the gate failure with every retained warning listed in
-// emission order. distinct is the true distinct count and what the gate
-// fails on; total is every emission, reported when the counts differ so a folded
-// repeat is visible rather than hidden. warnings is what was retained (capped
-// at logger.MaxRecordedWarnings), so any difference is reported explicitly
-// rather than silently truncated.
+// emission order. distinct is the true distinct count and what the gate fails
+// on. Total is every emission, reported when the counts differ so a folded
+// repeat is visible rather than hidden. warnings is what was retained (capped at
+// logger.MaxRecordedWarnings), so any difference is reported explicitly rather
+// than silently truncated.
 func warningsRecap(distinct, total int64, warnings []logger.Warning) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "build failed: %d distinct warnings emitted (threshold: %d)", distinct, maxWarnings)

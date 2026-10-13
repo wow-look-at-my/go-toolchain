@@ -43,8 +43,14 @@ replace charm.land/bubbletea/v2 => github.com/wow-look-at-my/bubbletea/v2 v2.0.0
 
 A name is resolved the same way the branch this repository is on is. A dependency with no branch of that name takes its default branch. So the pin follows the code once a merged pull request deletes the branch it was opened from.
 
+## A submodule pin only moves forward (`src/cmd/submoduleforward.go`)
+
+Every gitlink on HEAD must equal the gitlink at the same path on the default branch of `origin`, or descend from it. A pin that is older, or on a side line, fails the run and names the path. The check reads the default branch with `git ls-remote`. It fetches the commit graph into a scratch bare repository, so the checkout and its submodules stay as they were. A scratch fetch carries the `http.*.extraheader` that `actions/checkout` writes, so a private submodule resolves in CI. It applies to every submodule, not only org ones. Every git read trusts the tree whatever user owns it, because a CI container checks the tree out as another user. A git failure other than "not a git repository" fails the run.
+
 ## One head per CI run: the buildhost run lock
 
 Nothing pins a commit. In CI the fork's `cmd/go` locks each org module's branch head once per run attempt, in buildhost (`/api/v1/run-locks`, keyed by `GITHUB_RUN_ID` and `GITHUB_RUN_ATTEMPT`). Every job of the attempt builds that head. A re-run is a new attempt, so it resolves the branches again, and a deleted branch falls back to master.
 
-The fork checkout takes its head from the same lock, under the name `github.com/wow-look-at-my/gosmopolitan@<branch>`: `checkout-fork-branch.sh` in the workflow, and `resolveForkCommit` in the pipeline. `GOORGPIN` and `GO_TOOLCHAIN_FORK_COMMIT` are commit pins, and the pipeline refuses to start while either is set.
+Outside CI the pipeline names a run too (`src/goenv.go`). Every go command one invocation starts resolves each org module's head once, and the later commands build what the first one locked. The name is `go-toolchain/local/<pid>-<nanos>/1`, made unique to the invocation so the next build resolves the heads again and picks up a head that moved. A run the caller or CI already named keeps its own identity. The pipeline sets `GOSMOPOLITAN_RUN` only when it is unset and the GitHub variables name no run.
+
+The fork checkout takes its head from the same lock, under the name `github.com/wow-look-at-my/gosmopolitan@<branch>`: `checkout-fork-branch.sh` in the workflow, and `resolveForkCommit` in the pipeline. The fork's `src/submodulebranch.bash` then moves each org submodule of the fork, such as go-ipc, to its branch head. In CI `lockForkSubmodules` puts each one at the commit the run locked under `commit:<module>@<branch>`. This is because a submodule commit changes the linked go command and so the APE. `GOORGPIN` and `GO_TOOLCHAIN_FORK_COMMIT` are commit pins, and the pipeline refuses to start while either is set.

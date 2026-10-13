@@ -53,7 +53,7 @@ func hslToRGB(h, s, l float64) (r, g, b uint8) {
 }
 
 // colorPct formats a percentage in a colour running from red at the bottom of
-// the range to green at the top, by rotating the HSL hue through yellow.
+// the range to green at the top, by rotating the HSL. Hue through yellow.
 func colorPct(p ColorPct) string {
 	format := p.Format
 	if format == "" {

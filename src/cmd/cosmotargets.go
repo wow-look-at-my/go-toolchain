@@ -19,9 +19,10 @@ const cosmoPlatformsEnv = "GOCOSMOPLATFORMS"
 
 // cosmoRuntimeStatus maps a platform the fork can name to why it is not
 // coverable, or to "" when the APE genuinely runs there. A platform whose
-// runtime is unverified is refused rather than quietly claimed: the published
-// artifact's platform set is what tells a consumer where the binary runs, and
-// a set that names an untested host is a promise the APE does not keep.
+// runtime is unverified is refused rather than quietly claimed. The published
+// artifact's platform set is what tells a consumer. This holds where the
+// binary runs, and a set that names an untested host is a promise the APE
+// does not keep.
 var cosmoRuntimeStatus = map[buildPlatform]string{
 	{OS: "linux", Arch: "amd64"}:   "",
 	{OS: "linux", Arch: "arm64"}:   "",
@@ -88,7 +89,7 @@ func coverableCosmoPlatforms() []string {
 // apeCoverage returns the platforms a fat APE built with the given
 // --cosmo-platforms selection runs on. An empty selection means "all":
 // coverage is then every platform whose runtime is verified, never an
-// unverified platform the fork can also emit -- a published set names where
+// unverified platform the fork can also emit. A published set names where
 // the binary RUNS.
 func apeCoverage(platforms []buildPlatform) []buildPlatform {
 	if len(platforms) > 0 {

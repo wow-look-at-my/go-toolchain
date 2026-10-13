@@ -20,7 +20,7 @@ function* testFiles(dir) {
 	}
 }
 
-// A test, and a helper the test hands its own T to: both run as the test, so either can take the barrier on its behalf.
+// A test, and a helper the test hands its own T to: both run as the test. Either can take the barrier on its behalf.
 const testFunc = /^func ([A-Za-z0-9_]*)\(([a-zA-Z_][A-Za-z0-9_]*) \*testing\.T[,)]/;
 
 let changed = 0;

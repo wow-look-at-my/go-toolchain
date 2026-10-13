@@ -56,7 +56,7 @@ func (w *outputWatchdog) watchLoop(ctx context.Context) {
 					step, _ = v.(string)
 				}
 				// Must write to origStderr, never the logger: the logger writes stderr, the watchdog's own
-				// monitored pipe, which would reset the stall timer or get lost in a trapped pipe. Writing to a
+				// monitored pipe. This would reset the stall timer or get lost in a trapped pipe. Writing to a
 				// variable-held writer keeps this bannedoutput-clean.
 				if step != "" {
 					fmt.Fprintf(w.origStderr, "%s⚠ STALLED: no output for %ds (currently: %s)%s\n",

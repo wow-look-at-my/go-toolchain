@@ -5,7 +5,7 @@ import "testing"
 // The go command refuses a GOPROXY that holds no entry, saying it "is not the
 // empty string, but contains no entries". A runner supplies exactly that, and
 // reading it as a value to be taken as it is left every consumer's generator
-// install dead before the pipeline ran.
+// install dead. Before the pipeline ran.
 func TestNamesAProxy(test *testing.T) {
 	cases := []struct {
 		value string

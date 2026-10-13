@@ -125,7 +125,7 @@ func TestComputeUpdateWarning_OutOfDate(t *testing.T) {
 
 // TestComputeUpdateWarning_IsOneLineWithBothVersions pins the whole message:
 // how far behind, mine, latest. Nothing else -- a reader deciding whether to
-// update needs both versions and the distance, and every extra word is a word
+// update needs both versions and the distance. Every extra word is a word
 // they have to skip past on every build.
 func TestComputeUpdateWarning_IsOneLineWithBothVersions(t *testing.T) {
 	t.Serial()

@@ -382,7 +382,7 @@ func TestFoo(t *testing.T) {
 }
 
 // A load that comes back empty must never read as a clean vet: packages.Load
-// reports no error when its go list driver dies, so the empty result is the
+// reports no error when its go list driver dies. The empty result is the
 // only signal there is.
 func TestVetEmptyLoadIsNotACleanRun(t *testing.T) {
 	t.Serial()
@@ -437,7 +437,7 @@ func TestModuleHasGoFiles(t *testing.T) {
 }
 
 // A module whose every file is constrained out has nothing for the loader to
-// return, so an empty result there is correct rather than a dead loader. The
+// return. An empty result there is correct rather than a dead loader. The
 // walk therefore has to read the constraints, not the file extension. A
 // wasm-only main in a repository built for the host is the real shape of it.
 func TestModuleHasGoFilesHonorsBuildConstraints(t *testing.T) {

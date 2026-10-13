@@ -29,9 +29,9 @@ func ownMainPackage() (string, bool) {
 	return mains[0], true
 }
 
-// buildSelfFixedPoint builds pkg the way the build phase does, in passes
-// until a binary reproduces itself, and answers that binary and the
-// directory holding it, which the caller removes.
+// buildSelfFixedPoint builds pkg the way the build phase does, in
+// passes. This happens until a binary reproduces itself, and answers
+// that binary and the directory holding it, which the caller removes.
 func buildSelfFixedPoint(pkg string) (bin, dir string, err error) {
 	env, err := resolveForkBuildEnv(true)
 	if err != nil {
@@ -42,7 +42,11 @@ func buildSelfFixedPoint(pkg string) (bin, dir string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	job := env.apeJob(pkg, filepath.Join(dir, "go-toolchain"+hostExeSuffix()))
+	job, err := env.apeJob(pkg, filepath.Join(dir, "go-toolchain"+hostExeSuffix()))
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return "", "", err
+	}
 	bin, err = buildSelfPasses(runner.New(), job, dir, nil)
 	if err != nil {
 		_ = os.RemoveAll(dir)

@@ -55,7 +55,7 @@ func TestApeManifestEntriesSkipsWhatIsNotAnAPE(t *testing.T) {
 }
 
 // A file too short to hold the magic reads as not an APE rather than as a
-// read error: the safe answer keeps it out of the manifest either way.
+// read error. The safe answer keeps it out of the manifest either way.
 func TestApeManifestEntriesSkipsAShortFile(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()
@@ -114,7 +114,7 @@ func TestWriteBuildhostManifestShape(t *testing.T) {
 	assert.Equal(t, []any{"linux/amd64", "darwin/arm64", "windows/amd64"}, entry["platforms"])
 }
 
-// The manifest describes the artifacts, so it must not outlive them: a manifest left
+// The manifest describes the artifacts. It must not outlive them: a manifest left
 // behind would send the next publish after a file that is gone.
 func TestManifestIsClearedWithBuildOutputs(t *testing.T) {
 	t.Serial()

@@ -37,7 +37,7 @@ func (r *parseRecorder) count() int {
 // the most files, among the root actions of the named analyzer.
 //
 // packages.Config.Tests loads a package several ways (plain, internal test,
-// external test, test main); they share a path but differ in what they see,
+// external test, test main). They share a path but differ in what they see,
 // so a whole-package question must be answered by the variant with all of it.
 func richestVariants(graph *checker.Graph, analyzer string) map[string]string {
 	best := map[string]string{}

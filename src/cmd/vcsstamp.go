@@ -18,9 +18,9 @@ const RevisionEnv = "GO_TOOLCHAIN_VCS_REVISION"
 var stampVarNames = []string{"gitHash", "GitHash", "gitCommit", "GitCommit", "commit", "Commit", "revision", "Revision"}
 
 // resolveRevision reports the commit this build is of, or "" when nothing here
-// knows it. The explicit variable wins because it answers the case the others
-// cannot: a container build whose context excluded .git, where the go command's
-// own stamping finds nothing either.
+// knows it. Consider the explicit variable wins because it. That explicit
+// answers the case the others cannot: a container build whose context excluded
+// .git, where the go command's own stamping finds nothing either.
 func resolveRevision() string {
 	if rev := usableRevision(os.Getenv(RevisionEnv)); rev != "" {
 		return rev

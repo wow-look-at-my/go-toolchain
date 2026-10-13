@@ -12,7 +12,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 )
 
-// With no target flags the run takes the single-APE path, which needs the go
+// With no target flags the run takes the single-APE path. This needs the go
 // command this binary is rather than building a per-platform product.
 func TestRunReleaseWithRunnerNoPlatformsBuildsTheAPE(t *testing.T) {
 	t.Serial()

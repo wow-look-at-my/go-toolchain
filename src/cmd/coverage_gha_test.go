@@ -59,8 +59,8 @@ func TestCoverageBelowMinimum_NoGHAAnnotationLocally(t *testing.T) {
 
 // TestCoverageBelowMinimum_NoGHAAnnotationInJSONMode verifies that no GHA
 // annotation is emitted in --json mode even when running inside GitHub Actions:
-// stdout is reserved for the JSON payload and a workflow command would corrupt
-// it for programmatic consumers.
+// stdout is reserved for the JSON payload. A workflow command would corrupt it
+// for programmatic consumers.
 func TestCoverageBelowMinimum_NoGHAAnnotationInJSONMode(t *testing.T) {
 	t.Serial()
 	tmpDir := t.TempDir()

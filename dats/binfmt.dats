@@ -1,11 +1,11 @@
 # Tests for .github/scripts/register-ape-binfmt.sh, the step action.yml runs to
 # let the kernel start a fat APE. The script's contract is that it NAMES what it
-# did and never fails the job: a host that cannot register the handler is a host
-# where every APE still starts through a shell, which is what every caller in
-# this org already does.
+# did and never fails the job. A host that cannot register the handler is a
+# host. This holds where every APE still starts through a shell, which is what
+# every caller in this org already does.
 #
 # Nothing here registers anything. The sandbox holds no writable
-# /proc/sys/fs/binfmt_misc and grants no root, so the script takes its
+# /proc/sys/fs/binfmt_misc and grants no root. The script takes its
 # stand-down path there and says so.
 #
 # build-everywhere runs this repo's pipeline on linux, darwin and windows, so

@@ -17,10 +17,10 @@ import (
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
-// applyCastFixtures runs the analyzer over the testifycast fixture module and
+// applyCastFixtures runs the analyzer over the testifycast fixture module. It
 // returns the rewritten source of every file that had fixes applied, anything
-// the analyzer wrote to stderr (element-mismatch warnings), and the raw edit
-// sets themselves (for asserting on recorded imports).
+// the analyzer wrote to stderr (element-mismatch warnings), and the raw edit.
+// Sets themselves (for asserting on recorded imports).
 func applyCastFixtures(t *testing.T) (output, stderrText string, all []*CastEdits) {
 	t.Helper()
 	t.Serial() // analysistest chdirs into the fixture

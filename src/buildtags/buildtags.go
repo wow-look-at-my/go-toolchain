@@ -1,11 +1,11 @@
 // Package buildtags discovers the build-tag configurations a module needs so
 // that no source file can hide from the pipeline behind a //go:build line.
 //
-// The hole this closes: vet loaded packages with default tags and `go test` ran
+// The hole this closes: vet loaded packages with default tags. `go test` ran
 // with default tags, so a file carrying `//go:build sometag` was never
 // type-checked, never analyzed, and its tests never ran. A failing test or a
-// vet violation behind any tag was invisible to CI -- not by defeating a check,
-// but by never being shown to any.
+// vet violation behind any tag was invisible to CI -- not. This holds by
+// defeating a check, but by never being shown to any.
 //
 // Coverage is not asserted from cleverness. Configs enumerates a small set of
 // tag combinations, and Verify then PROVES every taggable file was reached,
@@ -165,10 +165,10 @@ func Scan(dir string) (*Discovery, error) {
 	return &Discovery{Configs: configsFor(userTags), Gated: gated, UserTags: userTags}, nil
 }
 
-// configsFor builds the tag sets to run. The default leads, so the
-// pipeline's primary output is unchanged; then each tag alone, which satisfies
-// any `a && !b` shape; then all of them together, which satisfies `a && b`.
-// Whether that is sufficient is never assumed -- Verify checks it.
+// configsFor builds the tag sets to run. The default leads, so the pipeline's
+// primary output is unchanged. Then each tag alone, which satisfies any `a &&
+// !b` shape. Then all of them together, which satisfies `a && b`. Whether that
+// is sufficient is never assumed -- Verify checks it.
 func configsFor(userTags []string) []Config {
 	configs := []Config{{}}
 	if len(userTags) == 0 {

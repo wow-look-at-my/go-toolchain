@@ -35,7 +35,7 @@ func newGoModRepo(t *testing.T, goLine string) (dir, mod string) {
 }
 
 // A rewrite that lands the same bytes is not an edit. The windows leg failed
-// a green build over such a rewrite, so the refresh must clear it - and must
+// a green build over such a rewrite. The refresh must clear it - and must
 // still name a file whose content moved.
 func TestRefreshGitIndexClearsAStatOnlyChange(t *testing.T) {
 	t.Serial()
@@ -78,7 +78,7 @@ func TestDropForkGitlink(t *testing.T) {
 }
 
 // The message tells the reader to review the diff, so a CI-only failure has to
-// carry it: the runner's tree is gone by the time anyone reads the log.
+// carry it. The runner's tree is gone by the time anyone reads the log.
 func TestDirtyDiffPaths(t *testing.T) {
 	t.Serial()
 	status := " M go.mod\n?? build/extra.txt\nR  old.go -> new.go\n"
@@ -86,7 +86,7 @@ func TestDirtyDiffPaths(t *testing.T) {
 	assert.Empty(t, dirtyDiffPaths(""))
 }
 
-// A dirty tree in CI is often the only place a change is visible, so the diff
+// A dirty tree in CI is often the only place a change is visible. The diff
 // has to arrive or say why it did not. Returning nothing leaves the reader
 // staring at a file list under an instruction to review something absent.
 func TestDirtyDiffShowsTheChange(t *testing.T) {

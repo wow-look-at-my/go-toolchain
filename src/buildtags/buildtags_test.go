@@ -20,7 +20,7 @@ func write(t *testing.T, dir, name, constraint string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644))
 }
 
-// A file gated by a project tag must be discovered; a platform-gated file must
+// A file gated by a project tag must be discovered. A platform-gated file must
 // not be, because the pipeline cannot build for another GOOS and pretending
 // otherwise would fail every cross-platform repo.
 func TestScanSeparatesUserTagsFromPlatform(t *testing.T) {
@@ -41,7 +41,7 @@ func TestScanSeparatesUserTagsFromPlatform(t *testing.T) {
 }
 
 // The default configuration must lead, so the pipeline's primary output is
-// unchanged, and every discovered tag must get a configuration of its own --
+// unchanged. Every discovered tag must get a configuration of its own --
 // that is what satisfies an `a && !b` shape.
 func TestConfigsCoverEachTagAloneAndAllTogether(t *testing.T) {
 	t.Serial()
@@ -73,7 +73,7 @@ func TestVerifyReportsUnreachedGatedFiles(t *testing.T) {
 	assert.ErrorContains(t, err, "vet could not reach")
 }
 
-// An unknown identifier must be treated as a user tag: over-covering analyzes a
+// An unknown identifier must be treated as a user tag. Over-covering analyzes a
 // file unnecessarily, under-covering hides it, and only over-covering is safe.
 func TestUnknownIdentIsAUserTag(t *testing.T) {
 	t.Serial()

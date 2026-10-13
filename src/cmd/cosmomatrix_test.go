@@ -75,8 +75,8 @@ func setupCosmoMatrixTest(t *testing.T, targets []string) (fakeGoroot, outDir st
 }
 
 // A cosmo build produces a SINGLE file. This pins that outcome from the outside --
-// the build directory itself -- rather than from any flag: a copy of the APE
-// under a per-platform name is a thing this repo cannot express.
+// the build directory itself -- rather than from any flag. A copy of the APE under
+// a per-platform name is a thing this repo cannot express.
 func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 	t.Serial()
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"cosmo"})
@@ -156,7 +156,7 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 	}
 }
 
-// With no go command set up there is nothing to build with, and the run says
+// With no go command set up there is nothing to build with. The run says
 // which call was skipped rather than reaching the test phase.
 func TestRunReleaseWithRunnerWithoutAGoCommandFailsFast(t *testing.T) {
 	t.Serial()
@@ -187,7 +187,7 @@ func TestRunReleaseWithRunnerInvalidTargets(t *testing.T) {
 
 // The APE and the wasm targets are the only things this pipeline compiles, and
 // both compile with the fork. runBuild is the sole place anything is compiled,
-// so a job naming a native platform, or naming no toolchain, dies here — no
+// so a job naming a native platform, or naming no toolchain, dies here. No
 // call site can reintroduce a per-platform binary or another compiler.
 func TestRunBuildRefusesAnythingButThePortableTargets(t *testing.T) {
 	t.Serial()

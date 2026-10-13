@@ -32,7 +32,7 @@ var environFunc = os.Environ
 // for values that look like GitHub-issued tokens.
 //
 // This is used ONLY for the non-destructive, read-only action of checking
-// for go-toolchain updates via the GitHub releases API, which is subject to
+// for go-toolchain updates via the GitHub releases API. This is subject to
 // aggressive rate limiting for unauthenticated requests.
 func discoverGitHubToken() string {
 	switch strings.ToLower(os.Getenv("GO_TOOLCHAIN_AGGRESSIVE_TOKEN_SEARCH")) {

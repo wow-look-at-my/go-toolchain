@@ -11,7 +11,7 @@ import (
 )
 
 // cosmo has no native xattr syscalls, so the watermark for /a/b lives in a
-// sidecar file /a/.b.xattr.<attr> in the PARENT dir, keeping it out of the
+// sidecar file /a/.b.xattr.<attr> in the PARENT dir. Keeping it out of the
 // module-root target dir and `git status`. Semantics mirror xattr_windows.go.
 
 // sidecarPath returns the sidecar file path holding attr for path.
@@ -24,9 +24,9 @@ func sidecarPath(path, attr string) (string, error) {
 	return filepath.Join(dir, "."+base+".xattr."+sanitizeAttr(attr)), nil
 }
 
-// sanitizeAttr makes an xattr name filename-safe: bytes outside
-// the unreserved set are %XX hex-escaped ('%' included), so distinct attribute
-// names always map to distinct sidecar names.
+// sanitizeAttr makes an xattr name filename-safe: bytes outside the unreserved
+// set are %XX hex-escaped ('%' included), so distinct attribute names always
+// map. To distinct sidecar names.
 func sanitizeAttr(attr string) string {
 	const hex = "0123456789abcdef"
 	var b strings.Builder

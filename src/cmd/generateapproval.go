@@ -28,7 +28,7 @@ func parseGenerateMarker(line *modfile.Line) string {
 }
 
 // setGenerateMarker replaces any generate approval on a line with hash, joined
-// to an existing comment the same way x/mod's setIndirect joins "// indirect".
+// to an existing comment the same way x/mod joins "// indirect".
 // A further Suffix comment would render on its own line below, which corrupts
 // the block.
 func setGenerateMarker(line *modfile.Line, hash string) {
@@ -113,7 +113,7 @@ func readGoModFile(root string) (*modfile.File, error) {
 	return modfile.Parse(path, data, nil)
 }
 
-// moduleLine is the go.mod line that speaks for a dependency: its require line,
+// moduleLine is the go.mod line that speaks for a dependency. Its require line,
 // or the replace line of a fork whose replacement path is the path cached.
 func moduleLine(f *modfile.File, path string) *modfile.Line {
 	for _, r := range f.Require {
@@ -151,7 +151,8 @@ func approvedLine(f *modfile.File, path, version, hash string) string {
 }
 
 // approvedModuleLine spells the module line of the go.mod under root recording
-// hash, or names the marker alone when there is no module line to copy.
+// hash. Otherwise, it names the marker alone when there is no module line to
+// copy.
 func approvedModuleLine(root, hash string) string {
 	f, err := readGoModFile(root)
 	if err != nil || f.Module == nil {

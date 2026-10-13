@@ -22,8 +22,8 @@ func readonlyModule(t *testing.T, main string) string {
 	return dir
 }
 
-// Vet parses and type-checks with the go/parser and go/types this binary links,
-// and the pipeline runs only as a build of the active toolchain. So the fork's
+// Vet parses and type-checks with the go/parser and go/types this binary links.
+// The pipeline runs only as a build of the active toolchain. So the fork's
 // `readonly var` parses and type-checks.
 func TestVetTypeChecksAReadonlyVarUnderTheFork(t *testing.T) {
 	t.Serial()
