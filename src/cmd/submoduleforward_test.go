@@ -100,7 +100,6 @@ func TestSubmodulePinMayNotMoveBackInATreeAnotherUserOwns(t *testing.T) {
 	f := newPinFixture(t)
 	clone := f.branchPinning(t, f.old)
 	// In CI origin is a network remote. Only the checkout belongs to another user.
-	// A local remote drops the environment config, so the global file trusts the remotes.
 	global := filepath.Join(t.TempDir(), "gitconfig")
 	trusted := "[safe]\n\tdirectory = " + f.super + "\n\tdirectory = " + filepath.Join(filepath.Dir(f.super), "sub.git") + "\n"
 	require.NoError(t, os.WriteFile(global, []byte(trusted), 0o644))
