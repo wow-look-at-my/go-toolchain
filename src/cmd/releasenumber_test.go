@@ -173,8 +173,6 @@ func TestCreateRunReleaseCreatesTheReleaseInTheBinarysPublishProject(t *testing.
 	assert.Equal(t, "webhooks/webhook-runner", fake.project)
 }
 
-// buildhost answers 404 for a project name with a capital letter, so a
-// repository named in mixed case creates its release in the lowercase project.
 func TestCreateRunReleaseLowercasesAMixedCaseRepository(t *testing.T) {
 	t.Serial()
 	fake := &fakeBuildhost{release: "12"}

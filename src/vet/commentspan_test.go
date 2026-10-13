@@ -16,9 +16,9 @@ import (
 )
 
 // fixtureComment returns a comment with exactly n non-blank lines and total
-// non-whitespace chars, for exact boundary tests. Every line needs at least
-// its "//" marker, so chars must cover a marker per line. The prose holds two
-// sentences where it has room, because one short sentence escapes the char measure.
+// non-whitespace chars, for exact boundary tests. Every line needs at least its
+// "//" marker, so chars must cover a marker per line. The prose holds sentences
+// where it has room, because one short sentence escapes the char measure.
 func fixtureComment(t *testing.T, lines, chars int) string {
 	t.Helper()
 	require.GreaterOrEqual(t, chars, 2*lines, "need at least // per line")
@@ -30,8 +30,6 @@ func fixtureComment(t *testing.T, lines, chars int) string {
 	return strings.Join(rows, "\n")
 }
 
-// twoSentences returns prose of two sentences with exactly chars
-// non-whitespace characters, or a run of x when chars is too small for two.
 func twoSentences(chars int) string {
 	const head = "One. Two"
 	_, headChars := commentSpanMeasure(head)
@@ -231,7 +229,7 @@ func TestCommentSpanExemptsOneShortSentenceFromTheCharMeasure(t *testing.T) {
 	assert.Empty(t, runCommentSpanOn(t, src))
 }
 
-// Two sentences over the char limit still warn: the exemption covers one sentence only.
+// Sentences over the char limit still warn: the exemption covers one sentence only.
 func TestCommentSpanWarnsOnTwoSentencesPastTheCharLimit(t *testing.T) {
 	t.Serial()
 	src := "package p\n\n" +
