@@ -94,6 +94,26 @@ func TestSubmodulePinMayNotMoveBack(t *testing.T) {
 	assert.Contains(t, err.Error(), "dep: "+f.old+" is older than "+f.mid)
 }
 
+// A CI container checks the tree out as another user. The guard must still see
+// the repository there, or it skips the check.
+func TestSubmodulePinMayNotMoveBackInATreeAnotherUserOwns(t *testing.T) {
+	f := newPinFixture(t)
+	clone := f.branchPinning(t, f.old)
+	// In CI origin is a network remote. Only the checkout belongs to another user.
+	global := filepath.Join(t.TempDir(), "gitconfig")
+	trusted := "[safe]\n\tdirectory = " + f.super + "\n\tdirectory = " + filepath.Join(filepath.Dir(f.super), "sub.git") + "\n"
+	require.NoError(t, os.WriteFile(global, []byte(trusted), 0o644))
+	t.Setenv("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	refused, err := exec.Command("git", "-C", clone, "rev-parse", "--show-toplevel").CombinedOutput()
+	require.Error(t, err, "the fixture must make a bare git refuse the tree")
+	require.Contains(t, string(refused), "dubious ownership")
+	err = checkSubmodulesForwardIn(runner.New(), clone)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "dep: "+f.old+" is older than "+f.mid)
+}
+
 func TestSubmodulePinMayNotLeaveTheLine(t *testing.T) {
 	f := newPinFixture(t)
 	err := checkSubmodulesForwardIn(runner.New(), f.branchPinning(t, f.side))
