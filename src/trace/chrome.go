@@ -10,8 +10,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 )
 
-// chromeEvent is a Chrome Trace Event Format event.
-// Spec: https://docs.google.com/document/d/1CvAClvFfyA5R-PhYUmn5OOQtYMH4h6I0nSsKchNAySU
+// chromeEvent is an event in Chrome's Trace Event Format.
 type chromeEvent struct {
 	Name string      `json:"name"`
 	Cat  string      `json:"cat,omitempty"`
@@ -64,7 +63,7 @@ func (t *Trace) Events() []Event {
 	return append([]Event(nil), t.events...)
 }
 
-// threadID assigns a stable numeric ID to each thread name.
+// resolveThreadID assigns a stable numeric ID to each thread name.
 func resolveThreadID(name string, seen map[string]int) int {
 	if id, ok := seen[name]; ok {
 		return id
@@ -75,7 +74,7 @@ func resolveThreadID(name string, seen map[string]int) int {
 }
 
 // WriteChrome writes all collected events plus pipeline timeline entries as a
-// Chrome trace JSON file. Loadable in chrome://tracing or DevTools Performance tab.
+// Chrome trace JSON file.
 func WriteChrome(path string, timeline []summary.TimelineEntry, trace *Trace) error {
 	threads := make(map[string]int)
 	var out []chromeEvent

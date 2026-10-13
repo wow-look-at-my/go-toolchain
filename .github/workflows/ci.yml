@@ -26,7 +26,7 @@ env:
 
 jobs:
   host-build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       # No persisted credentials: the header checkout leaves in the workspace names THIS repository, so every git question about another is asked as the wrong identity.
       - uses: actions/checkout@v7
@@ -126,8 +126,11 @@ jobs:
         run: |
           {
             echo "GOPROXY=direct"
+            echo "GOSUMDB=off"
             echo "GONOSUMDB=*"
             echo "GONOSUMCHECK=*"
+            echo "GOTOOLCHAIN=local"
+            echo "GOTELEMETRY=off"
           } >> "$GITHUB_ENV"
 
       # The go command the generators build with, named for the cached run and the PATH step, neither of which can see a variable the other set.
@@ -160,20 +163,11 @@ jobs:
             genbin="$("$go" env GOPATH)/bin/$("$go" env GOOS)_$("$go" env GOARCH)"
             mkdir -p "$genbin"
             export PATH="$genbin:$PATH"
-            # The org's own x/tools, which is what gopls and the analyzers here already build against. It keeps the upstream module path, and `go install pkg@version` honors no replacement, so a checkout is how this fork's copy gets built rather than upstream's. Building from a directory also asks the module cache for nothing, so the generator that lives in the module needing it never has to complete that module earliest.
-            git clone --quiet --depth 1 https://github.com/wow-look-at-my/gosmopolitan_tools "$RUNNER_TEMP/orgtools"
-            for gen in stringer goyacc; do
-              (cd "$RUNNER_TEMP/orgtools" && "$go" build -o "$genbin/$gen" "./cmd/$gen")
-            done
-            # gotext comes from a checkout for the reason stringer does, and for any of its own: completing x/text runs that module's cmd/gotext/examples/extract directive, which starts gotext -- the program this install exists to produce.
-            git clone --quiet --depth 1 --branch v0.42.0 https://github.com/golang/text "$RUNNER_TEMP/xtext"
-            (cd "$RUNNER_TEMP/xtext" && "$go" build -o "$genbin/gotext" ./cmd/gotext)
-            for pkg in \
-              github.com/mjibson/esc@v0.2.0 \
-              google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
-            ; do
-              "$go" install "$pkg"
-            done
+            # Each generator is built from a GitHub checkout whose golang.org requirements point at GitHub, so no go command here resolves a path through golang.org. The org's own x/tools is what gopls and the analyzers here already build against. Completing x/text runs a directive that starts gotext, so gotext cannot come from a module fetch either.
+            bash .github/scripts/build-from-github.sh "$go" https://github.com/wow-look-at-my/gosmopolitan_tools "" "$genbin" cmd/stringer cmd/goyacc
+            bash .github/scripts/build-from-github.sh "$go" https://github.com/golang/text v0.42.0 "$genbin" cmd/gotext
+            bash .github/scripts/build-from-github.sh "$go" https://github.com/protocolbuffers/protobuf-go v1.34.1 "$genbin" cmd/protoc-gen-go
+            "$go" install github.com/mjibson/esc@v0.2.0
             # cached-run carries these with the paths, so a hit that skips this script still exports them.
             echo "$genbin" >> "$GITHUB_PATH"
             echo "$GEN_GOROOT_BIN" >> "$GITHUB_PATH"
@@ -300,7 +294,7 @@ jobs:
 
   # The same build with no go-toolchain release involved: the fork's release runs the fork's make.bash, that go command builds the pipeline, and the pipeline builds itself; identical holds its APE to host-build's bytes. see docs/CI.md
   bootstrap-scratch:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
@@ -355,8 +349,11 @@ jobs:
         run: |
           {
             echo "GOPROXY=direct"
+            echo "GOSUMDB=off"
             echo "GONOSUMDB=*"
             echo "GONOSUMCHECK=*"
+            echo "GOTOOLCHAIN=local"
+            echo "GOTELEMETRY=off"
           } >> "$GITHUB_ENV"
 
       # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure.
@@ -372,20 +369,11 @@ jobs:
             mkdir -p "$genbin"
             # The fork's own go goes on PATH beside it: a dependency's generate directive starts `go` by name, and the runner's own go answers a GOROOT this owns.
             export PATH="$genbin:$PWD/_gosmopolitan/bin:$PATH"
-            # The org's own x/tools, which is what gopls and the analyzers here already build against. It keeps the upstream module path, and `go install pkg@version` honors no replacement, so a checkout is how this fork's copy gets built rather than upstream's. Building from a directory also asks the module cache for nothing. The generator that lives in the module needing it never has to complete that module earliest.
-            git clone --quiet --depth 1 https://github.com/wow-look-at-my/gosmopolitan_tools "$RUNNER_TEMP/orgtools"
-            for gen in stringer goyacc; do
-              (cd "$RUNNER_TEMP/orgtools" && "$go" build -o "$genbin/$gen" "./cmd/$gen")
-            done
-            # gotext comes from a checkout for the reason stringer does, and for any of its own: completing x/text runs. That module's cmd/gotext/examples/extract directive, which starts gotext -- the program this install exists to produce.
-            git clone --quiet --depth 1 --branch v0.42.0 https://github.com/golang/text "$RUNNER_TEMP/xtext"
-            (cd "$RUNNER_TEMP/xtext" && "$go" build -o "$genbin/gotext" ./cmd/gotext)
-            for pkg in \
-              github.com/mjibson/esc@v0.2.0 \
-              google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.1 \
-            ; do
-              "$go" install "$pkg"
-            done
+            # Each generator is built from a GitHub checkout whose golang.org requirements point at GitHub. No go command here resolves a path through golang.org.
+            bash .github/scripts/build-from-github.sh "$go" https://github.com/wow-look-at-my/gosmopolitan_tools "" "$genbin" cmd/stringer cmd/goyacc
+            bash .github/scripts/build-from-github.sh "$go" https://github.com/golang/text v0.42.0 "$genbin" cmd/gotext
+            bash .github/scripts/build-from-github.sh "$go" https://github.com/protocolbuffers/protobuf-go v1.34.1 "$genbin" cmd/protoc-gen-go
+            "$go" install github.com/mjibson/esc@v0.2.0
             # cached-run carries this with the paths, so a hit that skips this script still exports it.
             echo "$genbin" >> "$GITHUB_PATH"
 
@@ -438,7 +426,7 @@ jobs:
   # Build + test via the composite action with NO target inputs, which is exactly what a... see docs/CI.md
   build:
     needs: host-build
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -526,8 +514,11 @@ jobs:
         run: |
           {
             echo "GOPROXY=direct"
+            echo "GOSUMDB=off"
             echo "GONOSUMDB=*"
             echo "GONOSUMCHECK=*"
+            echo "GOTOOLCHAIN=local"
+            echo "GOTELEMETRY=off"
           } >> "$GITHUB_ENV"
 
       - name: Configure git for private repos
@@ -625,7 +616,7 @@ jobs:
   # The smoke jobs run A single host's APE on each of them. That says what every host ships only if every... see docs/CI.md
   identical:
     needs: [build, build-everywhere, bootstrap-scratch]
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       # Only for the dats fixture below -- this job otherwise runs no repo code.
@@ -681,6 +672,7 @@ jobs:
           done
 
 
+
       # A missing hand-off fails too: comparing the hosts that answered proves nothing. see docs/CI.md
       - name: Every host built the same bytes
         uses: wow-look-at-my/dats@master
@@ -708,7 +700,7 @@ jobs:
         # NT is the long pole; drop this exclude to run it. waiver-expires: 2026-09-28
         exclude:
           - os: windows-latest
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ (github.event.repository.visibility == 'public' || !contains(fromJSON('["ubuntu-latest"]'), matrix.os)) && matrix.os || vars.CI_RUNNER || matrix.os }}
     # A cold stdlib compile under the fork is slower on NT than on the other two hosts.
     timeout-minutes: 30
     steps:
@@ -747,7 +739,7 @@ jobs:
     needs: [identical, smoke]
     # A cancelled or failed run still has hand-offs to drop; without this the job is skipped and they are orphaned.
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
     permissions:
       contents: read
       actions: write
