@@ -702,7 +702,7 @@ jobs:
         # NT is the long pole; drop this exclude to run it. waiver-expires: 2026-09-28
         exclude:
           - os: windows-latest
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ (github.event.repository.visibility == 'public' || !contains(fromJSON('["ubuntu-latest"]'), matrix.os)) && matrix.os || vars.CI_RUNNER || matrix.os }}
     # A cold stdlib compile under the fork is slower on NT than on the other two hosts.
     timeout-minutes: 30
     steps:
