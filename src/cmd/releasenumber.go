@@ -24,8 +24,12 @@ const (
 	gosmoReleaseRevisionEnv = "GOSMOPOLITAN_RELEASE_REVISION"
 )
 
-// releaseRunLock is the run lock that makes every job of one run attempt stamp the same number.
+// releaseRunLock prefixes the run lock.
 const releaseRunLock = "buildhost-release"
+
+func releaseRunLockName(project string) string {
+	return releaseRunLock + ":" + project
+}
 
 var (
 	releaseOnce  sync.Once
@@ -128,13 +132,20 @@ func createRunRelease(binary string) (string, error) {
 	if err != nil {
 		return fail(err)
 	}
+	repository := os.Getenv("GITHUB_REPOSITORY")
+	repo := repository[strings.LastIndex(repository, "/")+1:]
+	if repo == "" {
+		return fail(fmt.Errorf("GITHUB_REPOSITORY is unset, so the build cannot name its project"))
+	}
+	project := publishProject(repo, binary)
+	// One lock per project: jobs that publish to other projects count their numbers apart.
 	lock := runLockBody{
-		Repository: os.Getenv("GITHUB_REPOSITORY"),
+		Repository: repository,
 		RunID:      os.Getenv("GITHUB_RUN_ID"),
 		RunAttempt: os.Getenv("GITHUB_RUN_ATTEMPT"),
-		Name:       releaseRunLock,
+		Name:       releaseRunLockName(project),
 	}
-	query := url.Values{"repository": {lock.Repository}, "run_id": {lock.RunID}, "run_attempt": {lock.RunAttempt}, "name": {releaseRunLock}}
+	query := url.Values{"repository": {lock.Repository}, "run_id": {lock.RunID}, "run_attempt": {lock.RunAttempt}, "name": {lock.Name}}
 	var held runLockBody
 	if err := runLockDo(http.MethodGet, store+"/api/v1/run-locks?"+query.Encode(), token, nil, &held); err != nil {
 		return fail(err)
@@ -142,11 +153,6 @@ func createRunRelease(binary string) (string, error) {
 	if held.Found && held.Value != "" {
 		return usableRelease(held.Value)
 	}
-	repo := lock.Repository[strings.LastIndex(lock.Repository, "/")+1:]
-	if repo == "" {
-		return fail(fmt.Errorf("GITHUB_REPOSITORY is unset, so the build cannot name its project"))
-	}
-	project := publishProject(repo, binary)
 	body, err := json.Marshal(map[string]string{
 		"git_branch": os.Getenv("GITHUB_REF_NAME"),
 		"git_commit": os.Getenv("GITHUB_SHA"),
