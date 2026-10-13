@@ -102,6 +102,12 @@ func TestSubmodulePinMayNotMoveBackInATreeAnotherUserOwns(t *testing.T) {
 	t.Setenv("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1")
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	// In CI origin is a network remote. Only the checkout belongs to another user.
+	t.Setenv("GIT_CONFIG_COUNT", "2")
+	t.Setenv("GIT_CONFIG_KEY_0", "safe.directory")
+	t.Setenv("GIT_CONFIG_VALUE_0", f.super)
+	t.Setenv("GIT_CONFIG_KEY_1", "safe.directory")
+	t.Setenv("GIT_CONFIG_VALUE_1", filepath.Join(filepath.Dir(f.super), "sub.git"))
 	refused, err := exec.Command("git", "-C", clone, "rev-parse", "--show-toplevel").CombinedOutput()
 	require.Error(t, err, "the fixture must make a bare git refuse the tree")
 	require.Contains(t, string(refused), "dubious ownership")
