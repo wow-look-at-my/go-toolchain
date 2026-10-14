@@ -7,8 +7,9 @@ A published binary carries the buildhost release it shipped as. The stamp is a s
 The action's "Stamp the release into each binary" step runs `.github/scripts/release-stamp.ts` on the build directory, just before the auto-release step:
 
 - It finds the binaries the publish uploads, by the same rules as `buildhost-publish`: every `<binary>_<os>_<arch>` file, and every `kind: binary` entry of `buildhost-artifacts.json`.
-- It names their project the way the publish does: `<repo>` for a binary named after the repo, else `<repo>/<binary>`. Binaries for more than one project fail the step, because the publish takes one release number.
-- It creates that project's release over the job's OIDC token, with the branch, the commit, `create_service` and `apt-depends`. An explicit `autorelease_args` version is created as given, or used as it is when it exists.
+- It names their project the way the publish does: `<repo>` for a binary named after the repo, else `<repo>/<binary>`.
+- It creates the release over the job's OIDC token, with the branch, the commit, `create_service` and `apt-depends`. An explicit `autorelease_args` version is created as given, or used as it is when it exists.
+- The publish sends one version to every project, so the binaries of one build share one release number. The repo's project numbers it, or the first project by name when no binary is named after the repo. Every other project gets its release created at that number, or keeps the release it already holds at that number.
 - It appends the stamp to each binary in place, rewrites `checksums.txt`, and hands the number to the publish as `version`. A file that already carries a stamp gets its stamp replaced, not a second one.
 
 The number in a stamp is therefore always the number of the release that holds the file, in that project. A failure anywhere fails the step, and nothing is published unstamped. A build outside the action has no stamp.
