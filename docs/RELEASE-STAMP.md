@@ -18,7 +18,7 @@ The number in a stamp is therefore always the number of the release that holds t
 
 ## The format
 
-The trailer is the last bytes of the file:
+The trailer is the last bytes of the file, with one exception. A gosmopolitan binary ends with a 64-byte record that starts with `GOSTDEMB`. Its runtime finds the embedded GOROOT through that record, so the stamp goes just before it and the record stays last:
 
 ```
 <payload: UTF-8 JSON> <length of payload: uint32, big-endian> <magic: "BUILDHOST-STAMP1", 16 ASCII bytes>
@@ -32,7 +32,7 @@ The payload is one JSON object, every field a non-empty string:
 
 ## Reading it
 
-Read the length field and the magic from the end of the file, as the reader below does. A file whose last bytes are not the magic has no stamp. Otherwise the length field before the magic gives the payload size, and the payload sits before the length field.
+Read the length field and the magic from the end of the file, as the reader below does. First step over a 64-byte `GOSTDEMB` record if the file ends with one. A file whose remaining last bytes are not the magic has no stamp. Otherwise the length field before the magic gives the payload size, and the payload sits before the length field.
 
 ```go
 func readStamp(f *os.File) (map[string]string, error) {
@@ -40,22 +40,32 @@ func readStamp(f *os.File) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	end := st.Size()
+	embed := make([]byte, 8)
+	if end >= 64 {
+		if _, err := f.ReadAt(embed, end-64); err != nil {
+			return nil, err
+		}
+		if string(embed) == "GOSTDEMB" {
+			end -= 64
+		}
+	}
 	tail := make([]byte, 20)
-	if st.Size() < 20 {
+	if end < 20 {
 		return nil, nil
 	}
-	if _, err := f.ReadAt(tail, st.Size()-20); err != nil {
+	if _, err := f.ReadAt(tail, end-20); err != nil {
 		return nil, err
 	}
 	if string(tail[4:]) != "BUILDHOST-STAMP1" {
 		return nil, nil
 	}
 	n := int64(binary.BigEndian.Uint32(tail[:4]))
-	if n > st.Size()-20 {
+	if n > end-20 {
 		return nil, fmt.Errorf("stamp claims %d payload bytes, more than the file holds", n)
 	}
 	payload := make([]byte, n)
-	if _, err := f.ReadAt(payload, st.Size()-20-n); err != nil {
+	if _, err := f.ReadAt(payload, end-20-n); err != nil {
 		return nil, err
 	}
 	var s map[string]string

@@ -6,7 +6,7 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
-import { decode, encode, projectFor } from "./release-stamp.ts";
+import { decode, EmbedMagic, EmbedTrailerSize, encode, projectFor, stampFile } from "./release-stamp.ts";
 
 const script = path.join(import.meta.dirname, "release-stamp.ts");
 
@@ -66,6 +66,22 @@ assert.equal(projectFor("VictoriaLogs-compat-layer", "victorialogs-compat-layer-
 // encode then decode round-trips, and bytes with no stamp decode to null
 assert.deepEqual(decode(Buffer.concat([Buffer.from("x"), encode({ project: "p", release: "1", revision: "r" })]))!.stamp, { project: "p", release: "1", revision: "r" });
 assert.equal(decode(Buffer.from("plain")), null);
+
+// a gosmopolitan binary keeps its GOSTDEMB record as the last 64 bytes, and a second stamp replaces the first
+{
+	const record = Buffer.concat([EmbedMagic, Buffer.alloc(EmbedTrailerSize - EmbedMagic.length, 7)]);
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stamp-embed-"));
+	const file = path.join(dir, "go-toolchain");
+	fs.writeFileSync(file, Buffer.concat([Buffer.from("APE"), record]));
+	stampFile(file, { project: "p", release: "1", revision: "r" });
+	stampFile(file, { project: "p", release: "2", revision: "r" });
+	const body = fs.readFileSync(file);
+	assert.ok(body.subarray(body.length - EmbedTrailerSize).equals(record), "the embed record must stay the last bytes");
+	assert.ok(body.subarray(0, 3).equals(Buffer.from("APE")), "the original bytes come first");
+	const got = decode(body)!;
+	assert.equal(got.stamp.release, "2");
+	assert.equal(decode(body.subarray(0, got.start)), null, "the old stamp is gone, not stacked");
+}
 
 // a binary not named after the repo gets its release created in ITS project, is stamped in place, and the checksums follow
 {

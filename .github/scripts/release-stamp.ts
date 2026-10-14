@@ -18,8 +18,19 @@ export function encode(s: Stamp): Buffer {
 	return Buffer.concat([payload, len, Magic]);
 }
 
-// The stamp at the end of the bytes and where it starts, or null when there is none.
-export function decode(buf: Buffer): { stamp: Stamp; start: number } | null {
+// A gosmopolitan binary ends with this 64-byte record. Its runtime finds the embedded GOROOT by it, so it must stay the last bytes.
+export const EmbedMagic = Buffer.from("GOSTDEMB", "ascii");
+export const EmbedTrailerSize = 64;
+
+// The size of the embed record at the end of buf, or 0 when there is none.
+export function embedTrailer(buf: Buffer): number {
+	if (buf.length < EmbedTrailerSize) return 0;
+	return buf.subarray(buf.length - EmbedTrailerSize, buf.length - EmbedTrailerSize + EmbedMagic.length).equals(EmbedMagic) ? EmbedTrailerSize : 0;
+}
+
+// The stamp and where it starts, or null when there is none. The stamp ends the file, or sits just before an embed record.
+export function decode(file: Buffer): { stamp: Stamp; start: number } | null {
+	const buf = file.subarray(0, file.length - embedTrailer(file));
 	const tail = Magic.length + 4;
 	if (buf.length < tail || !buf.subarray(buf.length - Magic.length).equals(Magic)) return null;
 	const len = buf.readUInt32BE(buf.length - tail);
@@ -38,8 +49,10 @@ export function stampFile(file: string, s: Stamp): void {
 		if (s[key] === "") throw new Error(`release stamp for ${file}: ${key} is empty`);
 	}
 	const body = fs.readFileSync(file);
+	const embed = body.subarray(body.length - embedTrailer(body));
+	const head = body.subarray(0, body.length - embed.length);
 	const old = decode(body);
-	fs.writeFileSync(file, Buffer.concat([old ? body.subarray(0, old.start) : body, encode(s)]));
+	fs.writeFileSync(file, Buffer.concat([old ? head.subarray(0, old.start) : head, encode(s), embed]));
 }
 
 // The binaries buildhost-publish uploads from dir, each with the binary name its project comes from. This mirrors the publish's own selection.
