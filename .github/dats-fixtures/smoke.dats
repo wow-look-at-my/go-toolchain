@@ -86,9 +86,6 @@ tests:
 			# cache to contribute and the refusal only says the runner is a
 			# runner.
 			CI: ""
-			# The job's GITHUB_OUTPUT names a file outside the sandbox, and only the
-			# job's own go-toolchain publishes the release this build is stamped with.
-			GITHUB_OUTPUT: ""
 		copy:
 			gt-under-test.exe: ../../dist/go-toolchain
 		files:
@@ -139,7 +136,6 @@ tests:
 		env:
 			HOME: "{outputs.home}"
 			CI: ""
-			GITHUB_OUTPUT: ""
 		files:
 			go.mod: |
 				module example.com/cgosmoke
