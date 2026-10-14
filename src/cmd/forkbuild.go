@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
@@ -47,12 +46,7 @@ func resolveForkBuildEnv(wantAPE bool) (forkBuildEnv, error) {
 }
 
 // apeJob returns the fat-APE build job for a main package.
-func (e forkBuildEnv) apeJob(srcPath, outputPath string) (buildJob, error) {
-	// Every main package links with the release in its build info. docs/RELEASE-STAMP.md
-	if err := ensureReleaseEnvFunc(filepath.Base(outputPath)); err != nil {
-		return buildJob{}, err
-	}
-	ldflags := jobLDFlags(srcPath, os.Getenv("GOFLAGS"))
+func (e forkBuildEnv) apeJob(srcPath, outputPath string) buildJob {
 	return buildJob{
 		goos:           cosmoOS,
 		goarch:         cosmoFatArch,
@@ -61,9 +55,9 @@ func (e forkBuildEnv) apeJob(srcPath, outputPath string) (buildJob, error) {
 		goCmd:          e.goCmd,
 		goroot:         e.goroot,
 		cosmoPlatforms: e.apePlatforms,
-		ldflags:        ldflags,
+		ldflags:        jobLDFlags(srcPath, os.Getenv("GOFLAGS")),
 		selfHosted:     e.selfHosted,
-	}, nil
+	}
 }
 
 // jobLDFlags is what the caller asked the linker for, plus the revision stamp.
