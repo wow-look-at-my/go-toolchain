@@ -12,6 +12,7 @@ The action's "Stamp the release into each binary" step runs `.github/scripts/rel
 - The publish sends one version to every project, so the binaries of one build share one release number. The repo's project numbers it, or the first project by name when no binary is named after the repo. Every other project gets its release created at that number, or keeps the release it already holds at that number.
 - It appends the stamp to each binary in place, rewrites `checksums.txt`, and hands the number to the publish as `version`. A file that already carries a stamp gets its stamp replaced, not a second one.
 
+
 The number in a stamp is therefore always the number of the release that holds the file, in that project. A failure anywhere fails the step, and nothing is published unstamped. A build outside the action has no stamp.
 
 `dats/release-stamp.dats` runs `.github/scripts/release-stamp.test.ts` against a fake buildhost, including that a stamped ELF still runs.

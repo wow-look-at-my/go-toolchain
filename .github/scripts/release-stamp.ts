@@ -84,7 +84,10 @@ export function binaries(dir: string): { file: string; binary: string }[] {
 }
 
 // The project buildhost-publish uploads a binary to.
-export function projectFor(repo: string, binary: string): string {
+export function projectFor(repoName: string, binaryName: string): string {
+	// buildhost accepts only a lowercase project name, and the action publishes to the lowercased repository.
+	const repo = repoName.toLowerCase();
+	const binary = binaryName.toLowerCase();
 	if (binary === repo) return repo;
 	if (binary.startsWith(`${repo}-`)) return `${repo}/${binary.slice(repo.length + 1)}`;
 	return `${repo}/${binary}`;
