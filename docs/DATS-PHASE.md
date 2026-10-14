@@ -14,7 +14,7 @@ The dats library's own contract carries the interesting half. `Run` returns an e
 
 ## Repos with no go.mod
 
-`run()` used to stop at `no go.mod found` before doing anything, which made the dats phase unreachable for a repo that is not Go. That was the wrong boundary. The CLI a suite exercises does not have to be written in Go, and dats is linked in here rather than distributed on its own. In practice, a shell or TypeScript repo that wanted its suites run had to fetch a standalone dats binary. It also had to hand-wire a CI.
+`run()` used to stop at `no go.mod found` before doing anything, which made the dats phase unreachable for a repo that is not Go. That was the incorrect boundary. The CLI a suite exercises does not have to be written in Go, and dats is linked in here rather than distributed on its own. In practice, a shell or TypeScript repo that wanted its suites run had to fetch a standalone dats binary. It also had to hand-wire a CI.
 
 So when `findGoModules()` comes back empty, `run()` checks `hasDatsSuites(".")` and, if there are suites, hands off to `runDatsOnly`:
 
@@ -28,7 +28,7 @@ Staging still happens under `build/`, because the sandbox exposes only the worki
 
 Neither a module nor suites is still an error. And the message names both halves.
 
-The positive case is covered by unit tests (`TestRunDatsOnly*`), not by `dats/cli.dats`. Asserting it from a suite means go-toolchain starting dats inside a command dats is already sandboxing. The suite covers the error message instead — and has to clear the agent markers to do.
+Unit tests covers the positive case (`TestRunDatsOnly*`), not by `dats/cli.dats`. Asserting it from a suite means go-toolchain starting dats inside a command dats is already sandboxing. The suite covers the error message instead — and has to clear the agent markers to do.
 
 ## Staging the built binaries
 
@@ -56,7 +56,9 @@ A missing bubblewrap on a linux host is NOT this. It carries no marker, an insta
 
 ## Why the NT leg provisions no backend
 
-CI tried to give the windows leg a linux daemon through WSL. The attempt is worth recording so nobody spends the afternoon again. WSL1 installs, `dockerd` starts, and `docker info` answers — then every `docker run` dies in runc. That daemon is worse than no daemon. It passes dats' probe, auto selects it, and every suite fails its setup command instead of taking the `ErrNoBackendOnHost` path above. WSL2 will work and cannot be had — a GitHub-hosted windows VM is already nested one level, and nested virtualization cannot be enabled inside it. So `build-everywhere`'s NT leg installs nothing, the runner's own daemon serves windows containers and is rejected by OSType.
+CI tried to give the windows leg a linux daemon through WSL. The try is worth recording so nobody spends the afternoon again. WSL1 installs, `dockerd` starts, and `docker info` answers — then every `docker run` dies in runc. That daemon is worse than no daemon. It passes dats' probe, auto selects it, and every suite fails its setup command instead of taking the `ErrNoBackendOnHost` path above. WSL2 will work and cannot be had — a GitHub-hosted windows VM is already nested one level, and nested virtualization cannot be enabled inside it.
+
+So `build-everywhere`'s NT leg installs nothing, OSType rejects the runner's own daemon serves windows containers and.
 
 ## How the run is configured
 
