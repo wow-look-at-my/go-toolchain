@@ -60,6 +60,8 @@ function buildDir(files: Record<string, string | Buffer>): string {
 assert.equal(projectFor("webhooks", "webhooks"), "webhooks");
 assert.equal(projectFor("webhooks", "webhook-runner"), "webhooks/webhook-runner");
 assert.equal(projectFor("webhooks", "webhooks-cli"), "webhooks/cli");
+assert.equal(projectFor("VictoriaLogs-compat-layer", "VictoriaLogs-compat-layer"), "victorialogs-compat-layer");
+assert.equal(projectFor("VictoriaLogs-compat-layer", "victorialogs-compat-layer-cli"), "victorialogs-compat-layer/cli");
 
 // encode then decode round-trips, and bytes with no stamp decode to null
 assert.deepEqual(decode(Buffer.concat([Buffer.from("x"), encode({ project: "p", release: "1", revision: "r" })]))!.stamp, { project: "p", release: "1", revision: "r" });
