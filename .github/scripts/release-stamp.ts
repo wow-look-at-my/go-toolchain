@@ -18,8 +18,20 @@ export function encode(s: Stamp): Buffer {
 	return Buffer.concat([payload, len, Magic]);
 }
 
-// The stamp at the end of the bytes and where it starts, or null when there is none.
-export function decode(buf: Buffer): { stamp: Stamp; start: number } | null {
+// A go command that carries its standard library finds it through this 64-byte record, which has to stay the last bytes of the file (gosmopolitan's internal/cosmo/embedded).
+const embeddedMagic = Buffer.from("GOSTDEMB", "ascii");
+const embeddedTrailerSize = 64;
+
+// The embedded standard library's trailer at the end of buf, or an empty buffer when buf carries none.
+export function embeddedTrailer(buf: Buffer): Buffer {
+	if (buf.length < embeddedTrailerSize) return Buffer.alloc(0);
+	const t = buf.subarray(buf.length - embeddedTrailerSize);
+	return t.subarray(0, embeddedMagic.length).equals(embeddedMagic) ? t : Buffer.alloc(0);
+}
+
+// The stamp at the end of the bytes, before an embedded standard library's trailer, and where it starts, or null when there is none.
+export function decode(whole: Buffer): { stamp: Stamp; start: number } | null {
+	const buf = whole.subarray(0, whole.length - embeddedTrailer(whole).length);
 	const tail = Magic.length + 4;
 	if (buf.length < tail || !buf.subarray(buf.length - Magic.length).equals(Magic)) return null;
 	const len = buf.readUInt32BE(buf.length - tail);
@@ -32,14 +44,16 @@ export function decode(buf: Buffer): { stamp: Stamp; start: number } | null {
 	return { stamp: { project: raw.project, release: raw.release, revision: raw.revision }, start };
 }
 
-// Stamps the file in place. An old stamp is replaced, not stacked.
+// Stamps the file in place. An old stamp is replaced, not stacked, and an embedded standard library's trailer stays last.
 export function stampFile(file: string, s: Stamp): void {
 	for (const key of ["project", "release", "revision"] as const) {
 		if (s[key] === "") throw new Error(`release stamp for ${file}: ${key} is empty`);
 	}
 	const body = fs.readFileSync(file);
+	const embedded = embeddedTrailer(body);
 	const old = decode(body);
-	fs.writeFileSync(file, Buffer.concat([old ? body.subarray(0, old.start) : body, encode(s)]));
+	const head = body.subarray(0, old ? old.start : body.length - embedded.length);
+	fs.writeFileSync(file, Buffer.concat([head, encode(s), embedded]));
 }
 
 // The binaries buildhost-publish uploads from dir, each with the binary name its project comes from. This mirrors the publish's own selection.
@@ -145,19 +159,22 @@ export async function stampBuild(dir: string): Promise<void> {
 	const repo = need("GITHUB_REPOSITORY").split("/").pop()!;
 	const bins = binaries(dir);
 	if (bins.length === 0) throw new Error(`no binary in ${dir} to stamp`);
-	const projects = [...new Set(bins.map((b) => projectFor(repo, b.binary)))];
-	if (projects.length !== 1) {
-		throw new Error(`the binaries in ${dir} publish to ${projects.length} projects (${projects.join(", ")}), and the publish takes one release number`);
-	}
-	const [project] = projects;
+	const projects = [...new Set(bins.map((b) => projectFor(repo, b.binary)))].sort();
+	// The publish sends one version to every project, so one project numbers the release and the others are created at that number.
+	const repoProject = projectFor(repo, repo);
+	const primary = projects.includes(repoProject) ? repoProject : projects[0];
 	const server = need("BUILDHOST_SERVER");
 	const commit = need("GITHUB_SHA");
-	const release = await createRelease({
-		server, token: await oidcToken(server), project,
-		branch: need("GITHUB_REF_NAME"), commit,
-		version: process.env.RELEASE_VERSION ?? "", createService: process.env.CREATE_SERVICE ?? "", aptDepends: process.env.APT_DEPENDS ?? "",
-	});
+	const base = {
+		server, token: await oidcToken(server), branch: need("GITHUB_REF_NAME"), commit,
+		createService: process.env.CREATE_SERVICE ?? "", aptDepends: process.env.APT_DEPENDS ?? "",
+	};
+	const release = await createRelease({ ...base, project: primary, version: process.env.RELEASE_VERSION ?? "" });
+	for (const project of projects) {
+		if (project !== primary) await createRelease({ ...base, project, version: release });
+	}
 	for (const b of bins) {
+		const project = projectFor(repo, b.binary);
 		stampFile(path.join(dir, b.file), { project, release, revision: commit });
 		console.log(`stamped ${b.file}: ${project} release ${release} (${commit})`);
 	}
