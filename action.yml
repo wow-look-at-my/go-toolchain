@@ -120,7 +120,7 @@ runs:
         mv "${{ steps.download.outputs.path }}" "${BIN_DIR}/go-toolchain"
         echo "${BIN_DIR}" >> "$GITHUB_PATH"
         # Capture the probe output: it names a crash or an unrunnable binary.
-        if ! probe=$("${BIN_DIR}/go-toolchain" version 2>&1); then
+        if ! probe=$(bash "$GITHUB_ACTION_PATH/.github/scripts/probe-go-toolchain.sh" "${BIN_DIR}/go-toolchain" "$RUNNER_TEMP/go-toolchain-probe"); then
           echo "buildhost go-toolchain not usable; probe output:"
           echo "${probe}"
           # A silent source build hides a buildhost outage. see docs/ACTION.md
