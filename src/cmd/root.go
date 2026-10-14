@@ -179,10 +179,6 @@ func run(cmd *cobra.Command, args []string) (err error) {
 		defer tracker.Print()
 	}
 
-	// A child that gets the watchdog's SIGQUIT must print every goroutine, not only the one that runs.
-	if os.Getenv("GOTRACEBACK") == "" {
-		os.Setenv("GOTRACEBACK", "all")
-	}
 	wd := startWatchdog(5 * time.Second)
 	if wd != nil {
 		activeWatchdog = wd

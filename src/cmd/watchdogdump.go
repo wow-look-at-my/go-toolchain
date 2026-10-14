@@ -14,9 +14,15 @@ import (
 	"time"
 )
 
-// stallDumpAfter is the silence that makes the watchdog dump stacks. It is
-// shorter than the CI step timeout, so a hung step prints where it waits.
+// stallDumpAfter is the silence that makes the watchdog dump stacks.
 var stallDumpAfter = 4 * time.Minute
+
+// A child that gets the SIGQUIT prints every goroutine, not only the one that runs.
+func init() {
+	if os.Getenv("GOTRACEBACK") == "" {
+		os.Setenv("GOTRACEBACK", "all")
+	}
+}
 
 // dumpStall writes this process's goroutines to w, then sends SIGQUIT to
 // every descendant process. A Go child prints its goroutines and exits, so
