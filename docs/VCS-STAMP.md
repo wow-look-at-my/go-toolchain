@@ -1,6 +1,6 @@
 # The revision stamp
 
-Every build this pipeline runs passes `-ldflags` on the go command line. That string is assembled in `jobLDFlags` (`src/cmd/forkbuild.go`) and consumed by `runBuild` (`src/cmd/matrixbuild.go`), in this order:
+Every build this pipeline runs passes `-ldflags` on the go command line. `runBuild` assembles that string (`src/cmd/matrixbuild.go`), in this order:
 
 ```
 <revision stamp>  <caller's GOFLAGS -ldflags>  -buildid=
@@ -60,4 +60,4 @@ When a package declares a stamp variable and NO source names a revision, the bui
 
 ## Why the caller trails the stamp
 
-`cmd/link` keeps the LAST `-X` given for a name (`addstrdata1` writes into `strdata` per name, so a later occurrence overwrites an earlier one). The stamp leads and the caller's own flags trail it, so an explicit `-X` from GOFLAGS overrides the resolved revision. `-buildid=` stays last of all, which is a different flag and a different rule. The go command takes the final `-ldflags` string as a whole. And the reproducibility flag has to be in it (see [MATRIX.md](MATRIX.md)).
+`cmd/link` keeps the LAST `-X` given for a name (`addstrdata1` writes into `strdata` per name, so a later occurrence overwrites an earlier one). The stamp leads and the caller's own flags trail it, so an explicit `-X` from GOFLAGS overrides the resolved revision. `-buildid=` stays last of all, which is a different flag and a different rule. The go command takes the last `-ldflags` string as a whole. And the reproducibility flag has to be in it (see [MATRIX.md](MATRIX.md)).
