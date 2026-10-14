@@ -6,7 +6,7 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
-import { decode, encode, projectFor } from "./release-stamp.ts";
+import { decode, encode, projectFor, stampFile } from "./release-stamp.ts";
 
 const script = path.join(import.meta.dirname, "release-stamp.ts");
 
@@ -100,6 +100,33 @@ assert.equal(decode(Buffer.from("plain")), null);
 	const body = fs.readFileSync(path.join(dir, "webhooks_linux_amd64"));
 	assert.equal(decode(body)!.stamp.release, "9");
 	assert.equal(decode(body.subarray(0, decode(body)!.start)), null, "the old stamp is gone, not stacked");
+}
+
+// a go command that carries its standard library keeps the trailer that finds it as the last bytes. A second stamp still replaces the first
+{
+	// gosmopolitan's EncodeTrailer: magic, blob offset and size as little-endian uint64, the blob's sha256, padding to many bytes
+	const blob = Buffer.from("GOSTDBLB-index-and-archives");
+	const program = Buffer.from("APE-PROGRAM");
+	const trailer = Buffer.alloc(64);
+	trailer.write("GOSTDEMB", 0, "ascii");
+	trailer.writeBigUInt64LE(BigInt(program.length), 8);
+	trailer.writeBigUInt64LE(BigInt(blob.length), 16);
+	trailer.fill(7, 24, 56);
+	const orig = Buffer.concat([program, blob, trailer]);
+	for (const release of ["6", "7"]) {
+		const srv = await fakeServer(() => ({ status: 201, body: { version: release } }));
+		const dir = buildDir({ "webhooks_linux_amd64": orig });
+		if (release === "7") stampFile(path.join(dir, "webhooks_linux_amd64"), { project: "webhooks", release: "6", revision: "old" });
+		const r = await run(dir, srv.url);
+		srv.close();
+		assert.equal(r.code, 0, r.stderr);
+		const body = fs.readFileSync(path.join(dir, "webhooks_linux_amd64"));
+		assert.ok(body.subarray(body.length - 64).equals(trailer), "the embedded standard library's trailer must stay the last bytes");
+		assert.ok(body.subarray(0, program.length + blob.length).equals(Buffer.concat([program, blob])), "the program and the blob keep their offsets");
+		const got = decode(body)!;
+		assert.deepEqual(got.stamp, { project: "webhooks", release, revision: "abc123" });
+		assert.equal(got.start, program.length + blob.length, "one stamp, right after the blob");
+	}
 }
 
 // binaries for several projects share one release. The repo's project numbers it, every other project is created at that number, and each binary names its own project

@@ -18,8 +18,20 @@ export function encode(s: Stamp): Buffer {
 	return Buffer.concat([payload, len, Magic]);
 }
 
-// The stamp at the end of the bytes and where it starts, or null when there is none.
-export function decode(buf: Buffer): { stamp: Stamp; start: number } | null {
+// A go command that carries its standard library finds it through this 64-byte record, which has to stay the last bytes of the file (gosmopolitan's internal/cosmo/embedded).
+const embeddedMagic = Buffer.from("GOSTDEMB", "ascii");
+const embeddedTrailerSize = 64;
+
+// The embedded standard library's trailer at the end of buf, or an empty buffer when buf carries none.
+export function embeddedTrailer(buf: Buffer): Buffer {
+	if (buf.length < embeddedTrailerSize) return Buffer.alloc(0);
+	const t = buf.subarray(buf.length - embeddedTrailerSize);
+	return t.subarray(0, embeddedMagic.length).equals(embeddedMagic) ? t : Buffer.alloc(0);
+}
+
+// The stamp at the end of the bytes, before an embedded standard library's trailer, and where it starts, or null when there is none.
+export function decode(whole: Buffer): { stamp: Stamp; start: number } | null {
+	const buf = whole.subarray(0, whole.length - embeddedTrailer(whole).length);
 	const tail = Magic.length + 4;
 	if (buf.length < tail || !buf.subarray(buf.length - Magic.length).equals(Magic)) return null;
 	const len = buf.readUInt32BE(buf.length - tail);
@@ -32,14 +44,16 @@ export function decode(buf: Buffer): { stamp: Stamp; start: number } | null {
 	return { stamp: { project: raw.project, release: raw.release, revision: raw.revision }, start };
 }
 
-// Stamps the file in place. An old stamp is replaced, not stacked.
+// Stamps the file in place. An old stamp is replaced, not stacked, and an embedded standard library's trailer stays last.
 export function stampFile(file: string, s: Stamp): void {
 	for (const key of ["project", "release", "revision"] as const) {
 		if (s[key] === "") throw new Error(`release stamp for ${file}: ${key} is empty`);
 	}
 	const body = fs.readFileSync(file);
+	const embedded = embeddedTrailer(body);
 	const old = decode(body);
-	fs.writeFileSync(file, Buffer.concat([old ? body.subarray(0, old.start) : body, encode(s)]));
+	const head = body.subarray(0, old ? old.start : body.length - embedded.length);
+	fs.writeFileSync(file, Buffer.concat([head, encode(s), embedded]));
 }
 
 // The binaries buildhost-publish uploads from dir, each with the binary name its project comes from. This mirrors the publish's own selection.
