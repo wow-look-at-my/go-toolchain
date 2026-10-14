@@ -106,7 +106,7 @@ runs:
     - name: Download go-toolchain
       id: download
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
-      uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
+      uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@lkgb
       with:
         project: go-toolchain
 
@@ -300,7 +300,7 @@ runs:
     # The release the build stamped its number into, else an explicit version from autorelease_args. see docs/RELEASE-STAMP.md
     - name: Auto-release to buildhost
       if: steps.publishable.outputs.publish == 'true'
-      uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
+      uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@lkgb
       with:
         path: ${{ inputs.working-directory }}/build
         version: ${{ steps.build.outputs.release_version || steps.autorelease_args.outputs.version }}

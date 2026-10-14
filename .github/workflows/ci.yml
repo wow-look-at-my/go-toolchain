@@ -40,7 +40,7 @@ jobs:
       # The last release a green master run published is the bootstrap, as it is for every consumer. A release without the linked go command hands the job to the from-scratch steps below. see docs/CI.md
       - name: Take the previous release
         id: bootstrap
-        uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
+        uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@lkgb
         with:
           project: go-toolchain
           path: ${{ runner.temp }}/gt-bootstrap
@@ -72,7 +72,7 @@ jobs:
       # The fork's last published release is the bootstrap compiler for its make.bash. Its go command carries the cache client in process, so go_bootstrap compiles from the shared cache. A stock Go cannot reach it.
       - name: Take the fork's release
         if: steps.release.outputs.linked != 'true'
-        uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
+        uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@lkgb
         with:
           # No fmt: a GOROOT is stored as a tar.gz, and repackaging wraps it again.
           project: gosmopolitan
@@ -220,7 +220,7 @@ jobs:
 
       # The assertions live in the fixture, where an engineer can re-run them without pushing. see docs/CI.md
       - name: Check build profile
-        uses: wow-look-at-my/dats@master
+        uses: wow-look-at-my/dats@lkgb
         with:
           tests: .github/dats-fixtures/cache-profile.dats
 
@@ -235,7 +235,7 @@ jobs:
           if [ -f "$trace" ]; then cp "$trace" "${{ runner.temp }}/profile-site/trace.json"; fi
 
       - name: Publish the build profile
-        uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish-site@master
+        uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish-site@lkgb
         with:
           # A namespaced child of this repo's project.
           project: go-toolchain/profile
@@ -303,7 +303,7 @@ jobs:
       - uses: wow-look-at-my/actions@secret-server#latest
 
       - name: Take the fork's release
-        uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
+        uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@lkgb
         with:
           # No fmt: a GOROOT is stored as a tar.gz, and repackaging wraps it again.
           project: gosmopolitan
@@ -673,7 +673,7 @@ jobs:
 
       # A missing hand-off fails too: comparing the hosts that answered proves nothing. see docs/CI.md
       - name: Every host built the same bytes
-        uses: wow-look-at-my/dats@master
+        uses: wow-look-at-my/dats@lkgb
         with:
           tests: .github/dats-fixtures/identical.dats
 
@@ -727,7 +727,7 @@ jobs:
 
       # Sandboxed like every other suite; the APE carries its compiler and standard library, so nothing is downloaded. see docs/CI.md
       - name: Smoke suite
-        uses: wow-look-at-my/dats@master
+        uses: wow-look-at-my/dats@lkgb
         env:
           # The org proxy wants auth to look up a module it has never seen. This job's throwaway module always is a single see docs/CI.md
           GO_PROXY_CONFIG: ""
