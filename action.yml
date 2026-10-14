@@ -141,6 +141,9 @@ runs:
           curl -fsSL --compressed "https://dl.pazer.build/gosmopolitan?branch=master&os=${fork_os}&arch=${fork_arch}" | tar -xz -C "$fork_root"
           (cd "$GITHUB_ACTION_PATH" && GOROOT="$fork_root/go" GOTOOLCHAIN=local GOTELEMETRY=off GOPROXY=direct GOSUMDB=off GONOSUMDB='*' GOFLAGS= CGO_ENABLED=0 \
             "$fork_root/go/bin/go" build -trimpath -o "${BIN_DIR}/go-toolchain" ./src)
+          # A source build carries no standard library, so it runs as go only with GOROOT set.
+          echo "GOROOT=$fork_root/go" >> "$GITHUB_ENV"
+          GOROOT="$fork_root/go" GOTOOLCHAIN=local GOTELEMETRY=off "$probe_go/go" env GOROOT
         fi
 
     - name: Install provided binary
@@ -304,7 +307,7 @@ runs:
     # The release the build stamped its number into, else an explicit version from autorelease_args. see docs/RELEASE-STAMP.md
     - name: Auto-release to buildhost
       if: steps.publishable.outputs.publish == 'true'
-      uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@lkgb
+      uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
       with:
         path: ${{ inputs.working-directory }}/build
         version: ${{ steps.build.outputs.release_version || steps.autorelease_args.outputs.version }}
