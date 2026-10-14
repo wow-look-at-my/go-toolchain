@@ -78,7 +78,7 @@ buildhost's own `buildhost-download` action fetches the binary into `$RUNNER_TEM
 
 **The download carries no branch pin.** buildhost's bare "latest" resolves against the project's default branch.
 
-The probe then runs `go-toolchain version` and captures its output rather than discarding it. So the real reason the binary is unusable is shown: a crash or an unrunnable binary. A source build happens only where the caller opted in. It writes into the same directory. A silent fallback hides a buildhost outage and ships a locally-compiled toolchain that can differ from the released one. The source build downloads the gosmopolitan toolchain from buildhost and builds with its go command, because only that go command can build this module.
+The probe then runs `go-toolchain version`, and runs the binary as the go command with `go env GOROOT`, which is how every later step uses it. It captures the output rather than discarding it. So the real reason the binary is unusable is shown: a crash, an unrunnable binary, or a go command that cannot find its embedded GOROOT. A source build happens only where the caller opted in. It writes into the same directory. A silent fallback hides a buildhost outage and ships a locally-compiled toolchain that can differ from the released one. The source build downloads the gosmopolitan toolchain from buildhost and builds with its go command, because only that go command can build this module.
 
 It never contacts golang.org.
 
