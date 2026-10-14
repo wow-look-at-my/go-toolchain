@@ -1,81 +1,35 @@
 # The release stamp
 
-A published binary carries the buildhost release it shipped as. The stamp is a small trailer appended to the binary. After the build and before the upload. buildhost stores the bytes it is given and never changes a binary.
+A published binary reports the buildhost release number it shipped as. The number is an incrementing integer, so releases order by it. A commit hash does not order, so it rides along after the number.
 
-## Where it is applied
+## How the number gets in
 
-The action's "Stamp the release into each binary" step runs `.github/scripts/release-stamp.ts` on the build directory, just before the auto-release step:
+The build itself stamps it, into every binary it links. No program declares anything, and nothing outside go-toolchain and the gosmopolitan go command takes part, so no workflow or program can leave it out.
 
-- It finds the binaries the publish uploads, by the same rules as `buildhost-publish`: every `<binary>_<os>_<arch>` file, and every `kind: binary` entry of `buildhost-artifacts.json`.
-- It names their project the way the publish does: `<repo>` for a binary named after the repo, else `<repo>/<binary>`.
-- It creates the release over the job's OIDC token, with the branch, the commit, `create_service` and `apt-depends`. An explicit `autorelease_args` version is created as given, or used as it is when it exists.
-- The publish sends one version to every project, so the binaries of one build share one release number. The repo's project numbers it, or the first project by name when no binary is named after the repo. Every other project gets its release created at that number, or keeps the release it already holds at that number.
-- It appends the stamp to each binary in place, rewrites `checksums.txt`, and hands the number to the publish as `version`. A file that already carries a stamp gets its stamp replaced, not a second one.
+- Before the first main package links, `ensureReleaseEnv` (`src/cmd/releasenumber.go`) puts `GOSMOPOLITAN_RELEASE` and `GOSMOPOLITAN_RELEASE_REVISION` in the process environment. Every go command go-toolchain starts inherits them.
+- The fork's go command writes them into every binary's build info as the settings `release` and `release.revision` (`cmd/go/internal/load/release.go` in gosmopolitan). They are independent of `-buildvcs` and of the build running in a checkout.
+- In CI the number comes from buildhost. The build creates the release over the job's OIDC token, at the store the run locks use. It creates it in the project the publish uploads the first linked binary to. This covers the repo's project, or `<repo>/<name>` for a binary named apart from the repo (`publishProject`, the same rule as buildhost-publish). A release in any other project counts its numbers apart, and the publish finds that number already published. The run lock `buildhost-release:<project>` holds the number, so every job of a run try that publishes to that project stamps the same one. Jobs that publish to other projects lock their own numbers. A job that finds it locked creates no release.
+- The build writes `release_version` to `GITHUB_OUTPUT`. The action's publish names that release, so the uploaded binaries land in the release whose number they carry.
+- `GO_TOOLCHAIN_RELEASE_VERSION` names the number for a build that already has one.
 
+In CI, a failure to get the number or the commit fails the build. So does a failure to hand the number to the publish. It never falls back to an unstamped binary.
 
-The number in a stamp is therefore always the number of the release that holds the file, in that project. A failure anywhere fails the step, and nothing is published unstamped. A build outside the action has no stamp.
+After each link, `verifyReleaseStamp` reads the binary's build info with the same go command and fails the build unless it carries this release and commit. A go command without gosmopolitan's release settings ignores the variables. This check is what turns that into a red build instead of an unstamped release.
 
-`dats/release-stamp.dats` runs `.github/scripts/release-stamp.test.ts` against a fake buildhost, including that a stamped ELF still runs.
-
-## The format
-
-The trailer is the last bytes of the file:
-
-```
-<payload: UTF-8 JSON> <length of payload: uint32, big-endian> <magic: "BUILDHOST-STAMP1", 16 ASCII bytes>
-```
-
-A go command that carries its standard library finds it through a 64-byte record that opens with `GOSTDEMB`. It has to be the last bytes of the file (`internal/cosmo/embedded` in gosmopolitan). In such a file the stamp goes right before that record. The record stays last. A reader drops that record from the end first.
-
-The payload is one JSON object, every field a non-empty string:
-
-```json
-{"project":"webhooks/webhook-runner","release":"347","revision":"9a245c29baf2040eda91efa39b87662a49a66aeb"}
-```
+A build outside CI with no `GO_TOOLCHAIN_RELEASE_VERSION` has no buildhost release. It warns, and its binaries carry no release setting. Such a binary is never published.
 
 Releases stamped before this order existed carry the stamp after the trailer. Such a go-toolchain cannot find its GOROOT when it runs as `go`. The action therefore runs `repairOrder` on the go-toolchain it installs, which moves the stamp in front of the trailer.
 
 ## Reading it
 
-Read the length field and the magic from the end of the file, as the reader below does. A file whose last bytes are not the magic has no stamp. Otherwise the length field before the magic gives the payload size, and the payload sits before the length field.
-
 ```go
-func readStamp(f *os.File) (map[string]string, error) {
-	st, err := f.Stat()
-	if err != nil {
-		return nil, err
+bi, _ := debug.ReadBuildInfo()
+for _, s := range bi.Settings {
+	switch s.Key {
+	case "release": // the buildhost release number
+	case "release.revision": // the commit it was built from
 	}
-	end := st.Size()
-	embedded := make([]byte, 8)
-	if end >= 64 {
-		if _, err := f.ReadAt(embedded, end-64); err != nil {
-			return nil, err
-		}
-		if string(embedded) == "GOSTDEMB" {
-			end -= 64
-		}
-	}
-	tail := make([]byte, 20)
-	if end < 20 {
-		return nil, nil
-	}
-	if _, err := f.ReadAt(tail, end-20); err != nil {
-		return nil, err
-	}
-	if string(tail[4:]) != "BUILDHOST-STAMP1" {
-		return nil, nil
-	}
-	n := int64(binary.BigEndian.Uint32(tail[:4]))
-	if n > end-20 {
-		return nil, fmt.Errorf("stamp claims %d payload bytes, more than the file holds", n)
-	}
-	payload := make([]byte, n)
-	if _, err := f.ReadAt(payload, end-20-n); err != nil {
-		return nil, err
-	}
-	var s map[string]string
-	return s, json.Unmarshal(payload, &s)
 }
 ```
 
-A program reads its own stamp by opening `os.Executable()`.
+A program prints `<name> <release> (<release.revision>)`. A missing `release` means the binary was not built for a release. The program says so as an error, not as a stand-in version.

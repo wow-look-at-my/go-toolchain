@@ -203,6 +203,28 @@ runs:
         bash "$GITHUB_ACTION_PATH/.github/scripts/build-from-github.sh" "$go" https://github.com/golang/text v0.42.0 "$bin" cmd/gotext
         echo "$bin" >> "$GITHUB_PATH"
 
+    # A composite `with:` block is static YAML. The build reads the version too, so this runs before it. see docs/ACTION.md
+    - name: Parse autorelease_args
+      id: autorelease_args
+      uses: wow-look-at-my/actions@typescript#latest
+      with:
+        script: |
+          const raw: string = "${{ inputs.autorelease_args }}";
+          const known: string[] = ["create_service", "version"];
+          const out: Record<string, string> = {};
+          for (const key of known) out[key] = "";
+          for (const pair of raw.split(/[\s,]+/).filter((p: string) => p.length > 0)) {
+            const eq = pair.indexOf("=");
+            const key = eq < 0 ? pair : pair.slice(0, eq);
+            const value = eq < 0 ? "" : pair.slice(eq + 1);
+            if (!known.includes(key) || value === "") {
+              core.setFailed(`autorelease_args: unrecognized or valueless entry '${pair}' (known keys: ${known.join(", ")}; form: key=value)`);
+              return;
+            }
+            out[key] = value;
+          }
+          for (const key of known) core.setOutput(key, out[key]);
+
     # A copy of the shared cache's key index turns its 135 MB download into a fetch of the keys added since: 7.8 s -> 4.3 s on an empty cache.
     - name: Restore the shared cache's key index
       uses: actions/cache@v4
@@ -218,10 +240,12 @@ runs:
         restore-keys: go-key-index-${{ runner.os }}-
 
     - name: Run go-toolchain
+      id: build
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
         GITHUB_TOKEN: ${{ github.token }}
+        GO_TOOLCHAIN_RELEASE_VERSION: ${{ steps.autorelease_args.outputs.version }}
       run: |
         set -euo pipefail
         TIMEOUT_SECONDS=$(( ${{ inputs.timeout }} * 60 ))
@@ -290,70 +314,12 @@ runs:
       with:
         permission: artifact-metadata
 
-    # buildhost accepts only a lowercase project name. The build creates its release under the same name (publishProject).
-    - name: Name the buildhost project
-      id: project
-      if: steps.publishable.outputs.publish == 'true'
-      uses: wow-look-at-my/actions@typescript#latest
-      with:
-        script: |
-          core.setOutput("name", context.repo.repo.toLowerCase());
-
-    # A composite `with:` block is static YAML. see docs/ACTION.md
-    - name: Parse autorelease_args
-      if: steps.publishable.outputs.publish == 'true'
-      id: autorelease_args
-      uses: wow-look-at-my/actions@typescript#latest
-      with:
-        script: |
-          const raw: string = "${{ inputs.autorelease_args }}";
-          const known: string[] = ["create_service", "version"];
-          const out: Record<string, string> = {};
-          for (const key of known) out[key] = "";
-          for (const pair of raw.split(/[\s,]+/).filter((p: string) => p.length > 0)) {
-            const eq = pair.indexOf("=");
-            const key = eq < 0 ? pair : pair.slice(0, eq);
-            const value = eq < 0 ? "" : pair.slice(eq + 1);
-            if (!known.includes(key) || value === "") {
-              core.setFailed(`autorelease_args: unrecognized or valueless entry '${pair}' (known keys: ${known.join(", ")}; form: key=value)`);
-              return;
-            }
-            out[key] = value;
-          }
-          for (const key of known) core.setOutput(key, out[key]);
-
-    # A nested action sees its own GITHUB_ACTION_PATH, so this step hands the stamp step the path of this action as a container sees it.
-    - name: Locate the release stamp script
-      if: steps.publishable.outputs.publish == 'true'
-      id: stamp_script
-      shell: bash
-      run: echo "path=$GITHUB_ACTION_PATH/.github/scripts/release-stamp.ts" >> "$GITHUB_OUTPUT"
-
-    # buildhost stores the bytes it is given, so the stamp goes on here, in the release the publish then names. see docs/RELEASE-STAMP.md
-    - name: Stamp the release into each binary
-      if: steps.publishable.outputs.publish == 'true'
-      id: stamp
-      uses: wow-look-at-my/actions@typescript#latest
-      env:
-        BUILDHOST_SERVER: https://pazer.build
-        RELEASE_VERSION: ${{ steps.autorelease_args.outputs.version }}
-        CREATE_SERVICE: ${{ steps.autorelease_args.outputs.create_service }}
-        APT_DEPENDS: ${{ inputs.apt-depends }}
-      with:
-        script: |
-          const { stampBuild } = require("${{ steps.stamp_script.outputs.path }}") as { stampBuild: (dir: string) => Promise<void> };
-          try {
-            await stampBuild(path.resolve(env.GITHUB_WORKSPACE || process.cwd(), "${{ inputs.working-directory }}/build"));
-          } catch (e) {
-            core.setFailed(`release stamp: ${e instanceof Error ? e.message : String(e)}`);
-          }
-
+    # The release the build stamped its number into, else an explicit version from autorelease_args. see docs/RELEASE-STAMP.md
     - name: Auto-release to buildhost
       if: steps.publishable.outputs.publish == 'true'
       uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
       with:
-        project: ${{ steps.project.outputs.name }}
         path: ${{ inputs.working-directory }}/build
+        version: ${{ steps.build.outputs.release_version || steps.autorelease_args.outputs.version }}
         create_service: ${{ steps.autorelease_args.outputs.create_service }}
-        version: ${{ steps.stamp.outputs.version }}
         apt_depends: ${{ inputs.apt-depends }}
