@@ -26,13 +26,13 @@ It answers for every language. `commentfix` reads a comment by its delimiters ra
 
 The phase is `src/cmd/commentscanphase.go`. It is a start and a join around `commentfix.FixTree`. Nothing about comments is decided here.
 
-It starts only once `findGoModules` has answered. A repair is a write. A run begun in a directory that is not a module has no business rewriting whatever prose it finds there. A tree carrying `dats/` suites and no `go.mod` therefore gets no sweep at all.
+It starts only once `findGoModules` answered. A repair is a write. A run begun in a directory that is not a module has no business rewriting whatever prose it finds there. A tree carrying `dats/` suites and no `go.mod` therefore gets no sweep at all.
 
 It runs on its own goroutine, beside the dependency resolution, `go mod tidy` and `go generate`. Each repaired file is renamed into place, so a reader beside the sweep sees a whole file either way. The test phase joins the sweep before vet, which rewrites the same files. The up-to-date path joins it before the build.
 
 Inside git it writes only the files the branch changed since its merge base with the default branch, including uncommitted and untracked ones. It writes nothing while a merge, rebase, cherry-pick or revert waits for the user, or when no merge base resolves, and prints why. Each file it writes prints as a diff under its rule, and a rewrite slopfix's guard threw away prints as a warning with its line.
 
-A finding it cannot repair is a defect in slopfix rather than a message for the author. The repair covers every number the rule reports. So the phase warns only when the rule and its repair have come apart.
+A finding it cannot repair is a defect in slopfix rather than a message for the author. The repair covers every number the rule reports. So the phase warns only when the rule and its repair came apart.
 
 ## What is scanned
 
@@ -40,9 +40,11 @@ The walk is slopfix's, in `commentfix.TreeFiles`. The `slopfix comments` command
 
 It skips a nested module too, whose text belongs to that module. The exception is a root that is not itself a module: skipping there scans nothing, because the repository's modules all sit below the root.
 
-It skips a git submodule on the same ground. This one carries no exception. A submodule's working tree is another repository's checkout. That repository writes the prose and takes the fix. Nothing here can repair a finding inside it. Git marks such a tree by writing `.git` as a FILE. The file holds a gitdir pointer, where an ordinary checkout keeps a directory. The skip reads that marker rather than a name. The nested-module predicate cannot stand in for it, because that one reads `go.mod`. A submodule of C, C++ or Rust carries none. A vendored driver or compiler tree is also where the findings run away with the whole warnings budget.
+It skips a git submodule on the same ground. This one carries no exception. A submodule's working tree is another repository's checkout. That repository writes the prose and takes the fix. Nothing here can repair a finding inside it. Git marks such a tree by writing `.git` as a FILE.
 
-A file whose extension `commentfix` has no comment syntax for is skipped rather than guessed at. A wrong guess reports a string literal as prose, and a rule nobody trusts is a rule nobody keeps.
+The file holds a gitdir pointer, where an ordinary checkout keeps a directory. The skip reads that marker rather than a name. The nested-module predicate cannot stand in for it, because that one reads `go.mod`. A submodule of C, C++ or Rust carries none. A vendored driver or compiler tree is also where the findings run away with the whole warnings budget.
+
+A file whose extension `commentfix` has no comment syntax for is skipped rather than guessed at. A incorrect guess reports a string literal as prose, and a rule nobody trusts is a rule nobody keeps.
 
 ## What counts as a number
 
@@ -59,7 +61,7 @@ An HTTP status code is exempt, but only when the word `HTTP` (in any case) sits 
 
 A sum of money is exempt. A currency sign directly against the digits makes the token an amount, which states what something costs rather than counting what is below. Only the amount goes free, so `$1 is the boundary, and 4 dp under it` still reports the `4`, and `costs $ 5` reports.
 
-A token holding `://` is a URL and is skipped whole. So citing an issue by its full address is how to keep a reference that carries a number. A qualified name -- a marker strictly between word characters, as in `example.com/mod/v2`, `net/http` or `sync.Once` -- is a name rather than prose and is left alone. A compiler directive (`//go:build`, `//go:generate`) is machine text and is never reported. And a generated file is skipped entirely.
+A token holding `://` is a URL and is skipped whole. So citing an issue by its full address is how to keep a reference that carries a number. A qualified name -- a marker strictly between word characters, as in `example.com/mod/v2`, `net/http` or `sync.Once` -- is a name rather than prose and is left alone. A compiler directive (`//go:build`, `//go:generate`) is machine text and is never reported. And a generated file is skipped fully.
 
 ## Scope
 
