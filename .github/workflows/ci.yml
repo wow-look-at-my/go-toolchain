@@ -791,7 +791,7 @@ jobs:
     needs: [host-build, build]
     strategy:
       matrix:
-        os: ${{ github.event.repository.visibility == 'public' && fromJSON('["ubuntu-latest","macos-latest","windows-latest"]') || fromJSON('["ubuntu-latest"]') }}
+        os: [ubuntu-latest, macos-latest, windows-latest]
         # NT is the long pole; drop this exclude to run it. waiver-expires: 2026-09-28
         exclude:
           - os: windows-latest
