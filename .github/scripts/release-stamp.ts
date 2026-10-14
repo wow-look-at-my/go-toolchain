@@ -161,7 +161,8 @@ export async function stampBuild(dir: string): Promise<void> {
 	if (bins.length === 0) throw new Error(`no binary in ${dir} to stamp`);
 	const projects = [...new Set(bins.map((b) => projectFor(repo, b.binary)))].sort();
 	// The publish sends one version to every project, so one project numbers the release and the others are created at that number.
-	const primary = projects.includes(repo) ? repo : projects[0];
+	const repoProject = projectFor(repo, repo);
+	const primary = projects.includes(repoProject) ? repoProject : projects[0];
 	const server = need("BUILDHOST_SERVER");
 	const commit = need("GITHUB_SHA");
 	const base = {

@@ -176,6 +176,19 @@ assert.equal(decode(Buffer.from("plain")), null);
 	assert.equal(r.output, "version=4\n");
 }
 
+// a repository named in mixed case still numbers the release in its own lowercased project
+{
+	const srv = await fakeServer((_url, body) => ({ status: 201, body: { version: body?.version ?? "3" } }));
+	const dir = buildDir({ "Zeta_linux_amd64": "Z", "abc_linux_amd64": "A" });
+	const r = await run(dir, srv.url, { GITHUB_REPOSITORY: "wow-look-at-my/Zeta" });
+	srv.close();
+	assert.equal(r.code, 0, r.stderr);
+	assert.deepEqual(srv.seen.map((s) => [s.url, s.body.version]), [
+		["/api/v1/projects/zeta/releases", undefined],
+		["/api/v1/projects/zeta/abc/releases", "3"],
+	]);
+}
+
 // a refused release in a second project fails the step and stamps nothing
 {
 	const srv = await fakeServer((url) => url.includes("/beta/") ? { status: 403, body: { error: "no" } } : { status: 201, body: { version: "4" } });
