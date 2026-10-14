@@ -139,6 +139,8 @@ runs:
           curl -fsSL --compressed "https://dl.pazer.build/gosmopolitan?branch=master&os=${fork_os}&arch=${fork_arch}" | tar -xz -C "$fork_root"
           (cd "$GITHUB_ACTION_PATH" && GOROOT="$fork_root/go" GOTOOLCHAIN=local GOTELEMETRY=off GOPROXY=direct GOSUMDB=off GONOSUMDB='*' GOFLAGS= CGO_ENABLED=0 \
             "$fork_root/go/bin/go" build -trimpath -o "${BIN_DIR}/go-toolchain" ./src)
+          # A source build embeds no standard library: the fork tree it was built from is its GOROOT, run as itself or as go.
+          echo "GOROOT=$fork_root/go" >> "$GITHUB_ENV"
         fi
 
     - name: Install provided binary
