@@ -12,7 +12,7 @@ const script = path.join(import.meta.dirname, "release-stamp.ts");
 
 type Seen = { url: string; body: any }[];
 
-function fakeServer(answer: (url: string) => { status: number; body: unknown }): Promise<{ url: string; seen: Seen; close: () => void }> {
+function fakeServer(answer: (url: string, body: any) => { status: number; body: unknown }): Promise<{ url: string; seen: Seen; close: () => void }> {
 	const seen: Seen = [];
 	const srv = http.createServer((req, res) => {
 		let raw = "";
@@ -22,8 +22,9 @@ function fakeServer(answer: (url: string) => { status: number; body: unknown }):
 				res.end(JSON.stringify({ value: "oidc-token" }));
 				return;
 			}
-			seen.push({ url: req.url!, body: raw ? JSON.parse(raw) : null });
-			const a = answer(req.url!);
+			const body = raw ? JSON.parse(raw) : null;
+			seen.push({ url: req.url!, body });
+			const a = answer(req.url!, body);
 			res.statusCode = a.status;
 			res.end(JSON.stringify(a.body));
 		});
@@ -119,15 +120,101 @@ assert.equal(decode(Buffer.from("plain")), null);
 	assert.equal(decode(body.subarray(0, decode(body)!.start)), null, "the old stamp is gone, not stacked");
 }
 
-// binaries for several projects fail loud, before any release is created
+// a go command that carries its standard library keeps the trailer that finds it as the last bytes. A second stamp still replaces the first
 {
-	const srv = await fakeServer(() => ({ status: 201, body: { version: "1" } }));
+	// gosmopolitan's EncodeTrailer: magic, blob offset and size as little-endian uint64, the blob's sha256, padding to many bytes
+	const blob = Buffer.from("GOSTDBLB-index-and-archives");
+	const program = Buffer.from("APE-PROGRAM");
+	const trailer = Buffer.alloc(64);
+	trailer.write("GOSTDEMB", 0, "ascii");
+	trailer.writeBigUInt64LE(BigInt(program.length), 8);
+	trailer.writeBigUInt64LE(BigInt(blob.length), 16);
+	trailer.fill(7, 24, 56);
+	const orig = Buffer.concat([program, blob, trailer]);
+	for (const release of ["6", "7"]) {
+		const srv = await fakeServer(() => ({ status: 201, body: { version: release } }));
+		const dir = buildDir({ "webhooks_linux_amd64": orig });
+		if (release === "7") stampFile(path.join(dir, "webhooks_linux_amd64"), { project: "webhooks", release: "6", revision: "old" });
+		const r = await run(dir, srv.url);
+		srv.close();
+		assert.equal(r.code, 0, r.stderr);
+		const body = fs.readFileSync(path.join(dir, "webhooks_linux_amd64"));
+		assert.ok(body.subarray(body.length - 64).equals(trailer), "the embedded standard library's trailer must stay the last bytes");
+		assert.ok(body.subarray(0, program.length + blob.length).equals(Buffer.concat([program, blob])), "the program and the blob keep their offsets");
+		const got = decode(body)!;
+		assert.deepEqual(got.stamp, { project: "webhooks", release, revision: "abc123" });
+		assert.equal(got.start, program.length + blob.length, "one stamp, right after the blob");
+	}
+}
+
+// binaries for several projects share one release. The repo's project numbers it, every other project is created at that number, and each binary names its own project
+{
+	const srv = await fakeServer((_url, body) => ({ status: 201, body: { version: body?.version ?? "12" } }));
+	const dir = buildDir({
+		"slopfix_linux_amd64": "S",
+		"slopfix_darwin_arm64": "S2",
+		"probe_linux_amd64": "P",
+		"ratchet_linux_amd64": "R",
+		"checksums.txt": "00  slopfix_linux_amd64\n00  slopfix_darwin_arm64\n00  probe_linux_amd64\n00  ratchet_linux_amd64\n",
+	});
+	const r = await run(dir, srv.url, { GITHUB_REPOSITORY: "wow-look-at-my/slopfix", CREATE_SERVICE: "false" });
+	srv.close();
+	assert.equal(r.code, 0, r.stderr);
+	assert.deepEqual(srv.seen.map((s) => s.url), [
+		"/api/v1/projects/slopfix/releases",
+		"/api/v1/projects/slopfix/probe/releases",
+		"/api/v1/projects/slopfix/ratchet/releases",
+	]);
+	assert.deepEqual(srv.seen[0].body, { git_branch: "master", git_commit: "abc123", create_service: false });
+	for (const s of srv.seen.slice(1)) assert.deepEqual(s.body, { git_branch: "master", git_commit: "abc123", version: "12", create_service: false });
+	for (const [name, project] of [
+		["slopfix_linux_amd64", "slopfix"], ["slopfix_darwin_arm64", "slopfix"],
+		["probe_linux_amd64", "slopfix/probe"], ["ratchet_linux_amd64", "slopfix/ratchet"],
+	]) {
+		assert.deepEqual(decode(fs.readFileSync(path.join(dir, name)))!.stamp, { project, release: "12", revision: "abc123" }, name);
+	}
+	assert.ok(!fs.readFileSync(path.join(dir, "checksums.txt"), "utf8").includes("00  "), "checksums.txt must carry the stamped hashes");
+	assert.equal(r.output, "version=12\n");
+}
+
+// with no binary named after the repo, the first project by name numbers the release, and a project that holds that number already keeps it
+{
+	const srv = await fakeServer((url) => url.includes("/beta/") ? { status: 409, body: { error: "exists" } } : { status: 201, body: { version: "4" } });
+	const dir = buildDir({ "beta_linux_amd64": "B", "alpha_linux_amd64": "A" });
+	const r = await run(dir, srv.url);
+	srv.close();
+	assert.equal(r.code, 0, r.stderr);
+	assert.deepEqual(srv.seen.map((s) => [s.url, s.body.version]), [
+		["/api/v1/projects/webhooks/alpha/releases", undefined],
+		["/api/v1/projects/webhooks/beta/releases", "4"],
+	]);
+	assert.deepEqual(decode(fs.readFileSync(path.join(dir, "beta_linux_amd64")))!.stamp, { project: "webhooks/beta", release: "4", revision: "abc123" });
+	assert.equal(r.output, "version=4\n");
+}
+
+// a repository named in mixed case still numbers the release in its own lowercased project
+{
+	const srv = await fakeServer((_url, body) => ({ status: 201, body: { version: body?.version ?? "3" } }));
+	const dir = buildDir({ "Zeta_linux_amd64": "Z", "abc_linux_amd64": "A" });
+	const r = await run(dir, srv.url, { GITHUB_REPOSITORY: "wow-look-at-my/Zeta" });
+	srv.close();
+	assert.equal(r.code, 0, r.stderr);
+	assert.deepEqual(srv.seen.map((s) => [s.url, s.body.version]), [
+		["/api/v1/projects/zeta/releases", undefined],
+		["/api/v1/projects/zeta/abc/releases", "3"],
+	]);
+}
+
+// a refused release in a second project fails the step and stamps nothing
+{
+	const srv = await fakeServer((url) => url.includes("/beta/") ? { status: 403, body: { error: "no" } } : { status: 201, body: { version: "4" } });
 	const dir = buildDir({ "alpha_linux_amd64": "A", "beta_linux_amd64": "B" });
 	const r = await run(dir, srv.url);
 	srv.close();
 	assert.notEqual(r.code, 0);
-	assert.match(r.stderr, /publish to 2 projects/);
-	assert.equal(srv.seen.length, 0);
+	assert.match(r.stderr, /webhooks\/beta: HTTP 403/);
+	assert.equal(fs.readFileSync(path.join(dir, "alpha_linux_amd64"), "utf8"), "A");
+	assert.equal(r.output, "");
 }
 
 // a refused release fails the step and stamps nothing

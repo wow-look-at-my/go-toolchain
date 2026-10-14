@@ -43,7 +43,7 @@ export function decode(file: Buffer): { stamp: Stamp; start: number } | null {
 	return { stamp: { project: raw.project, release: raw.release, revision: raw.revision }, start };
 }
 
-// Stamps the file in place. An old stamp is replaced, not stacked.
+// Stamps the file in place. An old stamp is replaced, not stacked, and an embedded standard library's trailer stays last.
 export function stampFile(file: string, s: Stamp): void {
 	for (const key of ["project", "release", "revision"] as const) {
 		if (s[key] === "") throw new Error(`release stamp for ${file}: ${key} is empty`);
@@ -158,19 +158,22 @@ export async function stampBuild(dir: string): Promise<void> {
 	const repo = need("GITHUB_REPOSITORY").split("/").pop()!;
 	const bins = binaries(dir);
 	if (bins.length === 0) throw new Error(`no binary in ${dir} to stamp`);
-	const projects = [...new Set(bins.map((b) => projectFor(repo, b.binary)))];
-	if (projects.length !== 1) {
-		throw new Error(`the binaries in ${dir} publish to ${projects.length} projects (${projects.join(", ")}), and the publish takes one release number`);
-	}
-	const [project] = projects;
+	const projects = [...new Set(bins.map((b) => projectFor(repo, b.binary)))].sort();
+	// The publish sends one version to every project, so one project numbers the release and the others are created at that number.
+	const repoProject = projectFor(repo, repo);
+	const primary = projects.includes(repoProject) ? repoProject : projects[0];
 	const server = need("BUILDHOST_SERVER");
 	const commit = need("GITHUB_SHA");
-	const release = await createRelease({
-		server, token: await oidcToken(server), project,
-		branch: need("GITHUB_REF_NAME"), commit,
-		version: process.env.RELEASE_VERSION ?? "", createService: process.env.CREATE_SERVICE ?? "", aptDepends: process.env.APT_DEPENDS ?? "",
-	});
+	const base = {
+		server, token: await oidcToken(server), branch: need("GITHUB_REF_NAME"), commit,
+		createService: process.env.CREATE_SERVICE ?? "", aptDepends: process.env.APT_DEPENDS ?? "",
+	};
+	const release = await createRelease({ ...base, project: primary, version: process.env.RELEASE_VERSION ?? "" });
+	for (const project of projects) {
+		if (project !== primary) await createRelease({ ...base, project, version: release });
+	}
 	for (const b of bins) {
+		const project = projectFor(repo, b.binary);
 		stampFile(path.join(dir, b.file), { project, release, revision: commit });
 		console.log(`stamped ${b.file}: ${project} release ${release} (${commit})`);
 	}
