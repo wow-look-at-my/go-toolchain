@@ -90,6 +90,8 @@ var rootCmd = &cobra.Command{
 		}
 		// Snapshot env before phases add vars, so fingerprint matches what the next run checks.
 		captureRunEnv()
+		// After the snapshot: the run name is new each build and is not an input.
+		nameLocalRun()
 		// A target set nothing can build is rejected before a compiler is fetched for it.
 		if err := checkTargetFlags(cmd); err != nil {
 			return err

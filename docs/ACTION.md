@@ -106,6 +106,14 @@ Fetches secrets over OIDC, then runs `go-toolchain matrix`.
 
 **What the target inputs build.** With `targets` unset — the default — the run produces ONE fat APE covering `cosmo-platforms` (`linux/amd64,darwin/arm64,windows/amd64`), published as a single multi-platform artifact. The fat APE is the action's only native output. `targets` adds wasm artifacts alongside it (`wasm/js`, `wasm/wasip1`), or replaces it fully with wasm alone by leaving `cosmo` out of the list. There is no input that copies the APE onto per-platform artifact names. The APE publishes under its own name, once.
 
+## 2b. The shared cache's key index
+
+The go command loads the shared cache's key index before its first lookup. With no copy on disk that is the whole index, about 135 MB. With a copy it asks only for the keys added since. A runner starts with an empty home. The action restores the newest copy for its OS with `actions/cache` before the build, and saves this run's copy when the job ends. The copy lives in the default GOCACHE.
+
+The step names that directory for each OS.
+
+Measured on go-s3-server builds with an empty local cache: 7.8 s and 6.9 s without a copy, 4.3 s and 5.2 s with one.
+
 ## 3. Handing off `build/`
 
 Every run ends by cache-uploading `build/` for downstream jobs.
