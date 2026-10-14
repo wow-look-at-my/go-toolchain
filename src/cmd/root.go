@@ -467,11 +467,7 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, []datsArti
 		if buildStep != nil {
 			onFirstOutput = buildStep.noteOutput
 		}
-		job, err := forkEnv.apeJob(t.ImportPath, outPath)
-		if err != nil {
-			return nil, nil, err
-		}
-		if err := runBuild(r, job, onFirstOutput); err != nil {
+		if err := runBuild(r, forkEnv.apeJob(t.ImportPath, outPath), onFirstOutput); err != nil {
 			return nil, nil, fmt.Errorf("go build failed: %w", err)
 		}
 		if buildStep != nil {
