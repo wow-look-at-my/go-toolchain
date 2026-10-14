@@ -19,7 +19,7 @@ The number in a stamp is therefore always the number of the release that holds t
 
 ## The format
 
-The trailer is the last bytes of the file, with one exception. A gosmopolitan binary ends with a 64-byte record that starts with `GOSTDEMB`. Its runtime finds the embedded GOROOT through that record. The stamp goes just before it and the record stays last:
+The trailer is the last bytes of the file:
 
 ```
 <payload: UTF-8 JSON> <length of payload: uint32, big-endian> <magic: "BUILDHOST-STAMP1", 16 ASCII bytes>
@@ -35,7 +35,7 @@ The payload is one JSON object, every field a non-empty string:
 
 ## Reading it
 
-Read the length field and the magic from the end of the file, as the reader below does. First step over a 64-byte `GOSTDEMB` record if the file ends with one. A file whose remaining last bytes are not the magic has no stamp. Otherwise the length field before the magic gives the payload size, and the payload sits before the length field.
+Read the length field and the magic from the end of the file, as the reader below does. A file whose last bytes are not the magic has no stamp. Otherwise the length field before the magic gives the payload size, and the payload sits before the length field.
 
 ```go
 func readStamp(f *os.File) (map[string]string, error) {
@@ -44,12 +44,12 @@ func readStamp(f *os.File) (map[string]string, error) {
 		return nil, err
 	}
 	end := st.Size()
-	embed := make([]byte, 8)
+	embedded := make([]byte, 8)
 	if end >= 64 {
-		if _, err := f.ReadAt(embed, end-64); err != nil {
+		if _, err := f.ReadAt(embedded, end-64); err != nil {
 			return nil, err
 		}
-		if string(embed) == "GOSTDEMB" {
+		if string(embedded) == "GOSTDEMB" {
 			end -= 64
 		}
 	}
