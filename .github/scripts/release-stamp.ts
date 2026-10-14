@@ -56,6 +56,22 @@ export function stampFile(file: string, s: Stamp): void {
 	fs.writeFileSync(file, Buffer.concat([head, encode(s), embedded]));
 }
 
+// Moves a stamp that sits after an embedded standard library's trailer to
+// before it, the layout stampFile writes. Binaries published before the stamp
+// kept that trailer last carry the other order, and their go command finds no
+// standard library. Answers whether the file changed.
+export function repairFile(file: string): boolean {
+	const body = fs.readFileSync(file);
+	if (embeddedTrailer(body).length > 0) return false;
+	const old = decode(body);
+	if (!old) return false;
+	const before = body.subarray(0, old.start);
+	const embedded = embeddedTrailer(before);
+	if (embedded.length === 0) return false;
+	fs.writeFileSync(file, Buffer.concat([before.subarray(0, before.length - embedded.length), body.subarray(old.start), embedded]));
+	return true;
+}
+
 // The binaries buildhost-publish uploads from dir, each with the binary name its project comes from. This mirrors the publish's own selection.
 export function binaries(dir: string): { file: string; binary: string }[] {
 	const out: { file: string; binary: string }[] = [];

@@ -6,7 +6,7 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
-import { decode, encode, projectFor, stampFile } from "./release-stamp.ts";
+import { decode, encode, projectFor, repairFile, stampFile } from "./release-stamp.ts";
 
 const script = path.join(import.meta.dirname, "release-stamp.ts");
 
@@ -102,6 +102,25 @@ assert.equal(decode(Buffer.from("plain")), null);
 	const body = fs.readFileSync(path.join(dir, "webhooks_linux_amd64"));
 	assert.equal(decode(body)!.stamp.release, "9");
 	assert.equal(decode(body.subarray(0, decode(body)!.start)), null, "the old stamp is gone, not stacked");
+}
+
+// a binary published with its stamp after the standard library's trailer gets the stamp moved before it. And a binary already in that order is left alone
+{
+	const program = Buffer.from("APE-PROGRAM-AND-BLOB");
+	const trailer = Buffer.alloc(64);
+	trailer.write("GOSTDEMB", 0, "ascii");
+	trailer.writeBigUInt64LE(3n, 8);
+	trailer.writeBigUInt64LE(9n, 16);
+	const stamp = encode({ project: "go-toolchain", release: "1176", revision: "abc123" });
+	const dir = buildDir({ "broken": Buffer.concat([program, trailer, stamp]), "plain": "ELF" });
+	assert.equal(repairFile(path.join(dir, "broken")), true);
+	const fixed = fs.readFileSync(path.join(dir, "broken"));
+	assert.ok(fixed.equals(Buffer.concat([program, stamp, trailer])), "the stamp moves before the trailer, every other byte stays");
+	assert.deepEqual(decode(fixed)!.stamp, { project: "go-toolchain", release: "1176", revision: "abc123" });
+	assert.equal(repairFile(path.join(dir, "broken")), false, "a repaired file is left alone");
+	assert.ok(fs.readFileSync(path.join(dir, "broken")).equals(fixed));
+	assert.equal(repairFile(path.join(dir, "plain")), false, "an unstamped file is left alone");
+	assert.equal(fs.readFileSync(path.join(dir, "plain"), "utf8"), "ELF");
 }
 
 // a go command that carries its standard library keeps the trailer that finds it as the last bytes. A second stamp still replaces the first
