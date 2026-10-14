@@ -7,8 +7,9 @@ A published binary carries the buildhost release it shipped as. The stamp is a s
 The action's "Stamp the release into each binary" step runs `.github/scripts/release-stamp.ts` on the build directory, just before the auto-release step:
 
 - It finds the binaries the publish uploads, by the same rules as `buildhost-publish`: every `<binary>_<os>_<arch>` file, and every `kind: binary` entry of `buildhost-artifacts.json`.
-- It names their project the way the publish does: `<repo>` for a binary named after the repo, else `<repo>/<binary>`. Binaries for more than one project fail the step, because the publish takes one release number.
-- It creates that project's release over the job's OIDC token, with the branch, the commit, `create_service` and `apt-depends`. An explicit `autorelease_args` version is created as given, or used as it is when it exists.
+- It names their project the way the publish does: `<repo>` for a binary named after the repo, else `<repo>/<binary>`.
+- It creates the release over the job's OIDC token, with the branch, the commit, `create_service` and `apt-depends`. An explicit `autorelease_args` version is created as given, or used as it is when it exists.
+- The publish sends one version to every project, so the binaries of one build share one release number. The repo's project numbers it, or the first project by name when no binary is named after the repo. Every other project gets its release created at that number, or keeps the release it already holds at that number.
 - It appends the stamp to each binary in place, rewrites `checksums.txt`, and hands the number to the publish as `version`. A file that already carries a stamp gets its stamp replaced, not a second one.
 
 
@@ -23,6 +24,8 @@ The trailer is the last bytes of the file:
 ```
 <payload: UTF-8 JSON> <length of payload: uint32, big-endian> <magic: "BUILDHOST-STAMP1", 16 ASCII bytes>
 ```
+
+A go command that carries its standard library finds it through a 64-byte record that opens with `GOSTDEMB`. It has to be the last bytes of the file (`internal/cosmo/embedded` in gosmopolitan). In such a file the stamp goes right before that record. The record stays last. A reader drops that record from the end first.
 
 The payload is one JSON object, every field a non-empty string:
 
@@ -40,22 +43,32 @@ func readStamp(f *os.File) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	end := st.Size()
+	embedded := make([]byte, 8)
+	if end >= 64 {
+		if _, err := f.ReadAt(embedded, end-64); err != nil {
+			return nil, err
+		}
+		if string(embedded) == "GOSTDEMB" {
+			end -= 64
+		}
+	}
 	tail := make([]byte, 20)
-	if st.Size() < 20 {
+	if end < 20 {
 		return nil, nil
 	}
-	if _, err := f.ReadAt(tail, st.Size()-20); err != nil {
+	if _, err := f.ReadAt(tail, end-20); err != nil {
 		return nil, err
 	}
 	if string(tail[4:]) != "BUILDHOST-STAMP1" {
 		return nil, nil
 	}
 	n := int64(binary.BigEndian.Uint32(tail[:4]))
-	if n > st.Size()-20 {
+	if n > end-20 {
 		return nil, fmt.Errorf("stamp claims %d payload bytes, more than the file holds", n)
 	}
 	payload := make([]byte, n)
-	if _, err := f.ReadAt(payload, st.Size()-20-n); err != nil {
+	if _, err := f.ReadAt(payload, end-20-n); err != nil {
 		return nil, err
 	}
 	var s map[string]string
