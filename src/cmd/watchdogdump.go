@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
+	"os/exec"
 	"runtime/pprof"
 	"strconv"
 	"strings"
@@ -32,77 +32,61 @@ func dumpStall(w io.Writer, gap time.Duration) {
 		colorBoldRed, int(gap.Seconds()), os.Getpid(), colorReset)
 	pprof.Lookup("goroutine").WriteTo(w, 2)
 
-	pids, err := descendants(os.Getpid())
+	procs, err := descendants(os.Getpid())
 	if err != nil {
 		fmt.Fprintf(w, "%s⚠ STALLED: cannot list child processes, so no child stacks: %v%s\n",
 			colorBoldRed, err, colorReset)
 		return
 	}
-	for _, pid := range pids {
-		fmt.Fprintf(w, "%s⚠ STALLED: sending SIGQUIT to pid %d (%s) for its stack%s\n",
-			colorBoldRed, pid, procName(pid), colorReset)
-		if err := syscall.Kill(pid, syscall.SIGQUIT); err != nil {
-			fmt.Fprintf(w, "%s⚠ STALLED: SIGQUIT to pid %d failed: %v%s\n", colorBoldRed, pid, err, colorReset)
+	for _, p := range procs {
+		err := syscall.Kill(p.pid, syscall.SIGQUIT)
+		switch {
+		case err == syscall.ESRCH:
+			// The process ended after ps listed it. The ps process itself is one of these.
+		case err != nil:
+			fmt.Fprintf(w, "%s⚠ STALLED: SIGQUIT to pid %d (%s) failed: %v%s\n",
+				colorBoldRed, p.pid, p.name, err, colorReset)
+		default:
+			fmt.Fprintf(w, "%s⚠ STALLED: sent SIGQUIT to pid %d (%s) for its stack%s\n",
+				colorBoldRed, p.pid, p.name, colorReset)
 		}
 	}
 }
 
-// descendants returns the pids of all processes below root, read from /proc.
-func descendants(root int) ([]int, error) {
-	entries, err := os.ReadDir("/proc")
+type proc struct {
+	pid  int
+	name string
+}
+
+// descendants returns all processes below root. It reads the process table
+// from ps, because macOS has no /proc.
+func descendants(root int) ([]proc, error) {
+	out, err := exec.Command("ps", "-A", "-o", "pid=", "-o", "ppid=", "-o", "comm=").Output()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ps: %w", err)
 	}
-	children := map[int][]int{}
-	for _, e := range entries {
-		pid, err := strconv.Atoi(e.Name())
-		if err != nil {
+	children := map[int][]proc{}
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 3 {
 			continue
 		}
-		ppid, ok := parentPid(pid)
-		if !ok {
+		pid, err1 := strconv.Atoi(f[0])
+		ppid, err2 := strconv.Atoi(f[1])
+		if err1 != nil || err2 != nil {
 			continue
 		}
-		children[ppid] = append(children[ppid], pid)
+		children[ppid] = append(children[ppid], proc{pid, strings.Join(f[2:], " ")})
 	}
-	var out []int
+	var found []proc
 	queue := []int{root}
 	for len(queue) > 0 {
 		p := queue[0]
 		queue = queue[1:]
 		for _, c := range children[p] {
-			out = append(out, c)
-			queue = append(queue, c)
+			found = append(found, c)
+			queue = append(queue, c.pid)
 		}
 	}
-	return out, nil
-}
-
-// parentPid reads the ppid field of /proc/<pid>/stat. The comm field can hold
-// spaces and parentheses, so the parse starts after the last ')'.
-func parentPid(pid int) (int, bool) {
-	b, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
-	if err != nil {
-		return 0, false
-	}
-	s := string(b)
-	i := strings.LastIndexByte(s, ')')
-	if i < 0 {
-		return 0, false
-	}
-	f := strings.Fields(s[i+1:])
-	if len(f) < 2 {
-		return 0, false
-	}
-	ppid, err := strconv.Atoi(f[1])
-	return ppid, err == nil
-}
-
-// procName returns the command name of pid, or "?" when /proc has none.
-func procName(pid int) string {
-	b, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "comm"))
-	if err != nil {
-		return "?"
-	}
-	return strings.TrimSpace(string(b))
+	return found, nil
 }
