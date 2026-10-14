@@ -11,6 +11,7 @@ The action's "Stamp the release into each binary" step runs `.github/scripts/rel
 - It creates that project's release over the job's OIDC token, with the branch, the commit, `create_service` and `apt-depends`. An explicit `autorelease_args` version is created as given, or used as it is when it exists.
 - It appends the stamp to each binary in place, rewrites `checksums.txt`, and hands the number to the publish as `version`. A file that already carries a stamp gets its stamp replaced, not a second one.
 
+
 The number in a stamp is therefore always the number of the release that holds the file, in that project. A failure anywhere fails the step, and nothing is published unstamped. A build outside the action has no stamp.
 
 `dats/release-stamp.dats` runs `.github/scripts/release-stamp.test.ts` against a fake buildhost, including that a stamped ELF still runs.
