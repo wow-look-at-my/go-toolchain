@@ -6,7 +6,7 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
-import { decode, encode, projectFor, stampFile } from "./release-stamp.ts";
+import { decode, encode, projectFor, reorderStamp, reorderStampFile, stampFile } from "./release-stamp.ts";
 
 const script = path.join(import.meta.dirname, "release-stamp.ts");
 
@@ -129,6 +129,20 @@ assert.equal(decode(Buffer.from("plain")), null);
 		assert.deepEqual(got.stamp, { project: "webhooks", release, revision: "abc123" });
 		assert.equal(got.start, program.length + blob.length, "one stamp, right after the blob");
 	}
+
+	// a binary stamped AFTER the record, as release 1176 shipped, gets the stamp moved before it
+	const stamp = encode({ project: "go-toolchain", release: "1176", revision: "c2c9393" });
+	const fixed = reorderStamp(Buffer.concat([program, blob, trailer, stamp]))!;
+	assert.ok(fixed.equals(Buffer.concat([program, blob, stamp, trailer])), "the stamp goes before the record, every other byte stays");
+	assert.equal(reorderStamp(fixed), null, "a file in the right order is left alone");
+	assert.equal(reorderStamp(orig), null, "an unstamped file is left alone");
+	assert.equal(reorderStamp(Buffer.concat([program, stamp])), null, "a stamped file with no record is left alone");
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "reorder-"));
+	const file = path.join(dir, "go-toolchain");
+	fs.writeFileSync(file, Buffer.concat([program, blob, trailer, stamp]));
+	assert.equal(reorderStampFile(file), true);
+	assert.ok(fs.readFileSync(file).equals(fixed));
+	assert.equal(reorderStampFile(file), false);
 }
 
 // binaries for several projects share one release. The repo's project numbers it, every other project is created at that number, and each binary names its own project

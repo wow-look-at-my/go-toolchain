@@ -110,6 +110,23 @@ runs:
       with:
         project: go-toolchain
 
+    # A nested action sees its own GITHUB_ACTION_PATH. This step hands the repair step the path of this action as a container sees it.
+    - name: Locate the release stamp script for the install
+      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
+      id: install_stamp_script
+      shell: bash
+      run: echo "path=$GITHUB_ACTION_PATH/.github/scripts/release-stamp.ts" >> "$GITHUB_OUTPUT"
+
+    # A release stamped after the GOSTDEMB record runs as go without its standard library. This moves the stamp before the record.
+    - name: Put the release stamp before the embedded standard library record
+      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
+      uses: wow-look-at-my/actions@typescript#latest
+      with:
+        script: |
+          const { reorderStampFile } = require("${{ steps.install_stamp_script.outputs.path }}") as { reorderStampFile: (file: string) => boolean };
+          const file = "${{ steps.download.outputs.path }}";
+          if (reorderStampFile(file)) core.warning(`${file}: the release stamp sat after the GOSTDEMB record; moved it before the record`);
+
     - name: Install go-toolchain
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash

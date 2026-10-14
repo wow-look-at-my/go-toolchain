@@ -56,6 +56,25 @@ export function stampFile(file: string, s: Stamp): void {
 	fs.writeFileSync(file, Buffer.concat([head, encode(s), embedded]));
 }
 
+// A stamp written after the embedded record hides the standard library from the go command. Returns the bytes with the stamp moved before that record, or null when the order is already right.
+export function reorderStamp(whole: Buffer): Buffer | null {
+	if (embeddedTrailer(whole).length > 0) return null;
+	const old = decode(whole);
+	if (old === null) return null;
+	const head = whole.subarray(0, old.start);
+	const embedded = embeddedTrailer(head);
+	if (embedded.length === 0) return null;
+	return Buffer.concat([head.subarray(0, head.length - embedded.length), whole.subarray(old.start), embedded]);
+}
+
+// Repairs the stamp order of the file in place. Returns whether it changed the file.
+export function reorderStampFile(file: string): boolean {
+	const fixed = reorderStamp(fs.readFileSync(file));
+	if (fixed === null) return false;
+	fs.writeFileSync(file, fixed);
+	return true;
+}
+
 // The binaries buildhost-publish uploads from dir, each with the binary name its project comes from. This mirrors the publish's own selection.
 export function binaries(dir: string): { file: string; binary: string }[] {
 	const out: { file: string; binary: string }[] = [];
