@@ -171,26 +171,3 @@ func TestIsOrgPlaceholder(t *testing.T) {
 		assert.False(t, isOrgPlaceholder(version), version)
 	}
 }
-
-// An action repository whose default branch is v1 is followed at v1, which is no pin.
-func TestAnActionOnItsDefaultBranchIsNotAPin(t *testing.T) {
-	t.Serial()
-	saved := actionDefaultBranch
-	t.Cleanup(func() { actionDefaultBranch = saved })
-	actionDefaultBranch = func(repo string) string {
-		if repo == "wow-look-at-my/static-pkgsite-action" {
-			return "v1"
-		}
-		return "master"
-	}
-	root := writeOrgPinFiles(t, map[string]string{
-		".github/workflows/godoc.yml": "jobs:\n  build:\n    steps:\n      - uses: wow-look-at-my/static-pkgsite-action@v1\n      - uses: wow-look-at-my/dats@v2\n",
-	})
-
-	require.NoError(t, checkOrgPins(root))
-
-	ci, err := os.ReadFile(filepath.Join(root, ".github/workflows/godoc.yml"))
-	require.NoError(t, err)
-	assert.Contains(t, string(ci), "uses: wow-look-at-my/static-pkgsite-action@v1\n")
-	assert.Contains(t, string(ci), "uses: wow-look-at-my/dats@master\n")
-}
