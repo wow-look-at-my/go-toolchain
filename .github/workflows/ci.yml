@@ -481,6 +481,37 @@ jobs:
           # The embedded dats sandboxes every suite command and refuses to run without one of these.
           apt-depends: 'bubblewrap | docker.io'
 
+      # Consider a consumer's generator step. That step runs the published binary under the name go. A binary that cannot find its standard library fails here and all-builds never goes green on it.
+      - name: The published binary runs as the go command
+        run: |
+          set -euo pipefail
+          mkdir -p "${{ runner.temp }}/consumer-go"
+          ln -sf "$PWD/build/go-toolchain" "${{ runner.temp }}/consumer-go/go"
+          "${{ runner.temp }}/consumer-go/go" version
+          "${{ runner.temp }}/consumer-go/go" env GOROOT GOPATH
+
+  # The action as a consumer runs it. The build of its own commit, which `build` published in this run, downloaded and used to build a module.
+  consumer:
+    needs: build
+    runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: wow-look-at-my/actions@parallel-checkout#latest
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Provision the sandbox backend (bubblewrap)
+        uses: wow-look-at-my/actions@cached-apt#latest
+        with:
+          packages: bubblewrap
+
+      - name: Let bwrap open a user namespace
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - uses: ./
+        with:
+          working-directory: .github/consumer-fixture
+
   # Each non-linux host builds this repo's APE with the linux-built binary, so a difference in the output is the host and nothing else. see docs/CI.md
   build-everywhere:
     needs: host-build
@@ -736,7 +767,7 @@ jobs:
 
   # The `build` job publishes, because the action publishes every executable binary it builds. This job outlives it to drop the run's hand-offs a single time the gates have read them.
   cleanup:
-    needs: [identical, smoke]
+    needs: [identical, smoke, consumer]
     # A cancelled or failed run still has hand-offs to drop; without this the job is skipped and they are orphaned.
     if: always()
     runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
