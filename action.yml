@@ -110,6 +110,25 @@ runs:
       with:
         project: go-toolchain
 
+    # The standard library inside the binary is found through a GOSTDEMB record that must be the last bytes of the file. A release stamp after it makes the binary fail as go with "cannot find GOROOT directory".
+    - name: Drop a release stamp that follows the GOSTDEMB record
+      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
+      uses: wow-look-at-my/actions@typescript#latest
+      env:
+        GO_TOOLCHAIN_DOWNLOAD: ${{ steps.download.outputs.path }}
+      with:
+        script: |
+          const file = process.env.GO_TOOLCHAIN_DOWNLOAD ?? "";
+          const buf = fs.readFileSync(file);
+          const end = buf.length;
+          if (end >= 84 && buf.subarray(end - 16).toString() === "BUILDHOST-STAMP1") {
+            const start = end - 20 - buf.readUInt32BE(end - 20);
+            if (start >= 64 && buf.subarray(start - 64, start - 56).toString() === "GOSTDEMB") {
+              fs.writeFileSync(file, buf.subarray(0, start));
+              core.warning(`go-toolchain: dropped the ${end - start}-byte release stamp that followed its GOSTDEMB record`);
+            }
+          }
+
     - name: Install go-toolchain
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
@@ -120,11 +139,7 @@ runs:
         mv "${{ steps.download.outputs.path }}" "${BIN_DIR}/go-toolchain"
         echo "${BIN_DIR}" >> "$GITHUB_PATH"
         # Capture the probe output: it names a crash or an unrunnable binary.
-        # Later steps run this binary as go. A binary that runs only as go-toolchain is not usable.
-        probe_go="$RUNNER_TEMP/go-toolchain-probe"
-        mkdir -p "$probe_go"
-        ln -sf "${BIN_DIR}/go-toolchain" "$probe_go/go"
-        if ! probe=$("${BIN_DIR}/go-toolchain" version 2>&1 && GOTOOLCHAIN=local GOTELEMETRY=off "$probe_go/go" env GOROOT 2>&1); then
+        if ! probe=$("${BIN_DIR}/go-toolchain" version 2>&1); then
           echo "buildhost go-toolchain not usable; probe output:"
           echo "${probe}"
           # A silent source build hides a buildhost outage. see docs/ACTION.md
@@ -141,9 +156,6 @@ runs:
           curl -fsSL --compressed "https://dl.pazer.build/gosmopolitan?branch=master&os=${fork_os}&arch=${fork_arch}" | tar -xz -C "$fork_root"
           (cd "$GITHUB_ACTION_PATH" && GOROOT="$fork_root/go" GOTOOLCHAIN=local GOTELEMETRY=off GOPROXY=direct GOSUMDB=off GONOSUMDB='*' GOFLAGS= CGO_ENABLED=0 \
             "$fork_root/go/bin/go" build -trimpath -o "${BIN_DIR}/go-toolchain" ./src)
-          # A source build carries no standard library, so it runs as go only with GOROOT set.
-          echo "GOROOT=$fork_root/go" >> "$GITHUB_ENV"
-          GOROOT="$fork_root/go" GOTOOLCHAIN=local GOTELEMETRY=off "$probe_go/go" env GOROOT
         fi
 
     - name: Install provided binary
