@@ -139,6 +139,23 @@ runs:
             "$fork_root/go/bin/go" build -trimpath -o "${BIN_DIR}/go-toolchain" ./src)
         fi
 
+    # A nested action sees its own GITHUB_ACTION_PATH, so this step hands the next one the path of this action.
+    - name: Locate the stamp repair script
+      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
+      id: repair_script
+      shell: bash
+      run: echo "path=$GITHUB_ACTION_PATH/.github/scripts/release-stamp.ts" >> "$GITHUB_OUTPUT"
+
+    # A release stamped after its GOSTDEMB trailer cannot find its GOROOT when it runs as go. see docs/RELEASE-STAMP.md
+    - name: Put the stamp of the installed go-toolchain before its trailer
+      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
+      uses: wow-look-at-my/actions@typescript#latest
+      with:
+        script: |
+          const { repairOrder } = require("${{ steps.repair_script.outputs.path }}") as { repairOrder: (file: string) => boolean };
+          const bin = path.join(env.RUNNER_TEMP ?? "", "go-toolchain-bin", "go-toolchain");
+          if (repairOrder(bin)) core.warning(`moved the release stamp of ${bin} in front of its GOSTDEMB trailer`);
+
     - name: Install provided binary
       if: inputs.binary != ''
       shell: bash

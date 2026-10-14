@@ -33,6 +33,8 @@ The payload is one JSON object, every field a non-empty string:
 {"project":"webhooks/webhook-runner","release":"347","revision":"9a245c29baf2040eda91efa39b87662a49a66aeb"}
 ```
 
+Releases stamped before this order existed carry the stamp after the trailer. Such a go-toolchain cannot find its GOROOT when it runs as `go`. The action therefore runs `repairOrder` on the go-toolchain it installs, which moves the stamp in front of the trailer.
+
 ## Reading it
 
 Read the length field and the magic from the end of the file, as the reader below does. A file whose last bytes are not the magic has no stamp. Otherwise the length field before the magic gives the payload size, and the payload sits before the length field.

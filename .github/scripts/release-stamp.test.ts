@@ -6,7 +6,7 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
-import { decode, encode, projectFor, stampFile } from "./release-stamp.ts";
+import { decode, encode, projectFor, repairOrder, stampFile } from "./release-stamp.ts";
 
 const script = path.join(import.meta.dirname, "release-stamp.ts");
 
@@ -129,6 +129,22 @@ assert.equal(decode(Buffer.from("plain")), null);
 		assert.deepEqual(got.stamp, { project: "webhooks", release, revision: "abc123" });
 		assert.equal(got.start, program.length + blob.length, "one stamp, right after the blob");
 	}
+}
+
+// a binary stamped after its trailer is put back in order, and a binary already in order is left alone
+{
+	const trailer = Buffer.alloc(64);
+	trailer.write("GOSTDEMB", 0, "ascii");
+	const program = Buffer.from("APE-PROGRAM-AND-BLOB");
+	const stamp = encode({ project: "go-toolchain", release: "5", revision: "r" });
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stamp-repair-"));
+	const file = path.join(dir, "go-toolchain");
+	fs.writeFileSync(file, Buffer.concat([program, trailer, stamp]));
+	assert.equal(repairOrder(file), true, "a stamp after the trailer must be moved");
+	assert.ok(fs.readFileSync(file).equals(Buffer.concat([program, stamp, trailer])), "the stamp goes before the trailer and nothing else changes");
+	assert.equal(repairOrder(file), false, "a binary in order must be left alone");
+	fs.writeFileSync(file, Buffer.concat([program, stamp]));
+	assert.equal(repairOrder(file), false, "a binary with no trailer must be left alone");
 }
 
 // binaries for several projects share one release. The repo's project numbers it, every other project is created at that number, and each binary names its own project
