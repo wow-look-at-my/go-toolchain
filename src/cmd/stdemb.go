@@ -2,9 +2,7 @@ package cmd
 
 import "os"
 
-// stdembRecordSize is the size of the record a go command that carries its
-// standard library ends with. The record opens with stdembMagic and must be
-// the last bytes of the file (internal/cosmo/embedded in gosmopolitan).
+// stdembRecordSize is the size of the record a go command that carries its standard library ends with.
 const stdembRecordSize = 64
 
 const stdembMagic = "GOSTDEMB"
