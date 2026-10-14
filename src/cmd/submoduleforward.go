@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"strings"
@@ -16,8 +17,31 @@ import (
 
 // trustedGit runs git with every directory trusted. A CI container checks the
 // tree out as another user, and a bare git refuses that tree.
+//
+// A "-C dir" anywhere in args becomes the working directory of git instead.
+// On Windows this binary spells a path /d/a/..., which git.exe cannot read in
+// an argument. The runtime converts the working directory for it.
 func trustedGit(r runner.CommandRunner, args ...string) ([]byte, error) {
-	return gitOutput(r, "git", append([]string{"-c", "safe.directory=*"}, args...)...)
+	dir := ""
+	rest := []string{"-c", "safe.directory=*"}
+	for idx := 0; idx < len(args); idx++ {
+		if args[idx] == "-C" && idx+1 < len(args) && dir == "" {
+			dir = args[idx+1]
+			idx++
+			continue
+		}
+		rest = append(rest, args[idx])
+	}
+	proc, err := runner.Cmd("git", rest...).WithDir(dir).WithQuiet().Run(r)
+	if err != nil {
+		return nil, err
+	}
+	out, _ := io.ReadAll(proc.Stdout())
+	stderr, _ := io.ReadAll(proc.Stderr())
+	if err := withGitStderr(proc.Wait(), stderr); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 var submodulesForwardOnce struct {
