@@ -109,10 +109,7 @@ func runReleaseInto(r runner.CommandRunner, sd *summary.SummaryData) (err error)
 				outputName = wasmArtifactName(target.OutputName, p)
 			}
 			outPath := filepath.Join(outputDir, outputName)
-			job, err := forkEnv.apeJob(target.ImportPath, outPath)
-			if err != nil {
-				return err
-			}
+			job := forkEnv.apeJob(target.ImportPath, outPath)
 			if !p.IsCosmo() {
 				job.goos, job.goarch, job.cosmoPlatforms = p.OS, p.Arch, ""
 			}
