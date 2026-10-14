@@ -28,15 +28,12 @@ jobs:
   host-build:
     runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
-      # No persisted credentials: the header checkout leaves in the workspace names THIS repository, so every git question about another is asked as the wrong identity.
-      - uses: actions/checkout@v7
+      # No persisted credentials: the header checkout leaves in the workspace names THIS repository, so every git question about another is asked as the wrong identity. The fork follows this branch at the commit the run locked, the same commit the pipeline's resolveForkCommit takes.
+      - uses: wow-look-at-my/actions@parallel-checkout#latest
         with:
           persist-credentials: false
-          submodules: recursive
-
-      # make.bash and the generator install read the fork checkout, so it follows the branch before either runs rather than staying on the gitlink.
-      - name: Put the fork on its branch
-        run: bash .github/scripts/checkout-fork-branch.sh "$GITHUB_REF_NAME"
+          submodule-branch: ${{ github.ref_name }}
+          submodule-branch-lock: https://pazer.build
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
@@ -299,14 +296,11 @@ jobs:
     runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v7
+      - uses: wow-look-at-my/actions@parallel-checkout#latest
         with:
           persist-credentials: false
-          submodules: recursive
-
-      # make.bash reads the fork checkout, so it follows the branch before that runs rather than staying on the gitlink.
-      - name: Put the fork on its branch
-        run: bash .github/scripts/checkout-fork-branch.sh "$GITHUB_REF_NAME"
+          submodule-branch: ${{ github.ref_name }}
+          submodule-branch-lock: https://pazer.build
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
@@ -430,10 +424,11 @@ jobs:
     needs: host-build
     runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: wow-look-at-my/actions@parallel-checkout#latest
         with:
           persist-credentials: false
-          submodules: recursive
+          submodule-branch: ${{ github.ref_name }}
+          submodule-branch-lock: https://pazer.build
 
       # The dats phase sandboxes every suite command (dats' default), and the backend it picks... see docs/CI.md
       - name: Provision the sandbox backend (bubblewrap)
@@ -504,9 +499,10 @@ jobs:
       # NT needs the suffix to exec what it copies.
       GT_APE: ${{ matrix.origin == 'windows' && 'gt-ape.exe' || 'gt-ape' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: wow-look-at-my/actions@parallel-checkout#latest
         with:
-          submodules: recursive
+          submodule-branch: ${{ github.ref_name }}
+          submodule-branch-lock: https://pazer.build
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
@@ -622,7 +618,9 @@ jobs:
     timeout-minutes: 10
     steps:
       # Only for the dats fixture below -- this job otherwise runs no repo code.
-      - uses: actions/checkout@v7
+      - uses: wow-look-at-my/actions@parallel-checkout#latest
+        with:
+          submodules: false
 
       # ape/linux is `build`'s hand-off, the same bytes `publish` ships.
       - name: Download each host's APE
@@ -707,7 +705,9 @@ jobs:
     timeout-minutes: 30
     steps:
       # Only for the dats fixtures in .github/dats-fixtures/ -- this job otherwise runs no repo code.
-      - uses: actions/checkout@v7
+      - uses: wow-look-at-my/actions@parallel-checkout#latest
+        with:
+          submodules: false
 
       # For GO_BUILDCACHE_CONFIG alone: the fork refuses a CI build without it. see docs/CI.md
       - uses: wow-look-at-my/actions@secret-server#latest
