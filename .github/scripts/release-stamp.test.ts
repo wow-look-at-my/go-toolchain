@@ -67,7 +67,7 @@ assert.equal(projectFor("VictoriaLogs-compat-layer", "victorialogs-compat-layer-
 assert.deepEqual(decode(Buffer.concat([Buffer.from("x"), encode({ project: "p", release: "1", revision: "r" })]))!.stamp, { project: "p", release: "1", revision: "r" });
 assert.equal(decode(Buffer.from("plain")), null);
 
-// a gosmopolitan binary keeps its GOSTDEMB record as the last 64 bytes, and a second stamp replaces the first
+// a gosmopolitan binary keeps its GOSTDEMB record as the last many bytes, and a second stamp replaces the first
 {
 	const record = Buffer.concat([EmbedMagic, Buffer.alloc(EmbedTrailerSize - EmbedMagic.length, 7)]);
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stamp-embed-"));

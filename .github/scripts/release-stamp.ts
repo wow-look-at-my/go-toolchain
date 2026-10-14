@@ -22,13 +22,13 @@ export function encode(s: Stamp): Buffer {
 export const EmbedMagic = Buffer.from("GOSTDEMB", "ascii");
 export const EmbedTrailerSize = 64;
 
-// The size of the embed record at the end of buf, or 0 when there is none.
 export function embedTrailer(buf: Buffer): number {
 	if (buf.length < EmbedTrailerSize) return 0;
 	return buf.subarray(buf.length - EmbedTrailerSize, buf.length - EmbedTrailerSize + EmbedMagic.length).equals(EmbedMagic) ? EmbedTrailerSize : 0;
 }
 
-// The stamp and where it starts, or null when there is none. The stamp ends the file, or sits just before an embed record.
+// The stamp and where it starts, or null when there is none. The stamp ends
+// the file, or sits before an embed record.
 export function decode(file: Buffer): { stamp: Stamp; start: number } | null {
 	const buf = file.subarray(0, file.length - embedTrailer(file));
 	const tail = Magic.length + 4;

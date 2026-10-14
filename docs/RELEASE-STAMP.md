@@ -18,7 +18,7 @@ The number in a stamp is therefore always the number of the release that holds t
 
 ## The format
 
-The trailer is the last bytes of the file, with one exception. A gosmopolitan binary ends with a 64-byte record that starts with `GOSTDEMB`. Its runtime finds the embedded GOROOT through that record, so the stamp goes just before it and the record stays last:
+The trailer is the last bytes of the file, with one exception. A gosmopolitan binary ends with a 64-byte record that starts with `GOSTDEMB`. Its runtime finds the embedded GOROOT through that record. The stamp goes just before it and the record stays last:
 
 ```
 <payload: UTF-8 JSON> <length of payload: uint32, big-endian> <magic: "BUILDHOST-STAMP1", 16 ASCII bytes>
