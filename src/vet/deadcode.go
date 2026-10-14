@@ -64,12 +64,13 @@ func runDeadCode(pass *analysis.Pass) (any, error) {
 	// Remove methods that implement interfaces.
 	if len(defined) > 0 {
 		ifaces := collectInterfaces(pass)
+		holders := methodHolders(pass)
 		for obj := range defined {
 			fn, ok := obj.(*types.Func)
 			if !ok {
 				continue
 			}
-			if isInterfaceMethod(fn, ifaces) {
+			if isInterfaceMethod(fn, holders[fn], ifaces) {
 				delete(defined, obj)
 			}
 		}
@@ -215,9 +216,38 @@ func addInterfacesFromScope(scope *types.Scope, ifaces *[]*types.Interface) {
 	}
 }
 
-// isInterfaceMethod returns true if fn is a method whose receiver type
-// implements any of the given interfaces (checked for both T and *T).
-func isInterfaceMethod(fn *types.Func, ifaces []*types.Interface) bool {
+// methodHolders maps each method to the types of this package whose method
+// set holds it, for T and *T. A type that embeds another gets its methods by
+// promotion, so it satisfies an interface its embedded type alone does not.
+func methodHolders(pass *analysis.Pass) map[*types.Func][]types.Type {
+	holders := make(map[*types.Func][]types.Type)
+	for _, obj := range pass.TypesInfo.Defs {
+		tn, ok := obj.(*types.TypeName)
+		if !ok || tn.IsAlias() {
+			continue
+		}
+		if _, isIface := tn.Type().Underlying().(*types.Interface); isIface {
+			continue
+		}
+		for _, typ := range []types.Type{tn.Type(), types.NewPointer(tn.Type())} {
+			mset := types.NewMethodSet(typ)
+			for idx := 0; idx < mset.Len(); idx++ {
+				method, ok := mset.At(idx).Obj().(*types.Func)
+				if !ok {
+					continue
+				}
+				method = method.Origin()
+				holders[method] = append(holders[method], typ)
+			}
+		}
+	}
+	return holders
+}
+
+// isInterfaceMethod returns true if fn is a method and a type whose method
+// set holds fn implements an interface that names fn. The holders include
+// the receiver type and every type that gets fn through an embedded field.
+func isInterfaceMethod(fn *types.Func, holders []types.Type, ifaces []*types.Interface) bool {
 	sig := fn.Type().(*types.Signature)
 	recv := sig.Recv()
 	if recv == nil {
@@ -228,7 +258,7 @@ func isInterfaceMethod(fn *types.Func, ifaces []*types.Interface) bool {
 	if ptr, ok := recvType.(*types.Pointer); ok {
 		recvType = ptr.Elem()
 	}
-	ptrType := types.NewPointer(recvType)
+	candidates := append([]types.Type{recvType, types.NewPointer(recvType)}, holders...)
 
 	for _, iface := range ifaces {
 		if iface.NumMethods() == 0 {
@@ -245,8 +275,10 @@ func isInterfaceMethod(fn *types.Func, ifaces []*types.Interface) bool {
 		if !hasMethod {
 			continue
 		}
-		if types.Implements(recvType, iface) || types.Implements(ptrType, iface) {
-			return true
+		for _, typ := range candidates {
+			if types.Implements(typ, iface) {
+				return true
+			}
 		}
 	}
 	return false
