@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"runtime"
+	"syscall"
 	"testing"
 	"time"
 
@@ -77,6 +79,73 @@ func TestWatchdogWarnsWhileTheBuildIsSilent(t *testing.T) {
 
 	require.Contains(t, gotErr.String(), "STALLED", "no stall banner after 2s of silence at a 200ms threshold")
 	require.Contains(t, gotErr.String(), "Running tests with coverage", "the banner did not name the running step")
+}
+
+// TestWatchdogDumpsStacksOfAHungChild proves that a long stall prints the
+// goroutines of go-toolchain and sends SIGQUIT to a silent child process.
+func TestWatchdogDumpsStacksOfAHungChild(t *testing.T) {
+	t.Serial()
+
+	savedStdoutFd, err := unix.Dup(1)
+	require.NoError(t, err, "dup saved stdout")
+	savedStderrFd, err := unix.Dup(2)
+	require.NoError(t, err, "dup saved stderr")
+	savedStdout, savedStderr := os.Stdout, os.Stderr
+	t.Cleanup(func() {
+		unix.Dup2(savedStdoutFd, 1)
+		unix.Dup2(savedStderrFd, 2)
+		unix.Close(savedStdoutFd)
+		unix.Close(savedStderrFd)
+		os.Stdout = savedStdout
+		os.Stderr = savedStderr
+	})
+
+	child := exec.Command("sleep", "60")
+	require.NoError(t, child.Start(), "start the silent child")
+	exited := make(chan error, 1)
+	go func() { exited <- child.Wait() }()
+	t.Cleanup(func() { child.Process.Kill() })
+
+	outR, outW, err := os.Pipe()
+	require.NoError(t, err, "pipe out")
+	errR, errW, err := os.Pipe()
+	require.NoError(t, err, "pipe err")
+	require.NoError(t, unix.Dup2(int(outW.Fd()), 1), "dup2 out")
+	require.NoError(t, unix.Dup2(int(errW.Fd()), 2), "dup2 err")
+	outW.Close()
+	errW.Close()
+
+	savedDumpAfter := stallDumpAfter
+	stallDumpAfter = time.Second
+	t.Cleanup(func() { stallDumpAfter = savedDumpAfter })
+	wd := startWatchdog(200 * time.Millisecond)
+	require.NotNil(t, wd, "startWatchdog returned nil")
+
+	var waitErr error
+	select {
+	case waitErr = <-exited:
+	case <-time.After(10 * time.Second):
+	}
+	wd.stop()
+
+	unix.Dup2(savedStdoutFd, 1)
+	unix.Dup2(savedStderrFd, 2)
+	os.Stdout = savedStdout
+	os.Stderr = savedStderr
+
+	var gotErr bytes.Buffer
+	io.Copy(io.Discard, outR)
+	outR.Close()
+	io.Copy(&gotErr, errR)
+	errR.Close()
+
+	require.Contains(t, gotErr.String(), "dumping goroutines of go-toolchain", "no stack dump after a long stall")
+	require.Contains(t, gotErr.String(), "goroutine ", "the dump holds no goroutines")
+	require.Contains(t, gotErr.String(), fmt.Sprintf("SIGQUIT to pid %d", child.Process.Pid), "the silent child got no SIGQUIT")
+	var exitErr *exec.ExitError
+	require.ErrorAs(t, waitErr, &exitErr, "the child did not exit from the SIGQUIT")
+	ws := exitErr.Sys().(syscall.WaitStatus)
+	require.Equal(t, syscall.SIGQUIT, ws.Signal(), "the child died from a different signal")
 }
 
 // TestWatchdogStopDoesNotDropBufferedOutput is a regression test for the pipe
