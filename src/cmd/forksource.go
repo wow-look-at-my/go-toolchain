@@ -149,8 +149,8 @@ func forkHead(r runner.CommandRunner) (string, error) {
 
 // resolveForkCommit asks the fork's remote for the head of this checkout's
 // branch, or of the default branch, in a single ls-remote.
-// In CI the answer is the head this run attempt locked in buildhost, which
-// checkout-fork-branch.sh locks under the same name.
+// In CI the answer is the head this run attempt locked in buildhost. The
+// workflow's parallel-checkout step locks the fork under the same name.
 func resolveForkCommit(r runner.CommandRunner) (string, error) {
 	name, head, err := forkBranchHead(r)
 	if err != nil || !isGHA() {
