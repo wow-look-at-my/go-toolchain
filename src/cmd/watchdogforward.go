@@ -43,6 +43,8 @@ func (w *outputWatchdog) watchLoop(ctx context.Context) {
 	defer close(w.done)
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
+	dumpAfter := stallDumpAfter
+	dumped := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -65,6 +67,12 @@ func (w *outputWatchdog) watchLoop(ctx context.Context) {
 					fmt.Fprintf(w.origStderr, "%s⚠ STALLED: no output for %ds%s\n",
 						colorBoldRed, int(gap.Seconds()), colorReset)
 				}
+				if gap >= dumpAfter && !dumped {
+					dumped = true
+					dumpStall(w.origStderr, gap)
+				}
+			} else {
+				dumped = false
 			}
 		}
 	}
