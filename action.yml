@@ -141,7 +141,7 @@ runs:
     - name: Download go-toolchain
       id: download
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
-      uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
+      uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@lkgb
       with:
         project: go-toolchain
         version: ${{ steps.build_of_commit.outputs.version }}
