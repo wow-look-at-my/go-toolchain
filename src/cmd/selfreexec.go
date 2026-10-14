@@ -42,7 +42,11 @@ func buildSelfFixedPoint(pkg string) (bin, dir string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	job := env.apeJob(pkg, filepath.Join(dir, "go-toolchain"+hostExeSuffix()))
+	job, err := env.apeJob(pkg, filepath.Join(dir, "go-toolchain"+hostExeSuffix()))
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return "", "", err
+	}
 	bin, err = buildSelfPasses(runner.New(), job, dir, nil)
 	if err != nil {
 		_ = os.RemoveAll(dir)
