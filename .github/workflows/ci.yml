@@ -28,8 +28,7 @@ jobs:
   host-build:
     runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
-      # No persisted credentials: the header checkout leaves in the workspace names THIS repository, so every git question about another is asked as the wrong identity.
-      # The fork follows this branch at the commit the run locked, the same commit the pipeline's resolveForkCommit takes.
+      # No persisted credentials: the header checkout leaves in the workspace names THIS repository, so every git question about another is asked as the wrong identity. The fork follows this branch at the commit the run locked, the same commit the pipeline's resolveForkCommit takes.
       - uses: wow-look-at-my/actions@parallel-checkout#latest
         with:
           persist-credentials: false
