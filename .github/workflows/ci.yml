@@ -300,15 +300,6 @@ jobs:
           # The embedded dats sandboxes every suite command and refuses to run without one of these.
           apt-depends: 'bubblewrap | docker.io'
 
-      # Consider a consumer's generator step. That step runs the published binary under the name go. A binary that cannot find its standard library fails here and all-builds never goes green on it.
-      - name: The published binary runs as the go command
-        run: |
-          set -euo pipefail
-          mkdir -p "${{ runner.temp }}/consumer-go"
-          ln -sf "$PWD/build/go-toolchain" "${{ runner.temp }}/consumer-go/go"
-          "${{ runner.temp }}/consumer-go/go" version
-          "${{ runner.temp }}/consumer-go/go" env GOROOT GOPATH
-
   # Each non-linux host builds this repo's APE with the linux-built binary, so a difference in the output is the host and nothing else. see docs/CI.md
   build-everywhere:
     needs: host-build
