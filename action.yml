@@ -200,10 +200,6 @@ runs:
         mkdir -p "$RUNNER_TEMP/gt-go"
         ln -sf "$(command -v go-toolchain)" "$RUNNER_TEMP/gt-go/go"
         go="$RUNNER_TEMP/gt-go/go"
-        if [ -d "$RUNNER_TEMP/gosmopolitan-source-build/go" ]; then
-          # A pipeline built from source carries no GOROOT, so the go command it is read as needs the tree it was built from.
-          export GOROOT="$RUNNER_TEMP/gosmopolitan-source-build/go"
-        fi
         bin="$("$go" env GOPATH)/bin"
         # Each generator comes from a GitHub checkout whose golang.org requirements point at GitHub, so the build resolves nothing through golang.org.
         bash "$GITHUB_ACTION_PATH/.github/scripts/build-from-github.sh" "$go" https://github.com/golang/tools v0.49.0 "$bin" cmd/stringer cmd/goyacc
