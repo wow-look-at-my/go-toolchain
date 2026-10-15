@@ -110,6 +110,26 @@ runs:
       with:
         project: go-toolchain
 
+    # The go command finds the standard library a gosmopolitan binary carries through a record that has to be the file's last bytes. Buildhost's release stamp lands after it. A stamped download then fails as the go command. This is the name the generator step runs it under, so the pipeline that built it cannot build anything. Moving the stamp ahead of the record keeps both.
+    - name: Keep the standard library's record last
+      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
+      uses: wow-look-at-my/actions@typescript#latest
+      env:
+        GO_TOOLCHAIN_DOWNLOAD: ${{ steps.download.outputs.path }}
+      with:
+        script: |
+          const file = process.env.GO_TOOLCHAIN_DOWNLOAD ?? "";
+          const buf = fs.readFileSync(file);
+          const end = buf.length;
+          if (end >= 84 && buf.subarray(end - 16).toString() === "BUILDHOST-STAMP1") {
+            const start = end - 20 - buf.readUInt32BE(end - 20);
+            if (start >= 64 && buf.subarray(start - 64, start - 56).toString() === "GOSTDEMB") {
+              const record = buf.subarray(start - 64, start);
+              fs.writeFileSync(file, Buffer.concat([buf.subarray(0, start - 64), buf.subarray(start), record]));
+              core.warning(`go-toolchain: moved the ${end - start}-byte release stamp ahead of the standard library record it followed`);
+            }
+          }
+
     - name: Install go-toolchain
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
