@@ -166,6 +166,25 @@ runs:
             }
           }
 
+    # The standard library inside the binary is found through a GOSTDEMB record that must be the last bytes of the file. A release stamp after it makes the binary fail as go with "cannot find GOROOT directory".
+    - name: Drop a release stamp that follows the GOSTDEMB record
+      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
+      uses: wow-look-at-my/actions@typescript#latest
+      env:
+        GO_TOOLCHAIN_DOWNLOAD: ${{ steps.download.outputs.path }}
+      with:
+        script: |
+          const file = process.env.GO_TOOLCHAIN_DOWNLOAD ?? "";
+          const buf = fs.readFileSync(file);
+          const end = buf.length;
+          if (end >= 84 && buf.subarray(end - 16).toString() === "BUILDHOST-STAMP1") {
+            const start = end - 20 - buf.readUInt32BE(end - 20);
+            if (start >= 64 && buf.subarray(start - 64, start - 56).toString() === "GOSTDEMB") {
+              fs.writeFileSync(file, buf.subarray(0, start));
+              core.warning(`go-toolchain: dropped the ${end - start}-byte release stamp that followed its GOSTDEMB record`);
+            }
+          }
+
     - name: Install go-toolchain
       if: inputs.binary == ''
       shell: bash
