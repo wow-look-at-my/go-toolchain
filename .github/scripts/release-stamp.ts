@@ -1,4 +1,5 @@
 // Stamps each binary in the build directory with the buildhost release it will publish as, before the publish uploads it. see docs/RELEASE-STAMP.md
+// The action requires this file from CommonJS, transpiled with module: commonjs. ESM-only syntax here, import.meta above all, makes node load the transpiled code as ESM, where `exports` is undefined. release-stamp-cli.ts is the program.
 
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
@@ -197,11 +198,4 @@ export async function stampBuild(dir: string): Promise<void> {
 	refreshChecksums(dir);
 	const out = process.env.GITHUB_OUTPUT;
 	if (out) fs.appendFileSync(out, `version=${release}\n`);
-}
-
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
-	stampBuild(process.argv[2] ?? "").catch((e) => {
-		console.error(`release-stamp: ${e instanceof Error ? e.message : String(e)}`);
-		process.exit(1);
-	});
 }

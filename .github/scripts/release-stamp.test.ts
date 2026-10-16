@@ -8,7 +8,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { decode, encode, projectFor, repairFile, stampFile } from "./release-stamp.ts";
 
-const script = path.join(import.meta.dirname, "release-stamp.ts");
+const script = path.join(import.meta.dirname, "release-stamp-cli.ts");
+const library = path.join(import.meta.dirname, "release-stamp.ts");
 
 type Seen = { url: string; body: any }[];
 
@@ -261,6 +262,44 @@ assert.equal(decode(Buffer.from("plain")), null);
 	const p = spawn(path.join(dir, "webhooks_linux_amd64"));
 	const code = await new Promise((res) => p.on("close", res));
 	assert.equal(code, 0, "the stamped binary must still run");
+}
+
+// The action requires the library from CommonJS, through a `.ts` extension handler that transpiles to module: commonjs. A file with ESM-only syntax (import.meta) is then loaded as ESM, where `exports` is undefined. The loader here rewrites the imports and exports the way that transpile does.
+{
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "release-stamp-cjs-"));
+	const loader = path.join(dir, "load.cjs");
+	fs.writeFileSync(loader, `
+const fs = require("node:fs");
+const Module = require("node:module");
+function transpile(source) {
+	const names = [];
+	let out = Module.stripTypeScriptTypes(source, { mode: "transform" });
+	out = out.replace(/^import \\* as (\\w+) from (".*?");/gm, "const $1 = require($2);");
+	out = out.replace(/^import \\{([^}]*)\\} from (".*?");/gm, "const {$1} = require($2);");
+	out = out.replace(/^export (?:async )?(?:function|const|let|class) (\\w+)/gm, (line, name) => { names.push(name); return line.slice("export ".length); });
+	return 'Object.defineProperty(exports, "__esModule", { value: true });\\n' + out + names.map((n) => \`\\nexports.\${n} = \${n};\`).join("");
+}
+Module._extensions[".ts"] = (module, filename) => module._compile(transpile(fs.readFileSync(filename, "utf-8")), filename);
+const mod = require(process.argv[2]);
+console.log(Object.keys(mod).sort().join(","));
+`);
+	const load = (file: string) => new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
+		const p = spawn(process.execPath, [loader, file]);
+		let stdout = "", stderr = "";
+		p.stdout.on("data", (c) => (stdout += c));
+		p.stderr.on("data", (c) => (stderr += c));
+		p.on("close", (code) => resolve({ code: code ?? -1, stdout, stderr }));
+	});
+	// the loader itself sees the defect: a library with import.meta fails to load as CommonJS
+	const esmOnly = path.join(dir, "esm-only.ts");
+	fs.writeFileSync(esmOnly, 'import * as path from "node:path";\nexport function where(): string { return path.dirname(import.meta.filename); }\n');
+	const broken = await load(esmOnly);
+	assert.notEqual(broken.code, 0, "a library with import.meta must not load through the CommonJS loader");
+	assert.match(broken.stderr, /is not defined in ES module scope/);
+	// the real library loads, and exports what the action requires
+	const ok = await load(library);
+	assert.equal(ok.code, 0, ok.stderr);
+	assert.ok(ok.stdout.split(",").map((s) => s.trim()).includes("repairFile"), `exports: ${ok.stdout}`);
 }
 
 console.log("release-stamp: all checks passed");
