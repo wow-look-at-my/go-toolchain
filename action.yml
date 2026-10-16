@@ -110,6 +110,26 @@ runs:
       with:
         project: go-toolchain
 
+    # The go command finds the standard library a gosmopolitan binary carries through a record that has to be the file's last bytes. Buildhost's release stamp lands after it. A stamped download then fails as the go command. This is the name the generator step runs it under, so the pipeline that built it cannot build anything. Moving the stamp ahead of the record keeps both.
+    - name: Keep the standard library's record last
+      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
+      uses: wow-look-at-my/actions@typescript#latest
+      env:
+        GO_TOOLCHAIN_DOWNLOAD: ${{ steps.download.outputs.path }}
+      with:
+        script: |
+          const file = process.env.GO_TOOLCHAIN_DOWNLOAD ?? "";
+          const buf = fs.readFileSync(file);
+          const end = buf.length;
+          if (end >= 84 && buf.subarray(end - 16).toString() === "BUILDHOST-STAMP1") {
+            const start = end - 20 - buf.readUInt32BE(end - 20);
+            if (start >= 64 && buf.subarray(start - 64, start - 56).toString() === "GOSTDEMB") {
+              const record = buf.subarray(start - 64, start);
+              fs.writeFileSync(file, Buffer.concat([buf.subarray(0, start - 64), buf.subarray(start), record]));
+              core.warning(`go-toolchain: moved the ${end - start}-byte release stamp ahead of the standard library record it followed`);
+            }
+          }
+
     - name: Install go-toolchain
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
@@ -119,8 +139,10 @@ runs:
         mkdir -p "${BIN_DIR}"
         mv "${{ steps.download.outputs.path }}" "${BIN_DIR}/go-toolchain"
         echo "${BIN_DIR}" >> "$GITHUB_PATH"
-        # Capture the probe output: it names a crash or an unrunnable binary.
-        if ! probe=$("${BIN_DIR}/go-toolchain" version 2>&1); then
+        # A release stamped after its GOSTDEMB record cannot find its standard library; the repair moves the stamp before the record.
+        bash "$GITHUB_ACTION_PATH/.github/scripts/repair-stamp-tail.sh" "${BIN_DIR}/go-toolchain"
+        # Capture the probe output: it names a crash or an unrunnable binary. The probe runs the binary as the go command too, which is how every later step uses it.
+        if ! probe=$(bash "$GITHUB_ACTION_PATH/.github/scripts/probe-go-toolchain.sh" "${BIN_DIR}/go-toolchain" "$RUNNER_TEMP/go-toolchain-probe"); then
           echo "buildhost go-toolchain not usable; probe output:"
           echo "${probe}"
           # A silent source build hides a buildhost outage. see docs/ACTION.md
@@ -137,6 +159,8 @@ runs:
           curl -fsSL --compressed "https://dl.pazer.build/gosmopolitan?branch=master&os=${fork_os}&arch=${fork_arch}" | tar -xz -C "$fork_root"
           (cd "$GITHUB_ACTION_PATH" && GOROOT="$fork_root/go" GOTOOLCHAIN=local GOTELEMETRY=off GOPROXY=direct GOSUMDB=off GONOSUMDB='*' GOFLAGS= CGO_ENABLED=0 \
             "$fork_root/go/bin/go" build -trimpath -o "${BIN_DIR}/go-toolchain" ./src)
+          # A source build embeds no standard library: the fork tree it was built from is its GOROOT, run as itself or as go.
+          echo "GOROOT=$fork_root/go" >> "$GITHUB_ENV"
         fi
 
     - name: Install provided binary

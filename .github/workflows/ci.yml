@@ -28,53 +28,17 @@ jobs:
   host-build:
     runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
-      # No persisted credentials: the header checkout leaves in the workspace names THIS repository, so every git question about another is asked as the wrong identity.
-      - uses: actions/checkout@v7
+      # No persisted credentials: the header checkout leaves in the workspace names THIS repository, so every git question about another is asked as the wrong identity. The fork follows this branch at the commit the run locked, the same commit the pipeline's resolveForkCommit takes.
+      - uses: wow-look-at-my/actions@parallel-checkout#latest
         with:
           persist-credentials: false
-          submodules: recursive
-
-      # make.bash and the generator install read the fork checkout, so it follows the branch before either runs rather than staying on the gitlink.
-      - name: Put the fork on its branch
-        run: bash .github/scripts/checkout-fork-branch.sh "$GITHUB_REF_NAME"
+          submodule-branch: ${{ github.ref_name }}
+          submodule-branch-lock: https://pazer.build
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
-      # The last release a green master run published is the bootstrap, as it is for every consumer. A release without the linked go command hands the job to the from-scratch steps below. see docs/CI.md
-      - name: Take the previous release
-        id: bootstrap
-        uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
-        with:
-          project: go-toolchain
-          path: ${{ runner.temp }}/gt-bootstrap
-          required: false
-
-      - name: Install the previous release as the bootstrap pipeline
-        id: release
-        run: |
-          set -euo pipefail
-          if [ "${{ steps.bootstrap.outputs.downloaded }}" != true ]; then
-            echo "no previous release to bootstrap from; bootstrapping from the fork checkout"
-            echo "linked=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # The release is the go command under the name go. An older one runs its own version command there instead, which prints no "go version" line.
-          goroot_bin="$RUNNER_TEMP/gt-bootstrap-goroot/bin"
-          mkdir -p "$goroot_bin"
-          cp "$RUNNER_TEMP/gt-bootstrap" "$goroot_bin/go"
-          chmod +x "$goroot_bin/go"
-          said="$(sh "$goroot_bin/go" version 2>&1 || true)"
-          printf '%s\n' "$said"
-          if [[ "$said" == "go version "* ]]; then
-            echo "linked=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "the previous release links no go command; bootstrapping from the fork checkout"
-            echo "linked=false" >> "$GITHUB_OUTPUT"
-          fi
-
       # The fork's last published release is the bootstrap compiler for its make.bash. Its go command carries the cache client in process, so go_bootstrap compiles from the shared cache. A stock Go cannot reach it.
       - name: Take the fork's release
-        if: steps.release.outputs.linked != 'true'
         uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
         with:
           # No fmt: a GOROOT is stored as a tar.gz, and repackaging wraps it again.
@@ -84,7 +48,6 @@ jobs:
           executable: false
 
       - name: Install the fork's release as the bootstrap compiler
-        if: steps.release.outputs.linked != 'true'
         run: |
           set -euo pipefail
           mkdir -p "${{ runner.temp }}/bootstrap"
@@ -98,7 +61,6 @@ jobs:
 
       # The pipeline links the fork's go command, so the fork's own build is what earliest compiles it; it runs after the secrets because a CI run of the fork's go command refuses to build with no shared cache configured. see docs/CI.md
       - name: Build the bootstrap go command from the fork checkout
-        if: steps.release.outputs.linked != 'true'
         working-directory: _gosmopolitan/src
         run: ./make.bash
 
@@ -133,36 +95,19 @@ jobs:
             echo "GOTELEMETRY=off"
           } >> "$GITHUB_ENV"
 
-      # The go command the generators build with, named for the cached run and the PATH step, neither of which can see a variable the other set.
-      - name: Choose the go command the generators build with
-        run: |
-          set -euo pipefail
-          if [ "${{ steps.release.outputs.linked }}" = "true" ]; then
-            # The release step put the APE under the name go, which is the go command. A shell starts it: the binfmt handler is not registered yet.
-            goroot_bin="$RUNNER_TEMP/gt-bootstrap-goroot/bin"
-            go="$RUNNER_TEMP/gt-bootstrap-go"
-            printf '#!/bin/sh\nexec sh "%s" "$@"\n' "$goroot_bin/go" > "$go"
-            chmod +x "$go"
-          else
-            go="$PWD/_gosmopolitan/bin/go"
-            goroot_bin="$PWD/_gosmopolitan/bin"
-          fi
-          echo "GEN_GO=$go" >> "$GITHUB_ENV"
-          echo "GEN_GOROOT_BIN=$goroot_bin" >> "$GITHUB_ENV"
-
-      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure. The go command builds these, so its identity is in the key: a rebuilt fork must not restore generators its predecessor produced.
+      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure.
       - name: Install the generators
         uses: wow-look-at-my/actions@cached-run#latest
         with:
-          key: generators-${{ steps.release.outputs.linked }}
+          key: generators
           paths: ~/go/bin
           run: |
-            go="$GEN_GO"
-            export PATH="$GEN_GOROOT_BIN:$PATH"
-            # No GOOS, GOARCH or GOBIN: this go is an APE targeting cosmo, which is what it embeds, and cmd/go reads a cosmo build as a cross-compile because the host it RUNS on is not cosmo. A cross-compile refuses GOBIN and lands in a per-target subdirectory of GOPATH/bin.
+            go="$PWD/_gosmopolitan/bin/go"
+            # No GOOS, GOARCH or GOBIN: the fork targets cosmo, so each generator comes out an APE every host runs, and cmd/go reads that as a cross-compile, which refuses GOBIN and lands in a per-target subdirectory of GOPATH/bin.
             genbin="$("$go" env GOPATH)/bin/$("$go" env GOOS)_$("$go" env GOARCH)"
             mkdir -p "$genbin"
-            export PATH="$genbin:$PATH"
+            # The fork's own go goes on PATH beside it: a dependency's generate directive starts `go` by name, and the runner's own go answers a GOROOT this owns.
+            export PATH="$genbin:$PWD/_gosmopolitan/bin:$PATH"
             # Each generator is built from a GitHub checkout whose golang.org requirements point at GitHub, so no go command here resolves a path through golang.org. The org's own x/tools is what gopls and the analyzers here already build against. Completing x/text runs a directive that starts gotext, so gotext cannot come from a module fetch either.
             bash .github/scripts/build-from-github.sh "$go" https://github.com/wow-look-at-my/gosmopolitan_tools "" "$genbin" cmd/stringer cmd/goyacc
             bash .github/scripts/build-from-github.sh "$go" https://github.com/golang/text v0.42.0 "$genbin" cmd/gotext
@@ -170,7 +115,7 @@ jobs:
             "$go" install github.com/mjibson/esc@v0.2.0
             # cached-run carries these with the paths, so a hit that skips this script still exports them.
             echo "$genbin" >> "$GITHUB_PATH"
-            echo "$GEN_GOROOT_BIN" >> "$GITHUB_PATH"
+            echo "$PWD/_gosmopolitan/bin" >> "$GITHUB_PATH"
             echo "GENBIN=$genbin" >> "$GITHUB_ENV"
 
       # protoc is a C++ binary, so go install cannot reach it. The release is pinned, which is the whole key: nothing this repo builds changes it.
@@ -197,7 +142,6 @@ jobs:
 
       # The bootstrap pipeline is an APE the fork's own go command built from this tree, with the flags the pipeline builds itself with, so its compiler shares the passes' tool ID. see docs/CI.md
       - name: Build the bootstrap pipeline from the fork checkout
-        if: steps.release.outputs.linked != 'true'
         run: |
           set -euo pipefail
           export GOROOT="$PWD/_gosmopolitan" GOTOOLCHAIN=local CGO_ENABLED=0
@@ -292,146 +236,16 @@ jobs:
           name: generator-apes
           path: ${{ runner.temp }}/generators
 
-  # The same build with no go-toolchain release involved: the fork's release runs the fork's make.bash, that go command builds the pipeline, and the pipeline builds itself; identical holds its APE to host-build's bytes. see docs/CI.md
-  bootstrap-scratch:
-    runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-          submodules: recursive
-
-      # make.bash reads the fork checkout, so it follows the branch before that runs rather than staying on the gitlink.
-      - name: Put the fork on its branch
-        run: bash .github/scripts/checkout-fork-branch.sh "$GITHUB_REF_NAME"
-
-      - uses: wow-look-at-my/actions@secret-server#latest
-
-      - name: Take the fork's release
-        uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
-        with:
-          # No fmt: a GOROOT is stored as a tar.gz, and repackaging wraps it again.
-          project: gosmopolitan
-          branch: master
-          path: ${{ runner.temp }}/gosmopolitan.tar.gz
-          executable: false
-
-      - name: Install the fork's release as the bootstrap compiler
-        run: |
-          set -euo pipefail
-          mkdir -p "${{ runner.temp }}/bootstrap"
-          tar -xzf "${{ runner.temp }}/gosmopolitan.tar.gz" -C "${{ runner.temp }}/bootstrap"
-          echo "GOROOT_BOOTSTRAP=${{ runner.temp }}/bootstrap/go" >> "$GITHUB_ENV"
-          "${{ runner.temp }}/bootstrap/go/bin/go" version
-
-      - name: Install the APE loader tools
-        uses: ./_gosmopolitan/.github/actions/apeld-tools
-
-      - name: Build the bootstrap go command from the fork checkout
-        working-directory: _gosmopolitan/src
-        run: ./make.bash
-
-      - name: Configure git for private repos
-        if: env.PRIVATE_ORG_REPO_READ != ''
-        run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
-
-      - name: Provision the sandbox backend (bubblewrap)
-        uses: wow-look-at-my/actions@cached-apt#latest
-        with:
-          packages: bubblewrap
-
-      - name: Let bwrap open a user namespace
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-
-      # The org module proxy is gone. Modules come from their own source, and the sumdb goes with the proxy that mirrored it. These are the values src/goenv.go already falls back to with no proxy configured.
-      - name: Configure Go proxy
-        run: |
-          {
-            echo "GOPROXY=direct"
-            echo "GOSUMDB=off"
-            echo "GONOSUMDB=*"
-            echo "GONOSUMCHECK=*"
-            echo "GOTOOLCHAIN=local"
-            echo "GOTELEMETRY=off"
-          } >> "$GITHUB_ENV"
-
-      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure.
-      - name: Install the generators
-        uses: wow-look-at-my/actions@cached-run#latest
-        with:
-          key: generators
-          paths: ~/go/bin
-          run: |
-            go="$PWD/_gosmopolitan/bin/go"
-            # No GOOS, GOARCH or GOBIN: the fork targets cosmo, so each generator comes out an APE every host runs, and cmd/go reads that as a cross-compile, which refuses GOBIN and lands in a per-target subdirectory of GOPATH/bin.
-            genbin="$("$go" env GOPATH)/bin/$("$go" env GOOS)_$("$go" env GOARCH)"
-            mkdir -p "$genbin"
-            # The fork's own go goes on PATH beside it: a dependency's generate directive starts `go` by name, and the runner's own go answers a GOROOT this owns.
-            export PATH="$genbin:$PWD/_gosmopolitan/bin:$PATH"
-            # Each generator is built from a GitHub checkout whose golang.org requirements point at GitHub. No go command here resolves a path through golang.org.
-            bash .github/scripts/build-from-github.sh "$go" https://github.com/wow-look-at-my/gosmopolitan_tools "" "$genbin" cmd/stringer cmd/goyacc
-            bash .github/scripts/build-from-github.sh "$go" https://github.com/golang/text v0.42.0 "$genbin" cmd/gotext
-            bash .github/scripts/build-from-github.sh "$go" https://github.com/protocolbuffers/protobuf-go v1.34.1 "$genbin" cmd/protoc-gen-go
-            "$go" install github.com/mjibson/esc@v0.2.0
-            # cached-run carries this with the paths, so a hit that skips this script still exports it.
-            echo "$genbin" >> "$GITHUB_PATH"
-
-      # protoc is a C++ binary, so go install cannot reach it. The release is pinned, which is the whole key: nothing this repo builds changes it.
-      - name: Install protoc
-        uses: wow-look-at-my/actions@cached-run#latest
-        with:
-          key: protoc-27.2
-          paths: ~/protoc
-          run: |
-            protoc_version=27.2
-            case "$RUNNER_OS-$RUNNER_ARCH" in
-              Linux-X64) protoc_asset=linux-x86_64 ;;
-              Linux-ARM64) protoc_asset=linux-aarch_64 ;;
-              macOS-X64) protoc_asset=osx-x86_64 ;;
-              macOS-ARM64) protoc_asset=osx-aarch_64 ;;
-              Windows-X64) protoc_asset=win64 ;;
-              *) echo "no protoc release for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
-            esac
-            curl -fsSL -o "$RUNNER_TEMP/protoc.zip" \
-              "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-${protoc_asset}.zip"
-            unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$HOME/protoc"
-            chmod +x "$HOME/protoc/bin/protoc"
-            echo "$HOME/protoc/bin" >> "$GITHUB_PATH"
-
-      - name: Build the bootstrap pipeline from the fork checkout
-        run: |
-          set -euo pipefail
-          export GOROOT="$PWD/_gosmopolitan" GOTOOLCHAIN=local CGO_ENABLED=0
-          "$GOROOT/bin/go" build -trimpath -o "${{ runner.temp }}/gt-bootstrap" ./src
-
-      - name: Register the APE binfmt handler
-        run: bash .github/scripts/register-ape-binfmt.sh
-
-      - name: Install cosmocc
-        run: bash .github/scripts/install-cosmocc.sh
-
-      - name: Build and test
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        # The same command the action runs, so identical compares like with like. see docs/CI.md
-        run: sh "${{ runner.temp }}/gt-bootstrap" matrix --cosmo-platforms linux/amd64,darwin/arm64,windows/amd64
-
-      - name: Hand off the from-scratch APE
-        uses: wow-look-at-my/actions@cache-upload#latest
-        with:
-          name: ape-scratch
-          path: build/go-toolchain
-
   # Build + test via the composite action with NO target inputs, which is exactly what a... see docs/CI.md
   build:
     needs: host-build
     runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: wow-look-at-my/actions@parallel-checkout#latest
         with:
           persist-credentials: false
-          submodules: recursive
+          submodule-branch: ${{ github.ref_name }}
+          submodule-branch-lock: https://pazer.build
 
       # The dats phase sandboxes every suite command (dats' default), and the backend it picks... see docs/CI.md
       - name: Provision the sandbox backend (bubblewrap)
@@ -502,9 +316,10 @@ jobs:
       # NT needs the suffix to exec what it copies.
       GT_APE: ${{ matrix.origin == 'windows' && 'gt-ape.exe' || 'gt-ape' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: wow-look-at-my/actions@parallel-checkout#latest
         with:
-          submodules: recursive
+          submodule-branch: ${{ github.ref_name }}
+          submodule-branch-lock: https://pazer.build
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
@@ -615,12 +430,14 @@ jobs:
 
   # The smoke jobs run A single host's APE on each of them. That says what every host ships only if every... see docs/CI.md
   identical:
-    needs: [build, build-everywhere, bootstrap-scratch]
+    needs: [build, build-everywhere]
     runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       # Only for the dats fixture below -- this job otherwise runs no repo code.
-      - uses: actions/checkout@v7
+      - uses: wow-look-at-my/actions@parallel-checkout#latest
+        with:
+          submodules: false
 
       # ape/linux is `build`'s hand-off, the same bytes `publish` ships.
       - name: Download each host's APE
@@ -638,11 +455,6 @@ jobs:
         with:
           name: ape-windows
           path: ape/windows
-      # The APE a from-scratch bootstrap reached, with no release in its ancestry.
-      - uses: wow-look-at-my/actions@cache-download#latest
-        with:
-          name: ape-scratch
-          path: ape/scratch
       # The APE host-build reached, which `build` ran to produce ape/linux.
       - uses: wow-look-at-my/actions@cache-download#latest
         with:
@@ -654,9 +466,6 @@ jobs:
 
       - name: Where the build job's APE differs from the host-build APE it ran
         run: bash .github/scripts/explain-mismatch.sh ape/host/go-toolchain ape/linux/go-toolchain
-
-      - name: Where the from-scratch bootstrap differs
-        run: bash .github/scripts/explain-mismatch.sh ape/linux/go-toolchain ape/scratch/go-toolchain
 
       # The cross-host pairs are the ones the fixture below actually compares. A red run says which bytes moved rather than only that some did.
       - name: Where each host's APE differs from the linux one
@@ -670,8 +479,6 @@ jobs:
             echo "=== linux vs $host"
             bash .github/scripts/explain-mismatch.sh ape/linux/go-toolchain "ape/$host/go-toolchain"
           done
-
-
 
       # A missing hand-off fails too: comparing the hosts that answered proves nothing. see docs/CI.md
       - name: Every host built the same bytes
@@ -688,7 +495,6 @@ jobs:
           path: |
             ape/host/go-toolchain
             ape/linux/go-toolchain
-            ape/scratch/go-toolchain
           compression-level: 1
 
   # One suite, every host: a host-specific answer is paired with uname inside the fixture. see docs/CI.md
@@ -705,7 +511,9 @@ jobs:
     timeout-minutes: 30
     steps:
       # Only for the dats fixtures in .github/dats-fixtures/ -- this job otherwise runs no repo code.
-      - uses: actions/checkout@v7
+      - uses: wow-look-at-my/actions@parallel-checkout#latest
+        with:
+          submodules: false
 
       # For GO_BUILDCACHE_CONFIG alone: the fork refuses a CI build without it. see docs/CI.md
       - uses: wow-look-at-my/actions@secret-server#latest
