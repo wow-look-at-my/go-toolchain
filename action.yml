@@ -164,23 +164,22 @@ runs:
             }
           }
 
-    # The go command finds the standard library a gosmopolitan binary carries through a record that has to be the file's last bytes. Buildhost's release stamp lands after it. A stamped download then fails as the go command. This is the name the generator step runs it under, so the pipeline that built it cannot build anything. Moving the stamp ahead of the record keeps both.
-    - name: Keep the standard library's record last
+    # A nested action sees its own GITHUB_ACTION_PATH. This step hands the repair step the path of this action as a container sees it.
+    - name: Locate the release stamp script for the download
+      id: repair_script
+      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
+      shell: bash
+      run: echo "path=$GITHUB_ACTION_PATH/.github/scripts/release-stamp.ts" >> "$GITHUB_OUTPUT"
+
+    # A release stamped after the embedded standard library's trailer runs as go with no GOROOT. see docs/RELEASE-STAMP.md
+    - name: Put the downloaded binary's release stamp before its standard library trailer
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       uses: wow-look-at-my/actions@typescript#latest
       with:
         script: |
-          const file = String(${{ toJSON(format('{0}', steps.download.outputs.path)) }});
-          const buf = fs.readFileSync(file);
-          const end = buf.length;
-          if (end >= 84 && buf.subarray(end - 16).toString() === "BUILDHOST-STAMP1") {
-            const start = end - 20 - buf.readUInt32BE(end - 20);
-            if (start >= 64 && buf.subarray(start - 64, start - 56).toString() === "GOSTDEMB") {
-              const record = buf.subarray(start - 64, start);
-              fs.writeFileSync(file, Buffer.concat([buf.subarray(0, start - 64), buf.subarray(start), record]));
-              core.warning(`go-toolchain: moved the ${end - start}-byte release stamp ahead of the standard library record it followed`);
-            }
-          }
+          const { repairFile } = require("${{ steps.repair_script.outputs.path }}") as { repairFile: (file: string) => boolean };
+          const file: string = String(${{ toJSON(format('{0}', steps.download.outputs.path)) }});
+          core.info(repairFile(file) ? `${file}: moved its release stamp before the embedded standard library's trailer` : `${file}: layout already right`);
 
     - name: Install go-toolchain
       if: inputs.binary == ''
