@@ -45,6 +45,12 @@ func EnsureGoVersion() error {
 		if goroot, err = forkGorootDir(); err != nil {
 			return err
 		}
+	} else if !embedsStdlib(exe) {
+		// A build from source carries no standard library. The caller names the fork tree it was built from.
+		goroot = os.Getenv("GOROOT")
+		if goroot == "" {
+			return fmt.Errorf("%s carries no standard library (no GOSTDEMB record ends the file) and GOROOT is not set: a go-toolchain built from source needs the gosmopolitan tree it was built from as GOROOT", exe)
+		}
 	}
 	linkDir, err := linkGoToSelf(exe)
 	if err != nil {
