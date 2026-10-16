@@ -60,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: wow-look-at-my/go-toolchain@master
+      - uses: wow-look-at-my/go-toolchain@lkgb
 ```
 
 The action fetches secrets, configures the Go proxy and private repo access, and wires up the web build cache. It then runs `go-toolchain matrix`, with a CodeQL `security-and-quality` analysis around the build. Every permission above is required. And the build fails without it — [docs/ACTION.md](docs/ACTION.md) says what each one is for.
