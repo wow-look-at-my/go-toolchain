@@ -10,7 +10,7 @@ tests:
 	  cmd: |
 		set -eu
 		node --version
-		node --test .github/scripts/release-stamp.test.ts
+		node --test --test-reporter=tap .github/scripts/release-stamp.test.ts
 	  timeout: 5m
 	  outputs:
 		stdout:
