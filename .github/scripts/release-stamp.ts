@@ -199,7 +199,8 @@ export async function stampBuild(dir: string): Promise<void> {
 	if (out) fs.appendFileSync(out, `version=${release}\n`);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
+// The action requires this file through a CommonJS hook. An ESM-only meta property makes node load it as ESM, so the guard reads argv.
+if (process.argv[1] && path.basename(process.argv[1]) === "release-stamp.ts") {
 	stampBuild(process.argv[2] ?? "").catch((e) => {
 		console.error(`release-stamp: ${e instanceof Error ? e.message : String(e)}`);
 		process.exit(1);
