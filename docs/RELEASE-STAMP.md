@@ -18,8 +18,6 @@ After each link, `verifyReleaseStamp` reads the binary's build info with the sam
 
 A build outside CI with no `GO_TOOLCHAIN_RELEASE_VERSION` has no buildhost release. It warns, and its binaries carry no release setting. Such a binary is never published.
 
-Releases stamped before this order existed carry the stamp after the trailer. Such a go-toolchain cannot find its GOROOT when it runs as `go`. The action therefore runs `repairOrder` on the go-toolchain it installs, which moves the stamp in front of the trailer.
-
 ## Reading it
 
 ```go
