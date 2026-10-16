@@ -1,12 +1,12 @@
 package consumerfixture
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestSum(t *testing.T) {
-	if got := Sum(1, 2, 3); got != 6 {
-		t.Fatalf("Sum(1, 2, 3) = %d, want 6", got)
-	}
-	if got := Sum(); got != 0 {
-		t.Fatalf("Sum() = %d, want 0", got)
-	}
+	require.Equal(t, 6, Sum(1, 2, 3))
+	require.Equal(t, 0, Sum())
 }
