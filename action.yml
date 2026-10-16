@@ -102,13 +102,67 @@ runs:
       shell: bash
       run: bash "$GITHUB_ACTION_PATH/.github/scripts/install-cosmocc.sh"
 
+    # The binary is the build of the commit this action is, so a pinned ref pins both. see docs/ACTION.md
+    - name: Resolve the go-toolchain build of this action's commit
+      id: build_of_commit
+      if: inputs.binary == ''
+      uses: wow-look-at-my/actions@typescript#latest
+      with:
+        script: |
+          const actionPath: string = env.GITHUB_ACTION_PATH!;
+          const server: string = "https://pazer.build";
+          const fullSHA = /^[0-9a-f]{40}$/;
+          let commit: string = fs.readFileSync(path.join(actionPath, ".github", "action-commit"), "utf8").trim();
+          if (!fullSHA.test(commit)) {
+            // A path action is a checkout, which no archive substituted.
+            commit = require("child_process").execFileSync("git", ["-C", actionPath, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+          }
+          if (!fullSHA.test(commit)) {
+            core.setFailed(`go-toolchain action at ${actionPath} names no commit: .github/action-commit and git both failed, got '${commit}'`);
+            return;
+          }
+          const url = `${server}/api/v1/projects/go-toolchain/releases`;
+          const response = await fetch(url);
+          if (!response.ok) {
+            core.setFailed(`listing go-toolchain releases: GET ${url} answered ${response.status}: ${await response.text()}`);
+            return;
+          }
+          type Release = { version: string; version_num: number; git_commit: string; published: boolean };
+          const releases = (await response.json()) as Release[];
+          const builds = releases.filter((r) => r.git_commit === commit && r.published).sort((a, b) => b.version_num - a.version_num);
+          if (builds.length === 0) {
+            core.setFailed(`buildhost has no published go-toolchain build of ${commit}, the commit this action is. Pin the action to a ref whose CI published, such as @lkgb.`);
+            return;
+          }
+          core.info(`go-toolchain ${commit} is release ${builds[0].version}`);
+          core.setOutput("version", builds[0].version);
+
     # No path: runner.temp is the host path in a container job. The action resolves RUNNER_TEMP itself.
     - name: Download go-toolchain
       id: download
-      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
-      uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
+      if: inputs.binary == ''
+      uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@lkgb
       with:
         project: go-toolchain
+        version: ${{ steps.build_of_commit.outputs.version }}
+
+    # The go command finds the standard library a gosmopolitan binary carries through a record that has to be the file's last bytes. Buildhost's release stamp lands after it. A stamped download then fails as the go command. This is the name the generator step runs it under, so the pipeline that built it cannot build anything. Moving the stamp ahead of the record keeps both.
+    - name: Keep the standard library's record last
+      if: inputs.binary == ''
+      uses: wow-look-at-my/actions@typescript#latest
+      with:
+        script: |
+          const file = String(${{ toJSON(format('{0}', steps.download.outputs.path)) }});
+          const buf = fs.readFileSync(file);
+          const end = buf.length;
+          if (end >= 84 && buf.subarray(end - 16).toString() === "BUILDHOST-STAMP1") {
+            const start = end - 20 - buf.readUInt32BE(end - 20);
+            if (start >= 64 && buf.subarray(start - 64, start - 56).toString() === "GOSTDEMB") {
+              const record = buf.subarray(start - 64, start);
+              fs.writeFileSync(file, Buffer.concat([buf.subarray(0, start - 64), buf.subarray(start), record]));
+              core.warning(`go-toolchain: moved the ${end - start}-byte release stamp ahead of the standard library record it followed`);
+            }
+          }
 
     # A nested action sees its own GITHUB_ACTION_PATH. This step hands the repair step the path of this action as a container sees it.
     - name: Locate the release stamp script for the download
@@ -128,7 +182,7 @@ runs:
           core.info(repairFile(file) ? `${file}: moved its release stamp before the embedded standard library's trailer` : `${file}: layout already right`);
 
     - name: Install go-toolchain
-      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
+      if: inputs.binary == ''
       shell: bash
       run: |
         set -euo pipefail
@@ -321,7 +375,7 @@ runs:
     # The release the build stamped its number into, else an explicit version from autorelease_args. see docs/RELEASE-STAMP.md
     - name: Auto-release to buildhost
       if: steps.publishable.outputs.publish == 'true'
-      uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
+      uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@lkgb
       with:
         path: ${{ inputs.working-directory }}/build
         version: ${{ steps.build.outputs.release_version || steps.autorelease_args.outputs.version }}
