@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
 // An org dependency has no version of its own.
@@ -126,8 +127,13 @@ func unpinFile(name, text string) (string, []orgPin) {
 			continue
 		}
 		if ref, ok := pinnedActionRef(trimmed); ok {
-			out = append(out, strings.Replace(line, "@"+ref, "@master", 1))
-			pins = append(pins, orgPin{name, i + 1, "org action " + ref + " -> master"})
+			branch := actionDefaultBranch(actionRepo(trimmed))
+			if ref == branch {
+				out = append(out, line)
+				continue
+			}
+			out = append(out, strings.Replace(line, "@"+ref, "@"+branch, 1))
+			pins = append(pins, orgPin{name, i + 1, "org action " + ref + " -> " + branch})
 			continue
 		}
 		if isSum {
@@ -238,7 +244,9 @@ func pinsInFile(name, text string) []orgPin {
 			continue
 		}
 		if ref, ok := pinnedActionRef(text); ok {
-			pins = append(pins, orgPin{name, i + 1, "org action pinned to " + ref})
+			if ref != actionDefaultBranch(actionRepo(text)) {
+				pins = append(pins, orgPin{name, i + 1, "org action pinned to " + ref})
+			}
 			continue
 		}
 		if version, ok := pinnedVersion(text); ok {
@@ -343,6 +351,35 @@ func pinnedActionRef(text string) (string, bool) {
 		return ref, true
 	}
 	return "", false
+}
+
+// actionRepo answers OWNER/REPO of the org action a `uses:` step names.
+func actionRepo(text string) string {
+	owner := orgOwner(orgPrefixIn(text))
+	_, rest, ok := strings.Cut(text, owner)
+	if !ok {
+		return ""
+	}
+	path, _, _ := strings.Cut(rest, "@")
+	repo, _, _ := strings.Cut(path, "/")
+	return owner + repo
+}
+
+// actionDefaultBranch answers the default branch of an org action's repository.
+// A repository whose default is v1 names that branch, which is no pin. Where git
+// cannot answer, it answers master, the org's branch.
+var actionDefaultBranch = func(repo string) string {
+	if repo == "" {
+		return "master"
+	}
+	_, out, err := resolveGitURLAndRef(runner.New(), "github.com/"+repo, "HEAD")
+	if err != nil {
+		return "master"
+	}
+	if _, branch := parseLsRemoteRefs(out); branch != "" {
+		return branch
+	}
+	return "master"
 }
 
 // pinnedVersion reports the earliest version token on the line that is not
