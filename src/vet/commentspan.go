@@ -12,11 +12,12 @@ import (
 	"unicode"
 
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
+	"github.com/wow-look-at-my/slopfix/ste"
 	"golang.org/x/tools/go/analysis"
 )
 
-// CommentSpanAnalyzer reports a comment bigger than the code it documents,
-// by lines or by chars past commentSpanCharFloor. A directive line, and the
+// CommentSpanAnalyzer reports a comment bigger than the code it documents, by
+// lines or by chars past commentSpanCharFloor. A directive line, and the
 // package doc, are never measured.
 var CommentSpanAnalyzer = &analysis.Analyzer{
 	Name:       "commentspan",
@@ -113,7 +114,7 @@ func checkCommentGroup(pass *analysis.Pass, src []byte, g *ast.CommentGroup, nod
 	if cLines > tLines {
 		fmt.Fprintf(&msg, "\n  %d comment lines > %d code lines = %d lines too long", cLines, tLines, cLines-tLines)
 	}
-	if cChars > charLimit {
+	if cChars > charLimit && !commentSpanOneSentence(commentText) {
 		fmt.Fprintf(&msg, "\n %d comment chars > %d code chars = %d chars too long", cChars, charLimit, cChars-charLimit)
 	}
 	if msg.Len() == 0 {
@@ -138,6 +139,35 @@ func commentSpanText(g *ast.CommentGroup) (string, bool) {
 		kept = true
 	}
 	return sb.String(), kept
+}
+
+// commentSpanOneSentence mirrors slopfix's one-sentence rule: one sentence of at most
+// the STE word cap, and no banner line, is never too long by characters.
+func commentSpanOneSentence(text string) bool {
+	var words []string
+	for _, line := range strings.Split(text, "\n") {
+		body := strings.TrimSpace(line)
+		for _, marker := range []string{"//", "/*"} {
+			body = strings.TrimPrefix(body, marker)
+		}
+		body = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(body), "*/"))
+		if body == "" {
+			continue
+		}
+		if strings.IndexFunc(body, unicode.IsLetter) < 0 {
+			if strings.IndexFunc(body, unicode.IsDigit) < 0 {
+				return false // a banner line
+			}
+			continue
+		}
+		words = append(words, body)
+	}
+	joined := strings.Join(words, " ")
+	if joined == "" {
+		return false
+	}
+	found := ste.Sentences(joined)
+	return len(found) == 1 && ste.WordCount(found[0]) <= ste.SentenceWordCap
 }
 
 // commentSpanMeasure counts non-blank lines and non-whitespace chars in s, so
