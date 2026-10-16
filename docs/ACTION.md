@@ -1,6 +1,6 @@
 # action.yml — the composite GitHub Action
 
-What `wow-look-at-my/go-toolchain@master` does, in order, and what a consuming workflow has to grant it.
+What `wow-look-at-my/go-toolchain@lkgb` does, in order, and what a consuming workflow has to grant it.
 
 ## 1. The all-builds shadow guard
 
@@ -58,7 +58,9 @@ Registering is idempotent. An entry that is already present and enabled is left 
 
 ## 1b4. The sandbox backend
 
-The action installs bubblewrap on every Linux run with `wow-look-at-my/actions@cached-apt#latest`, before the build. The dats phase sandboxes every suite command. Without bubblewrap it falls back to docker, which runs the suites in a container with no host Go for the bootstrap. `wow-look-at-my/dats/.github/actions/install-sandbox-backend@master` runs before the build. dats owns the sandbox. As a result, it owns putting a backend on the runner. This action holds no copy of that install. The dats phase sandboxes every suite command. Without a backend it falls back to docker, which runs the suites in a container with no host Go for the bootstrap.
+The action installs bubblewrap on every Linux run with `wow-look-at-my/actions@cached-apt#latest`, before the build. The dats phase sandboxes every suite command. Without bubblewrap it falls back to docker, which runs the suites in a container with no host Go for the bootstrap. `wow-look-at-my/dats/.github/actions/install-sandbox-backend@lkgb` runs before the build. dats owns the sandbox. As a result, it owns putting a backend on the runner. This action holds no copy of that install.
+
+The dats phase sandboxes every suite command. Without a backend it falls back to docker, which runs the suites in a container with no host Go for the bootstrap.
 
 The go command also confines a dependency's generate directive. It stops the build when it cannot. So a module needs a backend for what its dependencies generate, whether it has suites of its own.
 
@@ -72,7 +74,7 @@ A consumer therefore drops its own bubblewrap step. The contract, and the suite 
 
 buildhost's own `buildhost-download` action fetches the binary into `$RUNNER_TEMP`. The next step moves it into `$RUNNER_TEMP/go-toolchain-bin` and puts that directory on `PATH`. Neither step names the path through `runner.temp`, because a container job gets the host path there. The directory stays runner-writable. So a fat APE can self-assimilate on its first exec, which reopens the file read-write. No `sudo` and no copy into `/usr/local/bin` are involved.
 
-**The download carries no branch pin.** buildhost's bare "latest" resolves against the project's default branch.
+**The download is the build of the action's own commit.** A consumer that pins the action at `@lkgb` gets the binary that commit's CI published, not whatever the default branch published last. `.github/action-commit` is an `export-subst` file, so the archive GitHub serves for any ref holds the full commit in it. A path action is a checkout instead, and `git rev-parse HEAD` answers there. The step lists buildhost's releases of `go-toolchain` and downloads the published one whose `git_commit` is that commit. A commit with no published build fails the step and names the commit.
 
 Before the probe, `.github/scripts/repair-stamp-tail.sh` moves a buildhost stamp that sits after the GOSTDEMB record back before it. The go command finds its standard library through that record only when it ends the file. The probe then runs `go-toolchain version`, and runs the binary as the go command with `go env GOROOT`, which is how every later step uses it. It captures the output rather than discarding it. So the real reason the binary is unusable is shown: a crash, an unrunnable binary, or a go command that cannot find its embedded GOROOT. A source build happens only where the caller opted in. It writes into the same directory. A silent fallback hides a buildhost outage and ships a locally-compiled toolchain that can differ from the released one. The source build downloads the gosmopolitan toolchain from buildhost and builds with its go command, because only that go command can build this module. A source build embeds no standard library, so the step exports that toolchain's tree as `GOROOT` for the rest of the job. The binary then runs as itself and as the go command.
 
