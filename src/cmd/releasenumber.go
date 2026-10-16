@@ -184,27 +184,16 @@ func createRunRelease(binary string) (string, error) {
 	return usableRelease(won.Value)
 }
 
-// releaseDo posts a create-release request.
+// releaseDo posts a create-release request through buildhostDo.
 func releaseDo(target, token string, body []byte, answer any) error {
-	req, err := http.NewRequest(http.MethodPost, target, strings.NewReader(string(body)))
+	reply, err := buildhostDo(http.MethodPost, target, token, body)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := runLockClient.Do(req)
-	if err != nil {
-		return err
+	if reply.Code != http.StatusCreated {
+		return fmt.Errorf("%s: %s", reply.Status, strings.TrimSpace(string(reply.Body)))
 	}
-	defer resp.Body.Close()
-	var raw json.RawMessage
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return fmt.Errorf("%s: %w", resp.Status, err)
-	}
-	if resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(raw)))
-	}
-	return json.Unmarshal(raw, answer)
+	return json.Unmarshal(reply.Body, answer)
 }
 
 // writeReleaseOutput hands the number to the action's publish, which releases under the same number.
