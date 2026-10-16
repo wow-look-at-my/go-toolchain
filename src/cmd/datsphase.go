@@ -208,8 +208,8 @@ func runDatsPhase(quiet bool, artifacts []datsArtifact) error {
 	res, err := datsRunFunc(context.Background(), dats.Options{
 		Paths: []string{datsSuiteDir},
 		// A staged APE extracts its loader under TMPDIR instead of rewriting itself, so concurrent copies do not race.
-		Jobs:    runtime.NumCPU(),
-		Output:  out,
+		Jobs:   runtime.NumCPU(),
+		Output: out,
 		// A failed command's stdout and stderr print only under Verbose. A red suite with no output cannot be diagnosed from a CI log.
 		Verbose: true,
 		Sandbox: datsSandbox(),
