@@ -114,11 +114,9 @@ runs:
     - name: Keep the standard library's record last
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       uses: wow-look-at-my/actions@typescript#latest
-      env:
-        GO_TOOLCHAIN_DOWNLOAD: ${{ steps.download.outputs.path }}
       with:
         script: |
-          const file = process.env.GO_TOOLCHAIN_DOWNLOAD ?? "";
+          const file = String(${{ toJSON(format('{0}', steps.download.outputs.path)) }});
           const buf = fs.readFileSync(file);
           const end = buf.length;
           if (end >= 84 && buf.subarray(end - 16).toString() === "BUILDHOST-STAMP1") {
