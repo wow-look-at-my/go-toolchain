@@ -136,8 +136,12 @@ runs:
         mkdir -p "${BIN_DIR}"
         mv "${{ steps.download.outputs.path }}" "${BIN_DIR}/go-toolchain"
         echo "${BIN_DIR}" >> "$GITHUB_PATH"
-        # Capture the probe output: it names a crash or an unrunnable binary.
-        if ! probe=$("${BIN_DIR}/go-toolchain" version 2>&1); then
+        # A release stamped after its GOSTDEMB record cannot find its standard library; the repair moves the stamp before the record.
+        bash "$GITHUB_ACTION_PATH/.github/scripts/repair-stamp-tail.sh" "${BIN_DIR}/go-toolchain"
+        # The probe runs the binary as the go command too, which is how every later step uses it. Its output names a crash, an unrunnable binary, or a go command that cannot find its GOROOT.
+        mkdir -p "$RUNNER_TEMP/go-toolchain-probe"
+        ln -sf "${BIN_DIR}/go-toolchain" "$RUNNER_TEMP/go-toolchain-probe/go"
+        if ! probe=$("${BIN_DIR}/go-toolchain" version 2>&1 && GOTOOLCHAIN=local GOTELEMETRY=off "$RUNNER_TEMP/go-toolchain-probe/go" env GOROOT 2>&1); then
           echo "buildhost go-toolchain not usable; probe output:"
           echo "${probe}"
           # A silent source build hides a buildhost outage. see docs/ACTION.md
@@ -154,6 +158,8 @@ runs:
           curl -fsSL --compressed "https://dl.pazer.build/gosmopolitan?branch=master&os=${fork_os}&arch=${fork_arch}" | tar -xz -C "$fork_root"
           (cd "$GITHUB_ACTION_PATH" && GOROOT="$fork_root/go" GOTOOLCHAIN=local GOTELEMETRY=off GOPROXY=direct GOSUMDB=off GONOSUMDB='*' GOFLAGS= CGO_ENABLED=0 \
             "$fork_root/go/bin/go" build -trimpath -o "${BIN_DIR}/go-toolchain" ./src)
+          # A source build embeds no standard library: the fork tree it was built from is its GOROOT, run as itself or as go.
+          echo "GOROOT=$fork_root/go" >> "$GITHUB_ENV"
         fi
 
     - name: Install provided binary
