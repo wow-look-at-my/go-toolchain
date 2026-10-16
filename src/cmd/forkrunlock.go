@@ -96,11 +96,34 @@ func runLockToken(store string) (string, error) {
 	return answer.Value, nil
 }
 
-// runLockDo sends one request and decodes a JSON answer.
+// runLockAttempts bounds the requests runLockDo sends for one answer.
+const runLockAttempts = 4
+
+// runLockRetryWait pauses before a later attempt; tests replace it.
+var runLockRetryWait = func(attempt int) { time.Sleep(time.Duration(attempt) * 2 * time.Second) }
+
+// runLockDo sends a request and decodes a JSON answer. A transport error or a 5xx answer is asked again. The store's
+// claim keeps the first value. A repeated POST answers what the first one locked.
 func runLockDo(method, target, token string, body []byte, answer any) error {
+	var err error
+	for attempt := 1; attempt <= runLockAttempts; attempt++ {
+		if attempt > 1 {
+			runLockRetryWait(attempt - 1)
+		}
+		var retry bool
+		retry, err = runLockOnce(method, target, token, body, answer)
+		if !retry {
+			return err
+		}
+	}
+	return fmt.Errorf("after %d attempts: %w", runLockAttempts, err)
+}
+
+// runLockOnce sends one request. It answers whether a later attempt can succeed.
+func runLockOnce(method, target, token string, body []byte, answer any) (bool, error) {
 	req, err := http.NewRequest(method, target, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return false, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	if body != nil {
@@ -108,15 +131,18 @@ func runLockDo(method, target, token string, body []byte, answer any) error {
 	}
 	resp, err := runLockClient.Do(req)
 	if err != nil {
-		return err
+		return true, err
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
 	if err != nil {
-		return err
+		return true, err
+	}
+	if resp.StatusCode >= 500 {
+		return true, fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(data)))
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(data)))
+		return false, fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(data)))
 	}
-	return json.Unmarshal(data, answer)
+	return false, json.Unmarshal(data, answer)
 }
