@@ -94,7 +94,8 @@ func runLockToken(store string) (string, error) {
 	return answer.Value, nil
 }
 
-// runLockDo sends a request, retrying transient failures, and decodes a JSON answer.
+// runLockDo sends a request, retrying transient failures, and decodes a JSON answer. The store's claim keeps the
+// first value. A repeated POST answers what the first one locked.
 func runLockDo(method, target, token string, body []byte, answer any) error {
 	reply, err := buildhostDo(method, target, token, body)
 	if err != nil {
