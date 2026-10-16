@@ -201,11 +201,55 @@ func TestEnsureGoVersionFailsWhenTheProbeFails(t *testing.T) {
 }
 
 // writeFakeGoBin writes a stub `go` that answers the version probe, so the
-// setup can be exercised without a real toolchain.
+// setup can be exercised without a real toolchain. It ends with the record a
+// go command carrying its standard library ends with, past an exit the shell
+// never reads beyond.
 func writeFakeGoBin(t *testing.T, path string) {
+	t.Helper()
+	script := "#!/bin/sh\necho 'go version go1.27.0cosmo.r685 linux/amd64'\nexit 0\n"
+	require.NoError(t, os.WriteFile(path, append([]byte(script), stdembRecord()...), 0755))
+}
+
+// writeFakeSourceBuiltGoBin is writeFakeGoBin with no record: a go-toolchain built from source.
+func writeFakeSourceBuiltGoBin(t *testing.T, path string) {
 	t.Helper()
 	script := "#!/bin/sh\necho 'go version go1.27.0cosmo.r685 linux/amd64'\n"
 	require.NoError(t, os.WriteFile(path, []byte(script), 0755))
+}
+
+// A binary that carries no standard library takes the GOROOT it is given,
+// and names what it needs when it is given none. Pointing GOROOT at itself
+// would end in the go command's own "cannot find GOROOT directory".
+func TestEnsureGoVersionTakesGOROOTForASourceBuild(t *testing.T) {
+	t.Serial()
+	requireShebangHelper(t)
+	t.Chdir(t.TempDir())
+	exe := filepath.Join(t.TempDir(), "go-toolchain")
+	writeFakeSourceBuiltGoBin(t, exe)
+	t.Setenv("PATH", os.Getenv("PATH"))
+	t.Setenv("GOTOOLCHAIN", "auto")
+
+	oldExe, oldVerify := selfExecutableFunc, verifyGoToolchainFunc
+	oldCmd, oldRoot := activeGoCmd, activeGoroot
+	selfExecutableFunc = func() (string, error) { return exe, nil }
+	verifyGoToolchainFunc = func(string) error { return nil }
+	t.Cleanup(func() {
+		selfExecutableFunc, verifyGoToolchainFunc = oldExe, oldVerify
+		activeGoCmd, activeGoroot = oldCmd, oldRoot
+		removeGoLink()
+	})
+
+	t.Setenv("GOROOT", "")
+	err := EnsureGoVersion()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "GOROOT is not set")
+	assert.Contains(t, err.Error(), "no GOSTDEMB record")
+
+	fork := t.TempDir()
+	t.Setenv("GOROOT", fork)
+	require.NoError(t, EnsureGoVersion())
+	assert.Equal(t, fork, os.Getenv("GOROOT"), "the fork tree the binary was built from is its GOROOT")
+	assert.Equal(t, fork, activeGoroot)
 }
 
 func TestVerifyGoToolchainHealthy(t *testing.T) {
