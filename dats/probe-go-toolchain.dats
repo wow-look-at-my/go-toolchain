@@ -44,6 +44,25 @@ tests:
 			- "ran as fake.sh version"
 			- "go: cannot find GOROOT directory"
 
+	- desc: a go command that answers version but cannot find its GOROOT fails
+	  inputs:
+		files:
+			fake.sh: |
+				#!/bin/sh
+				if [ "$1" = env ]; then
+					echo "go: cannot find GOROOT directory"
+					exit 2
+				fi
+				echo "ran as $(basename "$0") $*"
+	  cmd: |
+		chmod +x {inputs.fake.sh}
+		bash .github/scripts/probe-go-toolchain.sh {inputs.fake.sh} {outputs.probe}
+	  exit: 1
+	  outputs:
+		stdout:
+			- "ran as go version"
+			- "go: cannot find GOROOT directory"
+
 	- desc: a binary that cannot run at all fails before the go command is tried
 	  inputs:
 		files:

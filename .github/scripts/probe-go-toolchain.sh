@@ -13,3 +13,5 @@ fi
 ln -sf "$bin" "$probe_go"
 "$bin" version 2>&1 || exit 1
 env -u GOROOT "$probe_go" version 2>&1 || exit 1
+# A release stamped after its GOSTDEMB record answers version and still cannot find its GOROOT.
+env -u GOROOT GOTOOLCHAIN=local GOTELEMETRY=off "$probe_go" env GOROOT 2>&1 || exit 1
