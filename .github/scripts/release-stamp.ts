@@ -199,7 +199,8 @@ export async function stampBuild(dir: string): Promise<void> {
 	if (out) fs.appendFileSync(out, `version=${release}\n`);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
+// The action loads this file as CommonJS, which has no module metadata, so the check reads argv alone.
+if (path.basename(process.argv[1] ?? "") === "release-stamp.ts") {
 	stampBuild(process.argv[2] ?? "").catch((e) => {
 		console.error(`release-stamp: ${e instanceof Error ? e.message : String(e)}`);
 		process.exit(1);
