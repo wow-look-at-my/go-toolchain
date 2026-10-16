@@ -1,10 +1,8 @@
 package cmd
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -96,27 +94,14 @@ func runLockToken(store string) (string, error) {
 	return answer.Value, nil
 }
 
-// runLockDo sends one request and decodes a JSON answer.
+// runLockDo sends a request, retrying transient failures, and decodes a JSON answer.
 func runLockDo(method, target, token string, body []byte, answer any) error {
-	req, err := http.NewRequest(method, target, bytes.NewReader(body))
+	reply, err := buildhostDo(method, target, token, body)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if reply.Code != http.StatusOK {
+		return fmt.Errorf("%s: %s", reply.Status, strings.TrimSpace(string(reply.Body)))
 	}
-	resp, err := runLockClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(data)))
-	}
-	return json.Unmarshal(data, answer)
+	return json.Unmarshal(reply.Body, answer)
 }
