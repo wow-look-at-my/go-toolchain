@@ -1,7 +1,6 @@
 # Runs the tests of .github/scripts/release-stamp.ts. One of them loads the
-# library the way action.yml does, through a CommonJS .ts handler, which is
-# where ESM-only syntax in that file breaks every consumer. node runs the
-# .ts files with its own type stripping, which needs node 22.18 or later.
+# library the way action.yml does, through a CommonJS .ts handler. This is
+# where ESM-only syntax in that file breaks every consumer.
 
 sandbox:
 	image: node:24

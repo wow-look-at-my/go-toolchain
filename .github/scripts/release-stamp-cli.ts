@@ -1,6 +1,4 @@
 // Stamps the build directory named on the command line: `node release-stamp-cli.ts <dir>`.
-// This is the only file that runs as a program. release-stamp.ts is a library the action
-// requires from CommonJS too, so no import.meta may appear there.
 
 import { stampBuild } from "./release-stamp.ts";
 

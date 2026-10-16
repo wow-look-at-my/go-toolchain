@@ -1,5 +1,5 @@
-// Stamps each binary in the build directory with the buildhost release it will publish as, before the publish uploads it. see docs/RELEASE-STAMP.md
-// The action requires this file from CommonJS, transpiled with module: commonjs. ESM-only syntax here, import.meta above all, makes node load the transpiled code as ESM, where `exports` is undefined. release-stamp-cli.ts is the program.
+// Stamps each binary in the build directory with the buildhost release it
+// will publish as, before the publish uploads it. see docs/RELEASE-STAMP.md.
 
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
