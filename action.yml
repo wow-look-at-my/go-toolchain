@@ -110,22 +110,21 @@ runs:
       with:
         project: go-toolchain
 
-    # The standard library inside the binary is found through a GOSTDEMB record that must be the last bytes of the file. A release stamp after it makes the binary fail as go with "cannot find GOROOT directory".
-    - name: Drop a release stamp that follows the GOSTDEMB record
+    # The go command finds the standard library a gosmopolitan binary carries through a record that has to be the file's last bytes. Buildhost's release stamp lands after it. A stamped download then fails as the go command. This is the name the generator step runs it under, so the pipeline that built it cannot build anything. Moving the stamp ahead of the record keeps both.
+    - name: Keep the standard library's record last
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       uses: wow-look-at-my/actions@typescript#latest
-      env:
-        GO_TOOLCHAIN_DOWNLOAD: ${{ steps.download.outputs.path }}
       with:
         script: |
-          const file = process.env.GO_TOOLCHAIN_DOWNLOAD ?? "";
+          const file = String(${{ toJSON(format('{0}', steps.download.outputs.path)) }});
           const buf = fs.readFileSync(file);
           const end = buf.length;
           if (end >= 84 && buf.subarray(end - 16).toString() === "BUILDHOST-STAMP1") {
             const start = end - 20 - buf.readUInt32BE(end - 20);
             if (start >= 64 && buf.subarray(start - 64, start - 56).toString() === "GOSTDEMB") {
-              fs.writeFileSync(file, buf.subarray(0, start));
-              core.warning(`go-toolchain: dropped the ${end - start}-byte release stamp that followed its GOSTDEMB record`);
+              const record = buf.subarray(start - 64, start);
+              fs.writeFileSync(file, Buffer.concat([buf.subarray(0, start - 64), buf.subarray(start), record]));
+              core.warning(`go-toolchain: moved the ${end - start}-byte release stamp ahead of the standard library record it followed`);
             }
           }
 
@@ -140,10 +139,8 @@ runs:
         echo "${BIN_DIR}" >> "$GITHUB_PATH"
         # A release stamped after its GOSTDEMB record cannot find its standard library; the repair moves the stamp before the record.
         bash "$GITHUB_ACTION_PATH/.github/scripts/repair-stamp-tail.sh" "${BIN_DIR}/go-toolchain"
-        # The probe runs the binary as the go command too, which is how every later step uses it. Its output names a crash, an unrunnable binary, or a go command that cannot find its GOROOT.
-        mkdir -p "$RUNNER_TEMP/go-toolchain-probe"
-        ln -sf "${BIN_DIR}/go-toolchain" "$RUNNER_TEMP/go-toolchain-probe/go"
-        if ! probe=$("${BIN_DIR}/go-toolchain" version 2>&1 && GOTOOLCHAIN=local GOTELEMETRY=off "$RUNNER_TEMP/go-toolchain-probe/go" env GOROOT 2>&1); then
+        # Capture the probe output: it names a crash or an unrunnable binary. The probe runs the binary as the go command too, which is how every later step uses it.
+        if ! probe=$(bash "$GITHUB_ACTION_PATH/.github/scripts/probe-go-toolchain.sh" "${BIN_DIR}/go-toolchain" "$RUNNER_TEMP/go-toolchain-probe"); then
           echo "buildhost go-toolchain not usable; probe output:"
           echo "${probe}"
           # A silent source build hides a buildhost outage. see docs/ACTION.md
