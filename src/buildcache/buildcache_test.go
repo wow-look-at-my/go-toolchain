@@ -82,6 +82,29 @@ func TestOpenServesTheCacheUntilClose(t *testing.T) {
 	Close()
 }
 
+// A cache directory this process cannot create is left to the go commands,
+// which report their own failure when they run. Open must not turn it into an
+// error of its own: a run with nothing to build never starts one, and it has
+// to reach its own answer.
+func TestOpenDegradesWhenTheDirectoryCannotBeCreated(t *testing.T) {
+	t.Serial()
+	srv := newCacheServer(t)
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	require.NoError(t, os.WriteFile(blocker, []byte("not a directory"), 0o644))
+	envFile := filepath.Join(t.TempDir(), "env")
+	require.NoError(t, os.WriteFile(envFile, []byte("GOCACHE="+filepath.Join(blocker, "gocache")+"\n"), 0o644))
+	t.Setenv(cacheclient.ConfigEnv, srv.config(t))
+	t.Setenv(cacheclient.BrokerEnv, "")
+	t.Setenv("GOCACHE", "")
+	t.Setenv("GOENV", envFile)
+	t.Setenv(cacheLogEnv, "")
+
+	require.NoError(t, Open())
+	assert.Empty(t, os.Getenv(cacheclient.BrokerEnv))
+	assert.Empty(t, os.Getenv("GOCACHE"), "GOCACHE is left for the go commands to resolve")
+	Close()
+}
+
 func TestNoticeWritesTheCacheLog(t *testing.T) {
 	t.Serial()
 	logPath := filepath.Join(t.TempDir(), "gocache.log")
