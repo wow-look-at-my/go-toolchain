@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// teslamWorkflow has the shape of wow-look-at-my/teslam's CI: the root job
-// sweeps the repository, and a second job builds the depthgen module with cgo.
+// teslamWorkflow has the shape of wow-look-at-my/teslam's CI. The root job
+// sweeps the repository. A second job builds the depthgen module with cgo.
 const teslamWorkflow = `name: CI
 on:
   push:

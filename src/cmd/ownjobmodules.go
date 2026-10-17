@@ -42,9 +42,10 @@ func repoRootOf(dir string) string {
 }
 
 // ownJobModules answers each directory, relative to root, that a workflow
-// under root builds with a go-toolchain step of its own through the step's
-// working-directory input, mapped to the workflow that does it. A step whose
-// working-directory is an expression names no directory this can resolve.
+// under root builds with a go-toolchain step of its own. The step names the
+// directory through its working-directory input. Each answer is mapped to the
+// workflow that does it. A step whose working-directory is an expression
+// names no directory this can resolve.
 func ownJobModules(root string) (map[string]string, error) {
 	dirs := make(map[string]string)
 	for _, pattern := range workflowGlobs {

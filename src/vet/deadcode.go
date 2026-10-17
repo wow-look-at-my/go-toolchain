@@ -301,12 +301,12 @@ func methodHolders(pass *analysis.Pass) map[*types.Func][]types.Type {
 	return holders
 }
 
-// isInterfaceMethod returns true if some named type in the package has fn in
-// its method set, declared on the type itself or promoted from an embedded
-// field at any depth, and implements an interface that contains fn's name.
-// Both T and *T are checked, as are the types that hold fn through an
-// embedded field. A method declared in an interface type is one of that
-// interface's methods and is always true.
+// isInterfaceMethod returns true when fn is reachable through an interface.
+// A named type in the package holds fn in its method set. It declares fn
+// itself, or promotes fn from an embedded field at any depth. That type
+// implements an interface naming fn. Both T and *T are checked. So are the
+// types that hold fn through an embedded field. A method declared in an
+// interface type is always true.
 func isInterfaceMethod(fn *types.Func, named []*types.Named, holders []types.Type, ifaces []*types.Interface, pkg *types.Package) bool {
 	sig := fn.Type().(*types.Signature)
 	recv := sig.Recv()
@@ -326,8 +326,7 @@ func isInterfaceMethod(fn *types.Func, named []*types.Named, holders []types.Typ
 			return true
 		}
 	}
-	// Also check the receiver type itself and every type that reaches fn by
-	// promotion from an embedded field.
+	// The receiver type itself, plus every type that reaches fn by promotion.
 	candidates := append([]types.Type{recvType, types.NewPointer(recvType)}, holders...)
 	for _, typ := range candidates {
 		if implementsAnyWith(typ, fn, ifaces) {
