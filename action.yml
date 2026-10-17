@@ -167,13 +167,13 @@ runs:
     # A nested action sees its own GITHUB_ACTION_PATH. This step hands the repair step the path of this action as a container sees it.
     - name: Locate the release stamp script for the download
       id: repair_script
-      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
+      if: inputs.binary == ''
       shell: bash
       run: echo "path=$GITHUB_ACTION_PATH/.github/scripts/release-stamp.ts" >> "$GITHUB_OUTPUT"
 
     # A release stamped after the embedded standard library's trailer runs as go with no GOROOT. see docs/RELEASE-STAMP.md
     - name: Put the downloaded binary's release stamp before its standard library trailer
-      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
+      if: inputs.binary == ''
       uses: wow-look-at-my/actions@typescript#latest
       with:
         script: |

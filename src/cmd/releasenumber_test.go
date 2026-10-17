@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -334,4 +335,41 @@ func TestVerifyReleaseStampReadsNothingWithoutARelease(t *testing.T) {
 	t.Serial()
 	t.Setenv(gosmoReleaseEnv, "")
 	require.NoError(t, verifyReleaseStamp(runner.NewMock(), stampJob(), "out"))
+}
+
+// wasmWithBuildInfo writes a WebAssembly module whose bytes carry an inline build-info blob with the given modinfo lines.
+func wasmWithBuildInfo(t *testing.T, modinfo string) string {
+	t.Helper()
+	frame := strings.Repeat("\xff", buildInfoFrame)
+	mod := frame + modinfo + frame
+	header := make([]byte, buildInfoHeaderSize)
+	copy(header, buildInfoMagic)
+	header[14] = 8
+	header[buildInfoFlagsOffset] = buildInfoFlagInline
+	var blob []byte
+	blob = append(blob, header...)
+	blob = binary.AppendUvarint(blob, uint64(len("go1.26")))
+	blob = append(blob, "go1.26"...)
+	blob = binary.AppendUvarint(blob, uint64(len(mod)))
+	blob = append(blob, mod...)
+	path := filepath.Join(t.TempDir(), "app_js_wasm")
+	body := append([]byte(wasmMagic+"\x01\x00\x00\x00some section bytes"), blob...)
+	require.NoError(t, os.WriteFile(path, append(body, "trailing bytes"...), 0o755))
+	return path
+}
+
+// A wasm module is read off its bytes: the mock go command answers nothing, so a `go version -m` here would fail.
+func TestVerifyReleaseStampReadsAWasmModuleOffItsBytes(t *testing.T) {
+	t.Serial()
+	t.Setenv(gosmoReleaseEnv, "412")
+	t.Setenv(gosmoReleaseRevisionEnv, "abc")
+	stamped := wasmWithBuildInfo(t, "path\tgithub.com/x/app\nbuild\t-trimpath=true\nbuild\trelease=412\nbuild\trelease.revision=abc\n")
+	require.NoError(t, verifyReleaseStamp(runner.NewMock(), stampJob(), stamped))
+
+	other := wasmWithBuildInfo(t, "path\tgithub.com/x/app\nbuild\trelease=411\nbuild\trelease.revision=abc\n")
+	assert.ErrorContains(t, verifyReleaseStamp(runner.NewMock(), stampJob(), other), "did not stamp the release")
+
+	bare := filepath.Join(t.TempDir(), "bare_js_wasm")
+	require.NoError(t, os.WriteFile(bare, []byte(wasmMagic+"\x01\x00\x00\x00no build info here"), 0o755))
+	assert.ErrorContains(t, verifyReleaseStamp(runner.NewMock(), stampJob(), bare), "no Go build info")
 }
