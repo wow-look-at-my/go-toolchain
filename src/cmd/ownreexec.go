@@ -38,7 +38,7 @@ func reexecUnderOwnBuild() error {
 	}
 	code := runSelfWith(bin)
 	_ = os.RemoveAll(dir)
-	os.Exit(code)
+	exitRun(code)
 	return nil
 }
 
