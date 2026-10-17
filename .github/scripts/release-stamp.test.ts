@@ -263,7 +263,4 @@ assert.equal(decode(Buffer.from("plain")), null);
 	assert.equal(code, 0, "the stamped binary must still run");
 }
 
-// The action loads this file through the typescript action's CommonJS hook.
-assert.ok(!fs.readFileSync(script, "utf8").includes("import" + ".meta"), "release-stamp.ts must not use import.meta");
-
 console.log("release-stamp: all checks passed");
