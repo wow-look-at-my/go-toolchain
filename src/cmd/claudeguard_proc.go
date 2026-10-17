@@ -53,11 +53,7 @@ func inspectFD(fd uintptr) outputSink {
 		}
 		return unnamedPeerSink()
 	case strings.HasPrefix(target, "socket:"), strings.HasPrefix(target, "anon_inode:"):
-		// A socketpair looks like a pipe here -- give it the same peer-ID
-		// chance rather than assuming hidden. A socketpair's ends are separate
-		// sockets with different inodes, so an fd-target match usually cannot
-		// find the other end; the unnameable-reader fallback -- the spawning
-		// command line -- decides.
+		// A socketpair looks like a pipe: the peer ID, else the command line, decides.
 		if name, pid, ok := pipePeerName(target); ok {
 			if harnessIsPipeReader(name, pid) {
 				return outputSink{kind: sinkVisible}
@@ -139,10 +135,8 @@ const guardInoperativeBanner = "\n%s⚠ go-toolchain's agent output guard is INO
 	"cannot tell whether its output is being captured and will not refuse a run\n" +
 	"that hides it. Read the output yourself; do not trust the guard here.\n\n"
 
-// isTerminalDevicePath reports whether a character device's path names a
-// terminal: a pty slave spells /dev/pts/N or /dev/ttyN, and the console and
-// pty master keep their own well-known names. Path-based because this build
-// carries no platform ioctl helper.
+// isTerminalDevicePath reports whether a device path names a terminal: a pty
+// slave, the console, or the pty master.
 func isTerminalDevicePath(path string) bool {
 	switch {
 	case strings.HasPrefix(path, "/dev/tty"), strings.HasPrefix(path, "/dev/pts/"):

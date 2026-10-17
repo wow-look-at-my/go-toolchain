@@ -8,6 +8,8 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/spf13/cobra"
+	"github.com/wow-look-at-my/go-containers/set"
 	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
 
@@ -64,12 +66,6 @@ func grokNamedPID(pid int) bool {
 	return err == nil && p == pid
 }
 
-// harnessIsPID is agent.IsPID plus GROK_AGENT_PID, the seam the darwin
-// socket/FIFO tests need since the library has no grok pid var.
-func harnessIsPID(pid int) bool {
-	return agent.IsPID(pid) || grokNamedPID(pid)
-}
-
 // harnessIsPipeReader is agent.IsPipeReader plus GROK_AGENT_PID, still
 // requiring the named pid to be an ancestor so a sibling `| cat` cannot
 // borrow the var.
@@ -97,6 +93,19 @@ func agentOutputViolation() (string, outputSink, bool) {
 
 // agentGuardOut bypasses the logger: the abort message must reach real stderr, never a GHA annotation.
 var agentGuardOut io.Writer = os.Stderr
+
+// unguardedCmds print no build result, so a capture hides nothing.
+var unguardedCmds = set.Of("version")
+
+// skipAgentGuard reports whether cmd or an ancestor prints no build result.
+func skipAgentGuard(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if unguardedCmds.Contains(c.Name()) {
+			return true
+		}
+	}
+	return false
+}
 
 func guardAgainstAgentOutputCapture() {
 	if agent, s, bad := agentOutputViolation(); bad {
