@@ -39,3 +39,15 @@ tests:
 		stdout:
 			- "record-last unchanged"
 			- "plain unchanged"
+
+	- desc: release-stamp.ts uses no import.meta, because the action requires it as CommonJS
+	  cmd: |
+		set -eu
+		if grep -n 'import\.meta' .github/scripts/release-stamp.ts; then
+			echo "import.meta breaks the CommonJS require in action.yml"
+			exit 1
+		fi
+		echo "no import.meta"
+	  outputs:
+		stdout:
+			- "no import.meta"
