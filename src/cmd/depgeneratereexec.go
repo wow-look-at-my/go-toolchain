@@ -32,6 +32,6 @@ func reexecAfterDepGenerate() error {
 	st.done()
 	code := runSelfWith(bin, depGenerateReexecEnv)
 	_ = os.RemoveAll(dir)
-	os.Exit(code)
+	exitRun(code)
 	return nil
 }
