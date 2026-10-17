@@ -1,6 +1,6 @@
-# Runs the tests of .github/scripts/release-stamp.ts. One of them loads the
-# library the way action.yml does, through a CommonJS .ts handler. This is
-# where ESM-only syntax in that file breaks every consumer.
+# Runs the tests of .github/scripts/release-stamp.ts. The repair step of
+# action.yml loads that library through the typescript action's CommonJS .ts
+# handler. The consumer CI job runs that step for real.
 
 sandbox:
 	image: node:24
