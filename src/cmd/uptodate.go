@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/pflag"
 	"github.com/wow-look-at-my/go-containers/set"
+	"github.com/wow-look-at-my/go-s3-server/cacheclient"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
@@ -53,8 +54,8 @@ var fingerprintFlags *pflag.FlagSet
 // fingerprintPersistentFlags holds what Flags() merges in at parse time.
 var fingerprintPersistentFlags *pflag.FlagSet
 
-// volatileEnv holds shell-rewritten vars excluded from the fingerprint.
-var volatileEnv = set.Of("_", "OLDPWD", "SHLVL")
+// volatileEnv holds shell-rewritten vars, and the build cache owner's per-process name, excluded from the fingerprint.
+var volatileEnv = set.Of("_", "OLDPWD", "SHLVL", cacheclient.BrokerEnv)
 
 // flagFingerprint renders every root flag as name=value, sorted, so a flag
 // added later needs no update here. Reads fingerprintFlags rather than
