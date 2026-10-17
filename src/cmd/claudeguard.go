@@ -31,8 +31,7 @@ type outputSink struct {
 	cmdline string // the shell text that spawned this run, quoted verbatim in the abort
 }
 
-// The agent roster lives in is-this-an-agent. This file classifies where stdout
-// went. It then refuses to run when the agent will never see that output.
+// The agent roster is is-this-an-agent's; this file decides where stdout went.
 
 // Indirection seams so tests can drive every branch without a real agent.
 // NOT a bypass -- no env var or flag disables the guard.

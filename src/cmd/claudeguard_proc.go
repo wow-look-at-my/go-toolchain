@@ -9,9 +9,9 @@
 // claudeguard_buildtags_test.go pins the constraints). Everything here needs
 // only /proc + stdlib, which work under cosmo on linux hosts. On a darwin or
 // NT host the APE has no /proc, so this classifier is blind and the guard
-// cannot fire. That is a KNOWN GAP, not a design — see unclassifiableSink,
-// which says so out loud, and docs/AGENT-OUTPUT-GUARD.md for what closing it
-// needs. A character device is decided from its own path
+// cannot fire. That is a known gap, not a design. See unclassifiableSink,
+// which says so out loud. See docs/AGENT-OUTPUT-GUARD.md for what closing the
+// gap needs. A character device is decided from its own path
 // (isTerminalDevicePath below): this build carries
 // no platform ioctl helper.
 

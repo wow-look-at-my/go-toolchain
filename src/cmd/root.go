@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
+	"github.com/wow-look-at-my/go-toolchain/src/buildcache"
 	"github.com/wow-look-at-my/go-toolchain/src/codeql"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/integration"
@@ -102,6 +103,10 @@ var rootCmd = &cobra.Command{
 		}
 		// After cobra parses, so --help and a mistyped flag set up no toolchain.
 		if !skipToolchain(cmd) {
+			// Ahead of the earliest go command, which would otherwise own the cache itself.
+			if err := buildcache.Open(); err != nil {
+				return err
+			}
 			if err := EnsureGoVersion(); err != nil {
 				discardBuildOutputsFromCWD()
 				return fmt.Errorf("go bootstrap: %w", err)
@@ -117,7 +122,7 @@ var rootCmd = &cobra.Command{
 			if treeUnchanged && outputsPresent(r) {
 				logger.Output("⇒ Up to date, nothing to do")
 				ReportUpdateCheck()
-				os.Exit(0)
+				exitRun(0)
 			}
 		}
 		return nil
@@ -161,9 +166,17 @@ func init() {
 
 // Execute runs the root command.
 func Execute() error {
+	defer buildcache.Close()
 	defer emitBuildProfile()
 	defer removeFixedPointSelf()
 	return rootCmd.Execute()
+}
+
+// exitRun ends the process with code once the build cache this process owns
+// has drained.
+func exitRun(code int) {
+	buildcache.Close()
+	os.Exit(code)
 }
 
 func run(cmd *cobra.Command, args []string) (err error) {
