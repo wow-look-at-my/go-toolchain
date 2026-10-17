@@ -51,11 +51,7 @@ func Open() error {
 		return nil
 	}
 	if err := os.MkdirAll(dir, 0o777); err != nil {
-		// A directory this process cannot create is a directory its go
-		// commands cannot create either, and each of them reports that itself
-		// when it runs. Failing here instead would take a run that never
-		// starts a go command -- an empty directory, a version query -- down
-		// with a cache error in place of its own answer.
+		// A go command reports this itself when it runs; a run that starts none must not die here.
 		cacheLog().Warn("shared build cache disabled: %v", err)
 		return nil
 	}

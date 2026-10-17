@@ -82,10 +82,7 @@ func TestOpenServesTheCacheUntilClose(t *testing.T) {
 	Close()
 }
 
-// A cache directory this process cannot create is left to the go commands,
-// which report their own failure when they run. Open must not turn it into an
-// error of its own: a run with nothing to build never starts one, and it has
-// to reach its own answer.
+// A cache directory this process cannot create is left to the go commands, which report it themselves.
 func TestOpenDegradesWhenTheDirectoryCannotBeCreated(t *testing.T) {
 	t.Serial()
 	srv := newCacheServer(t)
