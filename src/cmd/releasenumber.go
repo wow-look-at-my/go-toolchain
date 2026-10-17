@@ -256,8 +256,8 @@ func verifyReleaseStamp(r runner.CommandRunner, job buildJob, path string) error
 	return nil
 }
 
-// isPackageArchive reports whether path is the archive a library-only module's
-// compile check writes. An archive has no build info to stamp.
+// isPackageArchive reports whether path is the archive a library-only
+// module's compile check writes.
 func isPackageArchive(path string) bool {
 	return hasMagic(path, packageArchiveMagic)
 }
@@ -279,10 +279,7 @@ func hasMagic(path, magic string) bool {
 	return string(head) == magic
 }
 
-// The blob a go1.18 or later linker writes: buildInfoMagic, a pointer size, a
-// flags byte whose bit buildInfoFlagInline says the strings follow the
-// buildInfoHeaderSize bytes of header inline, then the version and the modinfo
-// each as a varint length and its bytes (debug/buildinfo).
+// The blob a go1.18 or later linker writes: buildInfoMagic, a pointer size.
 const (
 	buildInfoMagic       = "\xff Go buildinf:"
 	buildInfoHeaderSize  = 32
