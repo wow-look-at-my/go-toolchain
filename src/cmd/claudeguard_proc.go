@@ -1,17 +1,18 @@
 //go:build linux || cosmo
 
 // This file is the agent output guard's real classifier. It MUST build for
-// GOOS=cosmo as well as GOOS=linux: every released "linux" binary is a
-// GOOS=cosmo fat-APE slot copy, and cosmo matches the `unix` build tag but
-// not `linux` — a `_linux.go` filename (or a bare `//go:build linux`) would
-// compile the guard out of every shipped binary while the GOOS=linux unit
-// tests stay green (that was a real bug; claudeguard_buildtags_test.go pins
-// the constraints). Everything here needs only /proc + stdlib, which work
-// under cosmo on linux hosts. On a darwin or NT host the APE has no /proc, so
-// this classifier is blind and the guard cannot fire; that is a KNOWN GAP, not a
-// design — see unclassifiableSink, which says so out loud, and
-// docs/AGENT-OUTPUT-GUARD.md for what closing it needs. A character device is
-// decided from its own path (isTerminalDevicePath below): this build carries
+// GOOS=cosmo as well as GOOS=linux. Every released "linux" binary is a
+// GOOS=cosmo fat-APE slot copy. Cosmo matches the `unix` build tag but not
+// `linux`. So a `_linux.go` filename (or a bare `//go:build linux`) would
+// compile the guard out of every shipped binary. The GOOS=linux unit tests
+// would stay green while it was gone (that was a real bug;
+// claudeguard_buildtags_test.go pins the constraints). Everything here needs
+// only /proc + stdlib, which work under cosmo on linux hosts. On a darwin or
+// NT host the APE has no /proc, so this classifier is blind and the guard
+// cannot fire. That is a KNOWN GAP, not a design — see unclassifiableSink,
+// which says so out loud, and docs/AGENT-OUTPUT-GUARD.md for what closing it
+// needs. A character device is decided from its own path
+// (isTerminalDevicePath below): this build carries
 // no platform ioctl helper.
 
 package cmd
@@ -118,8 +119,8 @@ func blindClassifierSink(host string) outputSink {
 	return outputSink{kind: sinkVisible}
 }
 
-// Reports a single time per run that the guard is blind on this host, via the
-// guard's stderr writer -- stdout is what it fires on capturing.
+// Reports a single time per run that the guard is blind on this host. It writes
+// to the guard's stderr writer: stdout is what it fires on capturing.
 func warnGuardInoperative(host string) {
 	guardInoperativeOnce.Do(func() {
 		fmt.Fprintf(agentGuardOut, guardInoperativeBanner, colorBoldRed, host, colorReset, host)
@@ -193,7 +194,7 @@ const (
 
 // fdAccessMode reads pid's fd's O_ACCMODE bits. A shell forks a command and
 // keeps its own stdout fd open, matching the same pipe string pipePeerName
-// scans for; this tells that write-end copy apart from the real reader.
+// scans for. This tells that write-end copy apart from the real reader.
 func fdAccessMode(pid int, fdName string) (mode int, ok bool) {
 	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/fdinfo/" + fdName)
 	if err != nil {

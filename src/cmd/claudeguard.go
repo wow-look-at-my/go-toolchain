@@ -31,8 +31,8 @@ type outputSink struct {
 	cmdline string // the shell text that spawned this run, quoted verbatim in the abort
 }
 
-// The agent roster lives in is-this-an-agent; this file classifies where
-// stdout went and refuses to run when the agent will never see it.
+// The agent roster lives in is-this-an-agent. This file classifies where stdout
+// went. It then refuses to run when the agent will never see that output.
 
 // Indirection seams so tests can drive every branch without a real agent.
 // NOT a bypass -- no env var or flag disables the guard.
@@ -52,8 +52,8 @@ func detectAgent() (string, bool) {
 const grokPIDEnv = "GROK_AGENT_PID"
 
 // grokNamedPID reports whether pid is the grok-build process named in
-// GROK_AGENT_PID, but only when GROK_AGENT itself is set — the pid var
-// without the marker is not a grok session.
+// GROK_AGENT_PID. It requires GROK_AGENT too: the pid var alone is not a grok
+// session.
 func grokNamedPID(pid int) bool {
 	if v := os.Getenv("GROK_AGENT"); v == "" || v == "0" {
 		return false
