@@ -199,3 +199,4 @@ export async function stampBuild(dir: string): Promise<void> {
 	const out = process.env.GITHUB_OUTPUT;
 	if (out) fs.appendFileSync(out, `version=${release}\n`);
 }
+
