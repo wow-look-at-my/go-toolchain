@@ -127,7 +127,12 @@ func unpinFile(name, text string) (string, []orgPin) {
 			continue
 		}
 		if ref, ok := pinnedActionRef(trimmed); ok {
-			branch := actionDefaultBranch(actionRepo(trimmed))
+			branch, err := actionDefaultBranch(actionRepo(trimmed))
+			if err != nil {
+				logger.WarnFile(name, "%s:%d: left the org action at %s: its default branch is unknown: %v", name, i+1, ref, err)
+				out = append(out, line)
+				continue
+			}
 			if ref == branch {
 				out = append(out, line)
 				continue
@@ -244,7 +249,12 @@ func pinsInFile(name, text string) []orgPin {
 			continue
 		}
 		if ref, ok := pinnedActionRef(text); ok {
-			if ref != actionDefaultBranch(actionRepo(text)) {
+			branch, err := actionDefaultBranch(actionRepo(text))
+			if err != nil {
+				logger.WarnFile(name, "%s:%d: cannot tell whether the org action at %s is pinned: %v", name, i+1, ref, err)
+				continue
+			}
+			if ref != branch {
 				pins = append(pins, orgPin{name, i + 1, "org action pinned to " + ref})
 			}
 			continue
@@ -366,20 +376,20 @@ func actionRepo(text string) string {
 }
 
 // actionDefaultBranch answers the default branch of an org action's repository.
-// A repository whose default is v1 names that branch, which is no pin. Where git
-// cannot answer, it answers master, the org's branch.
-var actionDefaultBranch = func(repo string) string {
+// A repository whose default is v1 names that branch, which is no pin. An error
+// means the branch is unknown, and a caller must not guess one.
+var actionDefaultBranch = func(repo string) (string, error) {
 	if repo == "" {
-		return "master"
+		return "", fmt.Errorf("the step names no org action repository")
 	}
 	_, out, err := resolveGitURLAndRef(runner.New(), "github.com/"+repo, "HEAD")
 	if err != nil {
-		return "master"
+		return "", err
 	}
 	if _, branch := parseLsRemoteRefs(out); branch != "" {
-		return branch
+		return branch, nil
 	}
-	return "master"
+	return "", fmt.Errorf("git ls-remote github.com/%s reports no default branch", repo)
 }
 
 // pinnedVersion reports the earliest version token on the line that is not

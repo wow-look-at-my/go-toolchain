@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -177,11 +178,11 @@ func TestAnActionOnItsDefaultBranchIsNotAPin(t *testing.T) {
 	t.Serial()
 	saved := actionDefaultBranch
 	t.Cleanup(func() { actionDefaultBranch = saved })
-	actionDefaultBranch = func(repo string) string {
+	actionDefaultBranch = func(repo string) (string, error) {
 		if repo == "wow-look-at-my/static-pkgsite-action" {
-			return "v1"
+			return "v1", nil
 		}
-		return "master"
+		return "master", nil
 	}
 	root := writeOrgPinFiles(t, map[string]string{
 		".github/workflows/godoc.yml": "jobs:\n  build:\n    steps:\n      - uses: wow-look-at-my/static-pkgsite-action@v1\n      - uses: wow-look-at-my/dats@v2\n",
@@ -193,4 +194,24 @@ func TestAnActionOnItsDefaultBranchIsNotAPin(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(ci), "uses: wow-look-at-my/static-pkgsite-action@v1\n")
 	assert.Contains(t, string(ci), "uses: wow-look-at-my/dats@master\n")
+}
+
+// A step whose default branch git cannot read keeps its ref, because a guessed branch may not exist.
+func TestAnActionWithAnUnknownDefaultBranchKeepsItsRef(t *testing.T) {
+	t.Serial()
+	saved := actionDefaultBranch
+	t.Cleanup(func() { actionDefaultBranch = saved })
+	actionDefaultBranch = func(string) (string, error) {
+		return "", errors.New("git ls-remote failed")
+	}
+	root := writeOrgPinFiles(t, map[string]string{
+		".github/workflows/godoc.yml": "jobs:\n  build:\n    steps:\n      - uses: wow-look-at-my/static-pkgsite-action@v1\n",
+	})
+
+	require.NoError(t, checkOrgPins(root))
+
+	ci, err := os.ReadFile(filepath.Join(root, ".github/workflows/godoc.yml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(ci), "uses: wow-look-at-my/static-pkgsite-action@v1\n")
+	assert.Empty(t, pinsInFile(".github/workflows/godoc.yml", "      - uses: wow-look-at-my/static-pkgsite-action@v1\n"))
 }
