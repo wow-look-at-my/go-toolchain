@@ -1,4 +1,5 @@
-// Stamps each binary in the build directory with the buildhost release it will publish as, before the publish uploads it. see docs/RELEASE-STAMP.md
+// Stamps each binary in the build directory with the buildhost release it
+// will publish as, before the publish uploads it. see docs/RELEASE-STAMP.md.
 
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
@@ -197,12 +198,4 @@ export async function stampBuild(dir: string): Promise<void> {
 	refreshChecksums(dir);
 	const out = process.env.GITHUB_OUTPUT;
 	if (out) fs.appendFileSync(out, `version=${release}\n`);
-}
-
-// The action requires this file through a CommonJS hook. An ESM-only meta property makes node load it as ESM, so the guard reads argv.
-if (process.argv[1] && path.basename(process.argv[1]) === "release-stamp.ts") {
-	stampBuild(process.argv[2] ?? "").catch((e) => {
-		console.error(`release-stamp: ${e instanceof Error ? e.message : String(e)}`);
-		process.exit(1);
-	});
 }

@@ -8,7 +8,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { decode, encode, projectFor, repairFile, stampFile } from "./release-stamp.ts";
 
-const script = path.join(import.meta.dirname, "release-stamp.ts");
+const script = path.join(import.meta.dirname, "release-stamp-cli.ts");
 
 type Seen = { url: string; body: any }[];
 
