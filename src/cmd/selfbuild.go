@@ -19,7 +19,6 @@ const apeAppendEnv = "GOCOSMOAPPEND"
 // embedstdProgressEnv asks the fork's embedstd for a line per source file it compiles. An older embedstd ignores it.
 const embedstdProgressEnv = "GOEMBEDSTD_PROGRESS"
 
-
 // selfBuildPasses is the most passes a self-build makes.
 const selfBuildPasses = 3
 
