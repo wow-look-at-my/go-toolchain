@@ -88,6 +88,7 @@ func main() {
 	cmd.ReportUpdateCheck()
 	logx.Flush()
 	if err != nil {
+		logger.Error("go-toolchain: %v", err)
 		os.Exit(1)
 	}
 }
