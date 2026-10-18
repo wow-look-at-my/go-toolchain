@@ -91,6 +91,10 @@ var rootCmd = &cobra.Command{
 		}
 		// Snapshot env before phases add vars, so fingerprint matches what the next run checks.
 		captureRunEnv()
+		// Abort if the agent hides our output, unless this command prints no build result (see claudeguard.go).
+		if !skipAgentGuard(cmd) {
+			guardAgainstAgentOutputCapture()
+		}
 		// After the snapshot: the run name is new each build and is not an input.
 		nameLocalRun()
 		// A target set nothing can build is rejected before a compiler is fetched for it.
