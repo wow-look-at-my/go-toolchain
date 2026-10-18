@@ -88,7 +88,8 @@ runs:
     - name: Configure git for private repos
       if: env.PRIVATE_ORG_REPO_READ != ''
       shell: bash
-      run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
+      run: |
+        git config --global credential.https://github.com.helper '!f() { test "$1" = get && echo username=x-access-token && echo "password=$PRIVATE_ORG_REPO_READ"; }; f'
 
     # Lets the kernel start an APE, so a bare exec works. see docs/ACTION.md github.action_path is the host path in a container job; GITHUB_ACTION_PATH is the path the step's shell sees.
     - name: Register the APE binfmt handler

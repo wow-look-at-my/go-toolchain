@@ -67,7 +67,8 @@ jobs:
       # This job builds from source, so it needs the org read token action.yml gives every consumer.
       - name: Configure git for private repos
         if: env.PRIVATE_ORG_REPO_READ != ''
-        run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
+        run: |
+          git config --global credential.https://github.com.helper '!f() { test "$1" = get && echo username=x-access-token && echo "password=$PRIVATE_ORG_REPO_READ"; }; f'
 
       # The dats phase sandboxes every suite command (dats' default), and the backend it picks... see docs/CI.md
       - name: Provision the sandbox backend (bubblewrap)
@@ -370,7 +371,8 @@ jobs:
       - name: Configure git for private repos
         if: env.PRIVATE_ORG_REPO_READ != ''
         shell: bash
-        run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
+        run: |
+          git config --global credential.https://github.com.helper '!f() { test "$1" = get && echo username=x-access-token && echo "password=$PRIVATE_ORG_REPO_READ"; }; f'
 
       # No if: the action installs nothing off Linux and succeeds, which is what darwin and NT want here.
       - name: Provision the sandbox backend (bubblewrap)

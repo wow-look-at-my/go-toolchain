@@ -12,7 +12,7 @@ That `actions: read` is the guard's requirement, not the publish's.
 
 ## 1b. The comment-wall guard
 
-The next step runs `wow-look-at-my/actions@yaml-comment-block#latest`. More than one comment line in a row in a GitHub Actions YAML file fails the job. It scans the calling repo's whole local call chain: every workflow file, every `action.yml` at any depth, and everything they reach through `uses: ./...`. A `uses:` into another repository is listed in the log and checked where it lives.
+The next step runs `wow-look-at-my/actions@yaml-comment-block#latest`. More than one comment line in a row in a Actions YAML file (GitHub) fails the job. It scans the calling repo's whole local call chain: every workflow file, every `action.yml` at any depth, and everything they reach through `uses: ./...`. A `uses:` into another repository is listed in the log and checked where it lives.
 
 A block is a maximal group of comment lines separated by nothing except blank lines. So a paragraph break does not split a wall. A `#` inside a `run:` script counts. The limit is a constant and no input raises it. The action needs no permissions, only a checkout.
 
@@ -48,7 +48,7 @@ Registering is idempotent. An entry that is already present and enabled is left 
 :APE:M::\x4d\x5a\x71\x46\x70\x44\x3d\x27::/bin/sh:
 ```
 
-The magic is the header a fat APE opens with, `MZqFpD='`, and the interpreter is `/bin/sh`. There is no APE loader to install: the header IS a shell script, so the kernel handing the file to `sh` is the whole mechanism. What it buys is a bare `execve` of an APE. Without the entry only a shell can start one. `go run`, `go test` and any exec from a program then answer `exec format error`. This repo's own CI has shipped that message for `trace.test` (see [CI.md](CI.md)).
+The magic is the header a fat APE opens with, `MZqFpD='`, and the interpreter is `/bin/sh`. There is no APE loader to install: the header IS a shell script, so the kernel handing the file to `sh` is the whole mechanism. What it buys is a bare `execve` of an APE. Without the entry only a shell can start one. `go run`, `go test` and any exec from a program then answer `exec format error`. This repo's own CI shipped that message for `trace.test` (see [CI.md](CI.md)).
 
 The step needs root and a mounted `/proc/sys/fs/binfmt_misc`. A host that has neither keeps working. It warns, names what is missing, and exits 0, because every caller in this org already reaches an APE through a shell. The entry is therefore a capability, not a requirement, and nothing downstream may assume it (see [MATRIX.md](MATRIX.md)). The step is skipped outright on macOS and Windows, which have no such mechanism.
 
@@ -66,7 +66,9 @@ The go command also confines a dependency's generate directive. It stops the bui
 
 The install therefore runs on every Linux run. A module's own tree says nothing about what its dependencies generate. The cached-apt step restores bubblewrap from the cache on a hit, so a warm run skips `apt-get`. On macOS and Windows the step installs nothing, because those hosts have other backends or none.
 
-A consumer therefore drops its own bubblewrap step. The step therefore runs on every build. A module's own tree says nothing about what its dependencies generate, and the resolution that answers it runs later. A host where the backend already builds a sandbox pays one probe. Otherwise dats installs it, clears the user-namespace knobs a kernel may gate it behind, and probes again. A host where the probe still fails fails the job there, with its own error. It never degrades unnoticed. macOS carries seatbelt and Windows gets a WSL backend, so no host is skipped.
+A consumer therefore drops its own bubblewrap step. The step therefore runs on every build. A module's own tree says nothing about what its dependencies generate, and the resolution that answers it runs later. A host where the backend already builds a sandbox pays one probe. Otherwise dats installs it, clears the user-namespace knobs a kernel may gate it behind, and probes again. A host where the probe still fails fails the job there, with its own error.
+
+It never degrades unnoticed. macOS carries seatbelt and Windows gets a WSL backend, so no host is skipped.
 
 A consumer therefore drops its own bubblewrap step. The contract, and the suite covering it, live in dats.
 
@@ -76,7 +78,9 @@ buildhost's own `buildhost-download` action fetches the binary into `$RUNNER_TEM
 
 **The download is the build of the action's own commit.** A consumer that pins the action at `@lkgb` gets the binary that commit's CI published, not whatever the default branch published last. `.github/action-commit` is an `export-subst` file, so the archive GitHub serves for any ref holds the full commit in it. A path action is a checkout instead, and `git rev-parse HEAD` answers there. The step lists buildhost's releases of `go-toolchain` and downloads the published one whose `git_commit` is that commit. A commit with no published build fails the step and names the commit.
 
-Before the probe, `.github/scripts/repair-stamp-tail.sh` moves a buildhost stamp that sits after the GOSTDEMB record back before it. The go command finds its standard library through that record only when it ends the file. The probe then runs `go-toolchain version`, and runs the binary as the go command with `go env GOROOT`, which is how every later step uses it. It captures the output rather than discarding it. So the real reason the binary is unusable is shown: a crash, an unrunnable binary, or a go command that cannot find its embedded GOROOT. A source build happens only where the caller opted in. It writes into the same directory. A silent fallback hides a buildhost outage and ships a locally-compiled toolchain that can differ from the released one. The source build downloads the gosmopolitan toolchain from buildhost and builds with its go command, because only that go command can build this module. A source build embeds no standard library, so the step exports that toolchain's tree as `GOROOT` for the rest of the job. The binary then runs as itself and as the go command.
+Before the probe, `.github/scripts/repair-stamp-tail.sh` moves a buildhost stamp that sits after the GOSTDEMB record back before it. The go command finds its standard library through that record only when it ends the file. The probe then runs `go-toolchain version`, and runs the binary as the go command with `go env GOROOT`, which is how every later step uses it. It captures the output rather than discarding it. So the real reason the binary is unusable is shown: a crash, an unrunnable binary, or a go command that cannot find its embedded GOROOT. A source build happens only where the caller opted in.
+
+It writes into the same directory. A silent fallback hides a buildhost outage and ships a locally-compiled toolchain that can differ from the released one. The source build downloads the gosmopolitan toolchain from buildhost and builds with its go command, because only that go command can build this module. A source build embeds no standard library, so the step exports that toolchain's tree as `GOROOT` for the rest of the job. The binary then runs as itself and as the go command.
 
 It never contacts golang.org.
 
@@ -102,7 +106,9 @@ The step sets `GOPROXY=direct`, `GOSUMDB=off`, `GOTOOLCHAIN=local` and `GOTELEME
 
 Fetches secrets over OIDC, then runs `go-toolchain matrix`.
 
-**What the target inputs build.** With `targets` unset — the default — the run produces ONE fat APE covering `cosmo-platforms` (`linux/amd64,darwin/arm64,windows/amd64`), published as a single multi-platform artifact. The fat APE is the action's only native output. `targets` adds wasm artifacts alongside it (`wasm/js`, `wasm/wasip1`), or replaces it entirely with wasm alone by leaving `cosmo` out of the list. There is no input that copies the APE onto per-platform artifact names. The APE publishes under its own name, once.
+**Private org repos.** When `PRIVATE_ORG_REPO_READ` is set, the step "Configure git for private repos" installs a global git credential helper for `https://github.com`. The helper answers `x-access-token` and the value of `$PRIVATE_ORG_REPO_READ`, which it reads when git calls it. The token never enters git config. A `url.<token>@github.com.insteadOf` rewrite does not work: git ignores the userinfo in the rewritten URL from a directory with no `http.extraheader`. `.github/scripts/git-credential.test.ts` (run by `dats/git-credential.dats`) checks the step against a local Basic-auth git server.
+
+**What the target inputs build.** With `targets` unset — the default — the run produces ONE fat APE covering `cosmo-platforms` (`linux/amd64,darwin/arm64,windows/amd64`), published as a single multi-platform artifact. The fat APE is the action's only native output. `targets` adds wasm artifacts alongside it (`wasm/js`, `wasm/wasip1`), or replaces it fully with wasm alone by leaving `cosmo` out of the list. There is no input that copies the APE onto per-platform artifact names. The APE publishes under its own name, once.
 
 ## 2b. The shared cache's key index
 
@@ -139,15 +145,19 @@ Being distinct per job, per matrix leg, AND per build is the point: concurrent g
 
 Nameless discovery is clean only when the run's hand-off set is unambiguous at download time (the exact ambiguity semantics belong to `cache-download` — see its docs). A run can save several distinct hand-offs. Examples are several go-toolchain jobs, a matrix go-toolchain job, or extra `cache-upload` hand-offs alongside the build outputs.
 
-**This is the only name saved.** The pre-build per-job name `go-build-<job>[.m<idx>]` and the bare `go-build` alias are gone. Each was a second key that a multi-producer run raced on. So the second finisher's save collided and had to be absorbed with `continue-on-error`. The action now saves ONE hand-off, under that name. A download naming anything else restores nothing. That is why this repo's own `identical`, `smoke` and `publish` jobs spell `go-build-build.broot` in full. A consumer that still downloads either legacy name gets a miss and must migrate to the name above. `src/cmd/handoffname_test.go` pins both the template and the absence of any second hand-off.
+**This is the only name saved.** The pre-build per-job name `go-build-<job>[.m<idx>]` and the bare `go-build` alias are gone. Each was a second key that a multi-producer run raced on. So the second finisher's save collided and had to be absorbed with `continue-on-error`. The action now saves ONE hand-off, under that name. A download naming anything else restores nothing.
 
-**Why the name carries the job id, a leg index, and a build identity.** The hand-off runs on EVERY go-toolchain run. It goes through the org cache-upload action, which replaces `actions/upload-artifact`. Cache storage is free and artifact storage is billed. The name carries the calling job's id, so the cache key (`cache-xfer-<run_id>-go-build-<job>-<run_attempt>`) is distinct per job. Concurrent jobs in one run, the standard linux plus darwin pattern, can then no longer collide. The old shared `go-build` name made the second finisher fail its save with a 409 Conflict.
+That is why this repo's own `identical`, `smoke` and `publish` jobs spell `go-build-build.broot` in full. A consumer that still downloads either legacy name gets a miss and must migrate to the name above. `src/cmd/handoffname_test.go` pins both the template and the absence of any second hand-off.
+
+**Why the name carries the job id, a leg index, and a build identity.** The hand-off runs on EVERY go-toolchain run. It goes through the org cache-upload action, which replaces `actions/upload-artifact`. Cache storage is free and artifact storage is billed. The name carries the calling job's id, so the cache key (`cache-xfer-<run_id>-go-build-<job>-<run_attempt>`) is distinct per job. Concurrent jobs in one run, the standard linux plus darwin pattern, can then no longer collide.
+
+The old shared `go-build` name made the second finisher fail its save with a 409 Conflict.
 
 `github.job` alone does NOT distinguish matrix legs, so a matrix job's name additionally carries the leg's `strategy.job-index` as `.m<index>`. The matrix and strategy contexts ARE evaluable inside composite steps: the runner's action-manifest schema allows both in step expressions. For a non-matrix job `matrix` is null, so the suffix collapses to the empty string. The non-matrix name stays byte-identical to what it was.
 
 `github.job` also does NOT distinguish go-toolchain invocations in the SAME job. So the name additionally carries a build identity `.b<build>` derived from the `working-directory` input (slashes and dots replaced with `-`, default `.` becomes `root`). Builds in one job therefore save distinct hand-offs and can no longer 409 on a shared key.
 
-The dots make the suffixes collision-proof against job ids. A job id cannot contain a dot, so `go-build-<jobA>.m<i>` or `go-build-<jobA>.b<build>` can never equal, or restore-prefix shadow, any `go-build-<jobB>`. `job-index` is 0-based in matrix definition order and identical across re-run attempts of the same leg, which keeps cache-download's cross-attempt fallback working.
+The dots make the suffixes collision-proof against job ids. A job id cannot contain a dot, so `go-build-<jobA>.m<i>` or `go-build-<jobA>.b<build>` can never equal, or restore-prefix shadow, any `go-build-<jobB>`. `job-index` is 0-based in matrix definition order and same across re-run attempts of the same leg, which keeps cache-download's cross-attempt fallback working.
 
 A downstream job cache-downloads with NO name, which self-discovers the current run's hand-off. That is the preferred mode when the run saves only one hand-off. And it needs no knowledge of the producing job's id. A run carrying several hand-offs needs an explicit `go-build-<uploader job id>.b<build>`, or `go-build-<uploader job id>.m<index>.b<build>` such as `go-build-build.m2.broot`, because discovery will otherwise be ambiguous. A matrix producer is always such a case, because each leg saves its own name.
 
@@ -155,11 +165,17 @@ A downstream job cache-downloads with NO name, which self-discovers the current 
 
 Autorelease publishes the workspace `build/` **directly** to buildhost, through `wow-look-at-my/buildhost`'s buildhost-publish action and its local `path` input — no GitHub Actions artifact is involved. No input turns it off. Every executable binary the action builds publishes.
 
-**A build with no executable binary publishes nothing.** buildhost-publish fails on a directory that holds nothing it can upload. The action therefore reads `build/` first. It skips the publish when no name matches `buildhost-artifacts.json` or `<binary>_{os}_{arch}`. Builds take that path. The first is a library module with no main package. The second is a wasm-only build under the `GO_TOOLCHAIN_WASM_PUBLISH=0` opt-out, whose `.wasm`-suffixed names stay outside the upload set. This check copies buildhost-publish's own file rule. The two disagree only after that rule changes.
+**A build with no executable binary publishes nothing.** buildhost-publish fails on a directory that holds nothing it can upload. The action therefore reads `build/` first. It skips the publish when no name matches `buildhost-artifacts.json` or `<binary>_{os}_{arch}`. Builds take that path. The first is a library module with no main package. The second is a wasm-only build under the `GO_TOOLCHAIN_WASM_PUBLISH=0` opt-out, whose `.wasm`-suffixed names stay outside the upload set.
 
-**`autorelease_args` is parsed, not spread.** A composite `with:` block is static YAML. So those args cannot be spread into the publish step dynamically. Each recognized key is parsed into a step output and mapped onto an explicit buildhost-publish input. An unknown key fails loudly, because a typo must never be silently ignored. An empty input leaves every output empty, and buildhost-publish treats an empty input as absent. So the publish stays byte-identical.
+This check copies buildhost-publish's own file rule. The two disagree only after that rule changes.
 
-**The grants are read only where a publish happens.** A missing grant otherwise surfaces at the end of the publish. The error there is `Resource not accessible by integration`. `wow-look-at-my/actions@has-permission` reads `id-token: write`, `deployments: write` and `artifact-metadata: write` the moment the action finds a binary to publish. A build that publishes nothing needs none of the three. It reads the running workflow file and resolves the scope the way GitHub does. The job's own `permissions:` block, then the workflow-level block when the job declares none. A missing grant fails the step that reads it. And the error names the grant and the block it came from.
+**`autorelease_args` is parsed, not spread.** A composite `with:` block is static YAML. So those args cannot be spread into the publish step dynamically. Each recognized key is parsed into a step output and mapped onto an explicit buildhost-publish input. An unknown key fails loudly, because a typo must never be silently ignored. An empty input leaves every output empty, and buildhost-publish treats an empty input as absent.
+
+So the publish stays byte-identical.
+
+**The grants are read only where a publish happens.** A missing grant otherwise surfaces at the end of the publish. The error there is `Resource not accessible by integration`. `wow-look-at-my/actions@has-permission` reads `id-token: write`, `deployments: write` and `artifact-metadata: write` the moment the action finds a binary to publish. A build that publishes nothing needs none of the three. It reads the running workflow file and resolves the scope the way GitHub does.
+
+The job's own `permissions:` block, then the workflow-level block when the job declares none. A missing grant fails the step that reads it. And the error names the grant and the block it came from.
 
 It replaced a set of empty-body `POST` probes that read a 403 off the live API. Reading the declared block needs no token, spends no API call, and cannot be confused by a failure that has nothing to do with permissions. It also removed a fork-PR carve-out. The old `id-token` check read `ACTIONS_ID_TOKEN_REQUEST_URL` out of the environment, which GitHub withholds on an external fork PR whatever the workflow declares. So that case had to be skipped by name. The declared block is the same on a fork.
 
@@ -178,8 +194,8 @@ The case that does not register is a publish whose target server is loopback or 
 
 ## 5. One head per run across several jobs
 
-A workflow needs nothing for this. The fork's go command locks each org module's branch head per run attempt in buildhost. Every job of the attempt builds it ([ORG-PINS.md](ORG-PINS.md#one-head-per-ci-run-the-buildhost-run-lock)). The job only needs `id-token: write`, which the action already requires.
+A workflow needs nothing for this. The fork's go command locks each org module's branch head per run try in buildhost. Every job of the try builds it ([ORG-PINS.md](ORG-PINS.md#one-head-per-ci-run-the-buildhost-run-lock)). The job only needs `id-token: write`, which the action already requires.
 
 ---
 
-*Provenance: assembled from near-duplicate `action.yml` bullets that had accumulated in CLAUDE.md — the shape a file takes when every visitor appends. They were not topics but generations of one, and merging them meant resolving where they disagreed rather than keeping all three. The newest had the current cache key (verified against `action.yml`) but had **dropped** the `deployments: write` / `artifact-metadata: write` requirement the previous one stated as mandatory. That requirement is real (`action.yml:43`, `README.md`, and this repo's own `ci.yml` grants both) and is restored above. The oldest predated the guard's API-scanning permissions entirely.*
+*Provenance: assembled from near-duplicate `action.yml` bullets that accumulated in CLAUDE.md — the shape a file takes when every visitor appends. They were not topics but generations of one, and merging them meant resolving where they disagreed rather than keeping all three. The newest had the current cache key (verified against `action.yml`) but had **dropped** the `deployments: write` / `artifact-metadata: write` requirement the previous one stated as mandatory. That requirement is real (`action.yml:43`, `README.md`, and this repo's own `ci.yml` grants both) and is restored above. The oldest predated the guard's API-scanning permissions fully.*

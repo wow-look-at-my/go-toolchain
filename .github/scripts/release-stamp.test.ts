@@ -3,10 +3,10 @@
 import { strict as assert } from "node:assert";
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
-import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import { decode, encode, projectFor, repairFile, stampFile } from "./release-stamp.ts";
+import { listen } from "./test-server.ts";
 
 const script = path.join(import.meta.dirname, "release-stamp-cli.ts");
 
@@ -14,7 +14,7 @@ type Seen = { url: string; body: any }[];
 
 function fakeServer(answer: (url: string, body: any) => { status: number; body: unknown }): Promise<{ url: string; seen: Seen; close: () => void }> {
 	const seen: Seen = [];
-	const srv = http.createServer((req, res) => {
+	return listen((req, res) => {
 		let raw = "";
 		req.on("data", (c) => (raw += c));
 		req.on("end", () => {
@@ -28,11 +28,7 @@ function fakeServer(answer: (url: string, body: any) => { status: number; body: 
 			res.statusCode = a.status;
 			res.end(JSON.stringify(a.body));
 		});
-	});
-	return new Promise((resolve) => srv.listen(0, "127.0.0.1", () => {
-		const { port } = srv.address() as { port: number };
-		resolve({ url: `http://127.0.0.1:${port}`, seen, close: () => srv.close() });
-	}));
+	}).then((s) => ({ ...s, seen }));
 }
 
 function run(dir: string, server: string, extra: Record<string, string> = {}): Promise<{ code: number; stdout: string; stderr: string; output: string }> {
