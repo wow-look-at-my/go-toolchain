@@ -151,8 +151,9 @@ runs:
       if: inputs.binary == ''
       uses: wow-look-at-my/actions@typescript#latest
       with:
+        steps: ${{ toJSON(steps) }}
         script: |
-          const file = String(${{ toJSON(format('{0}', steps.download.outputs.path)) }});
+          const file: string = steps.download.outputs.path;
           const buf = fs.readFileSync(file);
           const end = buf.length;
           if (end >= 84 && buf.subarray(end - 16).toString() === "BUILDHOST-STAMP1") {
@@ -164,21 +165,15 @@ runs:
             }
           }
 
-    # A nested action sees its own GITHUB_ACTION_PATH. This step hands the repair step the path of this action as a container sees it.
-    - name: Locate the release stamp script for the download
-      id: repair_script
-      if: inputs.binary == ''
-      shell: bash
-      run: echo "path=$GITHUB_ACTION_PATH/.github/scripts/release-stamp.ts" >> "$GITHUB_OUTPUT"
-
     # A release stamped after the embedded standard library's trailer runs as go with no GOROOT. see docs/RELEASE-STAMP.md
     - name: Put the downloaded binary's release stamp before its standard library trailer
       if: inputs.binary == ''
       uses: wow-look-at-my/actions@typescript#latest
       with:
+        steps: ${{ toJSON(steps) }}
         script: |
-          const { repairFile } = require(${{ toJSON(steps.repair_script.outputs.path) }}) as { repairFile: (file: string) => boolean };
-          const file: string = String(${{ toJSON(format('{0}', steps.download.outputs.path)) }});
+          import { repairFile } from "./.github/scripts/release-stamp";
+          const file: string = steps.download.outputs.path;
           core.info(repairFile(file) ? `${file}: moved its release stamp before the embedded standard library's trailer` : `${file}: layout already right`);
 
     - name: Install go-toolchain
@@ -266,8 +261,9 @@ runs:
       id: autorelease_args
       uses: wow-look-at-my/actions@typescript#latest
       with:
+        inputs: ${{ toJSON(inputs) }}
         script: |
-          const raw: string = "${{ inputs.autorelease_args }}";
+          const raw: string = String(inputs.autorelease_args);
           const known: string[] = ["create_service", "version"];
           const out: Record<string, string> = {};
           for (const key of known) out[key] = "";
