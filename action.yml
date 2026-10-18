@@ -263,7 +263,7 @@ runs:
       with:
         inputs: ${{ toJSON(inputs) }}
         script: |
-          const raw: string = inputs.autorelease_args;
+          const raw: string = String(inputs.autorelease_args);
           const known: string[] = ["create_service", "version"];
           const out: Record<string, string> = {};
           for (const key of known) out[key] = "";
