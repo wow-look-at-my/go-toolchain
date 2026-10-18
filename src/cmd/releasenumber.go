@@ -297,6 +297,10 @@ func rawBuildInfoSettings(path string) (map[string]string, error) {
 	}
 	start := bytes.Index(data, []byte(buildInfoMagic))
 	if start < 0 || len(data) < start+buildInfoHeaderSize {
+		// The wasm linker writes no build-info header. The modinfo string is still in the data, between its sentinels.
+		if mod, ok := framedModinfo(data); ok {
+			return buildInfoSettings(mod), nil
+		}
 		return nil, fmt.Errorf("no Go build info in %s", path)
 	}
 	if data[start+buildInfoFlagsOffset]&buildInfoFlagInline == 0 {
@@ -314,6 +318,26 @@ func rawBuildInfoSettings(path string) (map[string]string, error) {
 		mod = mod[buildInfoFrame : len(mod)-buildInfoFrame]
 	}
 	return buildInfoSettings(mod), nil
+}
+
+// The sentinels the go command puts on each side of runtime.modinfo.
+const (
+	modinfoStart = "\x30\x77\xaf\x0c\x92\x74\x08\x02\x41\xe1\xc1\x07\xe6\xd6\x18\xe6"
+	modinfoEnd   = "\xf9\x32\x43\x31\x86\x18\x20\x72\x00\x82\x42\x10\x41\x16\xd8\xf2"
+)
+
+// framedModinfo finds the modinfo string between its sentinels.
+func framedModinfo(data []byte) (string, bool) {
+	start := bytes.Index(data, []byte(modinfoStart))
+	if start < 0 {
+		return "", false
+	}
+	body := data[start+len(modinfoStart):]
+	end := bytes.Index(body, []byte(modinfoEnd))
+	if end < 0 {
+		return "", false
+	}
+	return string(body[:end]), true
 }
 
 // varintString reads a varint length and that many bytes, and answers the string and what follows it.

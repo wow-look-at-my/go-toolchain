@@ -369,6 +369,16 @@ func TestVerifyReleaseStampReadsAWasmModuleOffItsBytes(t *testing.T) {
 	other := wasmWithBuildInfo(t, "path\tgithub.com/x/app\nbuild\trelease=411\nbuild\trelease.revision=abc\n")
 	assert.ErrorContains(t, verifyReleaseStamp(runner.NewMock(), stampJob(), other), "did not stamp the release")
 
+	// What the js/wasm linker writes: no build-info header, only the modinfo between its sentinels.
+	framed := func(modinfo string) string {
+		path := filepath.Join(t.TempDir(), "framed_js_wasm")
+		body := wasmMagic + "\x01\x00\x00\x00data" + modinfoStart + modinfo + modinfoEnd + "more data"
+		require.NoError(t, os.WriteFile(path, []byte(body), 0o755))
+		return path
+	}
+	require.NoError(t, verifyReleaseStamp(runner.NewMock(), stampJob(), framed("path\tgithub.com/x/app\nbuild\trelease=412\nbuild\trelease.revision=abc\n")))
+	assert.ErrorContains(t, verifyReleaseStamp(runner.NewMock(), stampJob(), framed("path\tgithub.com/x/app\nbuild\trelease=411\nbuild\trelease.revision=abc\n")), "did not stamp the release")
+
 	bare := filepath.Join(t.TempDir(), "bare_js_wasm")
 	require.NoError(t, os.WriteFile(bare, []byte(wasmMagic+"\x01\x00\x00\x00no build info here"), 0o755))
 	assert.ErrorContains(t, verifyReleaseStamp(runner.NewMock(), stampJob(), bare), "no Go build info")
