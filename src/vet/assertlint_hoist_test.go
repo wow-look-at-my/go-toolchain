@@ -15,11 +15,12 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// hoistFixtureFile names the fixture so runAssertLint, which only rewrites
-// test files, picks it up.
+// hoistFixtureFile names the fixture so runAssertLint picks it up: it rewrites test files only.
 const hoistFixtureFile = "hoist_test.go"
 
-// hoistFixture holds every init shape whose flattening must stay compilable.
+// hoistFixture holds the init shapes the flattening has to answer for: two it
+// folds into the block, and three it must leave as ifs because flattening one
+// would redeclare a name, assign across types, or lose a later read.
 // fakeT stands in for *testing.T: the rewriter keys on the receiver name and
 // method, and the require stub's TestingT needs Errorf and FailNow.
 const hoistFixture = `package main
@@ -80,9 +81,8 @@ func TestMixed(t fakeT) {
 }
 `
 
-// hoistImporter resolves the fixture's imports from source so the check needs
-// no compiled standard library: strings as a one-function stand-in, and the
-// testify require package as the hermetic stub under testdata.
+// hoistImporter resolves the fixture's imports from source: strings as a
+// stand-in and the testify require package as the testdata stub.
 type hoistImporter struct {
 	t    *testing.T
 	fset *token.FileSet
@@ -112,8 +112,7 @@ func (im *hoistImporter) Import(path string) (*types.Package, error) {
 	return pkg, nil
 }
 
-// checkHoistSource parses and type-checks one file through hoistImporter and
-// returns the file with the type information the analyzer reads.
+// checkHoistSource parses and type-checks one file through hoistImporter.
 func checkHoistSource(t *testing.T, fset *token.FileSet, src string) (*ast.File, *types.Package, *types.Info, error) {
 	t.Helper()
 	f, err := parser.ParseFile(fset, hoistFixtureFile, src, parser.ParseComments)
@@ -130,8 +129,9 @@ func checkHoistSource(t *testing.T, fset *token.FileSet, src string) (*ast.File,
 }
 
 // TestAssertLintHoistCompiles runs assertlint over hoistFixture, reprints the
-// fixed file, and type-checks the result: the rewrite of an if's init must
-// never leave a redeclaration or a mismatched assignment behind.
+// fixed file, and type-checks the result. Only the two sibling inits flatten;
+// the three shapes that would redeclare a name, assign across types, or drop a
+// read the block still makes keep their if.
 func TestAssertLintHoistCompiles(t *testing.T) {
 	t.Serial()
 	fset := token.NewFileSet()
@@ -150,7 +150,7 @@ func TestAssertLintHoistCompiles(t *testing.T) {
 	require.NoError(t, err)
 	fixes := result.([]*ASTFixes)
 	require.Len(t, fixes, 1)
-	require.Len(t, fixes[0].Fixes, 5, "every if in the fixture is rewritten")
+	require.Len(t, fixes[0].Fixes, 2, "only the two sibling inits are safe to flatten")
 
 	var buf strings.Builder
 	require.NoError(t, fixes[0].Fprint(&buf))
@@ -159,10 +159,14 @@ func TestAssertLintHoistCompiles(t *testing.T) {
 	_, _, _, err = checkHoistSource(t, token.NewFileSet(), got)
 	require.NoError(t, err, "the rewritten file does not compile:\n%s", got)
 
-	assert.Equal(t, 5, strings.Count(got, "require."), "one assertion per if:\n%s", got)
+	assert.Equal(t, 2, strings.Count(got, "require."), "one assertion per flattened if:\n%s", got)
 	assert.Equal(t, 2, strings.Count(got, "require.Contains(t, msg,"), got)
-	assert.Contains(t, got, "msg := failure()", got)
-	assert.Contains(t, got, "msg = failure()", got)
-	assert.Contains(t, got, "n, err := pair()", "a new name beside an existing one keeps :=\n"+got)
-	assert.Equal(t, 2, strings.Count(got, "\t{\n"), "the later-declared and other-typed names stay in a block:\n"+got)
+	assert.Contains(t, got, "msg := failure()", "the first sibling declares the name:\n"+got)
+	assert.Contains(t, got, "msg = failure()", "the second sibling assigns it:\n"+got)
+
+	// The shapes that would redeclare a name, assign across types, or drop a
+	// read the block still makes keep their if and are left untouched.
+	assert.Contains(t, got, "if n := count(); n != 1 {", got)
+	assert.Contains(t, got, `if s := failure(); !strings.Contains(s, "c") {`, got)
+	assert.Contains(t, got, "if n, err := pair(); err != nil || n != 1 {", got)
 }
