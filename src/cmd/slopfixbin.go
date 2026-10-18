@@ -28,7 +28,6 @@ const (
 // Test seams, so a test drives the resolution without a download.
 var (
 	slopfixDownloadBase = "https://dl.pazer.build/slopfix"
-	ensureSlopfixFunc   = ensureSlopfix
 	downloadSlopfixFunc = downloadSlopfix
 	// slopfixHostPlatformFunc answers the platform the published binary must
 	// run on. hostos, not runtime: a cosmo fat APE reports "cosmo" as
