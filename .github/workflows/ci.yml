@@ -652,6 +652,7 @@ jobs:
     if: always()
     runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
     permissions:
+      id-token: write
       contents: read
       actions: write
     steps:
