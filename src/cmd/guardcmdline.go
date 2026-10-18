@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"os"
 	"strings"
 
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
 
@@ -10,6 +12,25 @@ import (
 
 // ancestryLimit bounds the walk against a cyclic ppid chain.
 const ancestryLimit = 8
+
+// selfPID is this process, the root the ancestry walk starts beside.
+func selfPID() int { return os.Getpid() }
+
+// readCmdline reads a process's argv from the source its HOST provides.
+//
+// The build TARGET is cosmo on every host the pipeline ships to, so the host
+// cannot be spelled as a filename constraint: a `_darwin.go` half is compiled
+// out of the very binary a Mac runs, and the /proc reader is what answers
+// there, where /proc does not exist. The host is measured instead, the same way
+// the classifier decides its own blindness in claudeguard_proc.go. A host that
+// answers neither source yields no argv, so the walk above acquits rather than
+// guesses.
+func readCmdline(pid int) ([]string, bool) {
+	if hostos.GOOS() == "linux" {
+		return readProcCmdline(pid)
+	}
+	return readPSCmdline(pid)
+}
 
 // unidentifiedPeerSink answers for a pipe or socket whose reader this process
 // cannot name. Convicting there aborts a bare `go-toolchain`.
@@ -59,15 +80,20 @@ func shellScript(argv []string) (string, bool) {
 		return "", false
 	}
 	for i, a := range argv[1:] {
-		if a == "-c" && i+2 < len(argv) {
-			return argv[i+2], true
-		}
-		// A bundled form such as -lc still ends in the c that takes the string.
-		if strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.HasSuffix(a, "c") && i+2 < len(argv) {
+		if takesCommandString(a) && i+2 < len(argv) {
 			return argv[i+2], true
 		}
 	}
 	return "", false
+}
+
+// takesCommandString reports whether a shell flag is the one that takes a
+// command string: a bare -c, or a bundled form such as -lc that ends in it.
+func takesCommandString(a string) bool {
+	if a == "-c" {
+		return true
+	}
+	return strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.HasSuffix(a, "c")
 }
 
 // isShell matches the interpreters that accept -c, by base name. A full path

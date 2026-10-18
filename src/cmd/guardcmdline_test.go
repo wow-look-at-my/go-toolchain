@@ -80,6 +80,58 @@ func TestReadCmdlineReadsThisProcess(t *testing.T) {
 	assert.NotEmpty(t, argv[0])
 }
 
+// ps prints a whole command line on one line, so a shell's command string --
+// which holds the spaces -- has to be recovered before capturesStdout can read
+// it. This is the host half every non-linux reader answers through.
+func TestPSArgvRejoinsAShellCommandString(t *testing.T) {
+	got, ok := psArgv("/bin/sh -c go-toolchain | head -30")
+	require.True(t, ok)
+	require.Len(t, got, 3)
+	assert.Equal(t, []string{"/bin/sh", "-c", "go-toolchain | head -30"}, got)
+	assert.True(t, capturesStdout(got[2]), "the rejoined text is what the walk must convict on")
+}
+
+// The reported bug's shape: a bare command must come back acquittable.
+func TestPSArgvAcquitsABareCommand(t *testing.T) {
+	got, ok := psArgv("/bin/bash -lc cd /repo && go-toolchain")
+	require.True(t, ok)
+	require.Len(t, got, 3)
+	assert.Equal(t, "cd /repo && go-toolchain", got[2])
+	assert.False(t, capturesStdout(got[2]))
+}
+
+// A bundled flag such as -lc takes the command string, and ps cannot say where
+// the string ends, so the whole tail is it.
+func TestPSArgvHandlesABundledFlag(t *testing.T) {
+	got, ok := psArgv("zsh -lc out=$(go-toolchain)")
+	require.True(t, ok)
+	require.Len(t, got, 3)
+	assert.Equal(t, "out=$(go-toolchain)", got[2])
+}
+
+// A non-shell command line is handed back as ps printed it: nothing there needs
+// rejoining, and a guess would corrupt an argv the walk then reads.
+func TestPSArgvLeavesANonShellAlone(t *testing.T) {
+	got, ok := psArgv("/usr/bin/go-toolchain matrix")
+	require.True(t, ok)
+	assert.Equal(t, []string{"/usr/bin/go-toolchain", "matrix"}, got)
+}
+
+// A shell with no command string is not a shell this walk can read, so no
+// rejoining happens and the fields stay as printed.
+func TestPSArgvLeavesAShellWithoutACommandString(t *testing.T) {
+	got, ok := psArgv("/bin/sh -i")
+	require.True(t, ok)
+	assert.Equal(t, []string{"/bin/sh", "-i"}, got)
+}
+
+// An empty line is no process, not an empty argv: the caller must fall through
+// to acquittal rather than convict on nothing.
+func TestPSArgvRejectsAnEmptyLine(t *testing.T) {
+	_, ok := psArgv("   \n")
+	assert.False(t, ok)
+}
+
 // The walk must reach a real ancestor here, or spawningPipeline has nothing
 // to read and every classification falls back to the guess this replaced.
 func TestAncestorCmdlinesReachesRealProcesses(t *testing.T) {
