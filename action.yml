@@ -67,6 +67,16 @@ inputs:
       fails. Empty (the default) forwards nothing.
     required: false
     default: ''
+  depends:
+    description: >-
+      The buildhost projects the published binary depends on, separated by
+      commas or whitespace (e.g. 'ascii-timeline'). Forwarded to the
+      buildhost publish as depends, so `apt-get install` and `brew install`
+      of this project install each of them too. buildhost refuses a name it
+      cannot resolve, and the publish fails. Empty (the default) forwards
+      nothing.
+    required: false
+    default: ''
   allow-source-build:
     description: 'Allow building go-toolchain from source when the buildhost binary is unavailable. When false (default), the build fails fast instead of silently falling back to a source build.'
     required: false
@@ -378,3 +388,4 @@ runs:
         version: ${{ steps.build.outputs.release_version || steps.autorelease_args.outputs.version }}
         create_service: ${{ steps.autorelease_args.outputs.create_service }}
         apt_depends: ${{ inputs.apt-depends }}
+        depends: ${{ inputs.depends }}

@@ -173,6 +173,8 @@ This check copies buildhost-publish's own file rule. The two disagree only after
 
 So the publish stays byte-identical.
 
+**`apt-depends` and `depends` go straight to the publish.** `apt-depends` is a Debian relationship string for system packages. `depends` names other buildhost projects, such as `ascii-timeline`. buildhost then lists them in the deb's Depends, adds their APT repositories in `install.sh`. It declares them as `depends_on` in the brew formula, so `apt-get install` and `brew install` install them too. An empty input sends nothing and leaves the stored value untouched.
+
 **The grants are read only where a publish happens.** A missing grant otherwise surfaces at the end of the publish. The error there is `Resource not accessible by integration`. `wow-look-at-my/actions@has-permission` reads `id-token: write`, `deployments: write` and `artifact-metadata: write` the moment the action finds a binary to publish. A build that publishes nothing needs none of the three. It reads the running workflow file and resolves the scope the way GitHub does.
 
 The job's own `permissions:` block, then the workflow-level block when the job declares none. A missing grant fails the step that reads it. And the error names the grant and the block it came from.
