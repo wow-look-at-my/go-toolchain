@@ -324,8 +324,9 @@ func TestMaybeSubmitDeps_SubmissionFailureFatal(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "test-token")
 
 	err = maybeSubmitDeps()
-	assert.NotNil(t, err)
-	assert.Contains(t, err.Error(), "HTTP 403")
+	require.NotNil(t, err)
+	assert.Contains(t, err.Error(), "dependency submission failed (HTTP 403)")
+	assert.Contains(t, err.Error(), "Resource not accessible")
 	assert.Contains(t, err.Error(), "contents: write")
 }
 
@@ -340,8 +341,9 @@ func TestMaybeSubmitDeps_SnapshotFailureFatal(t *testing.T) {
 	t.Setenv("GITHUB_SHA", "abc123")
 
 	err := maybeSubmitDeps()
-	assert.NotNil(t, err)
+	require.NotNil(t, err)
 	assert.Contains(t, err.Error(), "dependency snapshot failed")
+	assert.Contains(t, err.Error(), "go.mod")
 }
 
 // This repo's own smoke jobs drive the full pipeline inside a throwaway module under
