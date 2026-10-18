@@ -177,7 +177,7 @@ runs:
       uses: wow-look-at-my/actions@typescript#latest
       with:
         script: |
-          const { repairFile } = require("${{ steps.repair_script.outputs.path }}") as { repairFile: (file: string) => boolean };
+          const { repairFile } = require(${{ toJSON(steps.repair_script.outputs.path) }}) as { repairFile: (file: string) => boolean };
           const file: string = String(${{ toJSON(format('{0}', steps.download.outputs.path)) }});
           core.info(repairFile(file) ? `${file}: moved its release stamp before the embedded standard library's trailer` : `${file}: layout already right`);
 
