@@ -92,7 +92,10 @@ func runMatrixModules(r runner.CommandRunner) error {
 
 // runMatrixModulesInto is runMatrixModules recording each module's test phase into sd when it is not nil.
 func runMatrixModulesInto(r runner.CommandRunner, sd *summary.SummaryData) error {
-	modules := findGoModules()
+	modules, err := sweptModules()
+	if err != nil {
+		return err
+	}
 	if len(modules) == 0 {
 		// Suites without a module are the whole run, as in the default
 		// pipeline: the CLI a suite drives does not have to be Go.
