@@ -67,6 +67,16 @@ inputs:
       fails. Empty (the default) forwards nothing.
     required: false
     default: ''
+  depends:
+    description: >-
+      The buildhost projects the published binary depends on, separated by
+      commas or whitespace (e.g. 'ascii-timeline'). Forwarded to the
+      buildhost publish as depends, so `apt-get install` and `brew install`
+      of this project install each of them too. buildhost refuses a name it
+      cannot resolve, and the publish fails. Empty (the default) forwards
+      nothing.
+    required: false
+    default: ''
   allow-source-build:
     description: 'Allow building go-toolchain from source when the buildhost binary is unavailable. When false (default), the build fails fast instead of silently falling back to a source build.'
     required: false
@@ -88,7 +98,7 @@ runs:
     - name: Configure git for private repos
       if: env.PRIVATE_ORG_REPO_READ != ''
       shell: bash
-      run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
+      run: git config --global url."https://x-access-token:${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
     # Lets the kernel start an APE, so a bare exec works. see docs/ACTION.md github.action_path is the host path in a container job; GITHUB_ACTION_PATH is the path the step's shell sees.
     - name: Register the APE binfmt handler
@@ -377,3 +387,4 @@ runs:
         version: ${{ steps.build.outputs.release_version || steps.autorelease_args.outputs.version }}
         create_service: ${{ steps.autorelease_args.outputs.create_service }}
         apt_depends: ${{ inputs.apt-depends }}
+        depends: ${{ inputs.depends }}
