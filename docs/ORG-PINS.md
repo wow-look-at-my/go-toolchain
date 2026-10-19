@@ -45,11 +45,13 @@ A name is resolved the same way the branch this repository is on is. A dependenc
 
 ## A submodule pin only moves forward (`src/cmd/submoduleforward.go`)
 
-Every gitlink on HEAD must equal the gitlink at the same path on the default branch of `origin`, or descend from it. A pin that is older, or on a side line, fails the run and names the path. The check reads the default branch with `git ls-remote`. It fetches the commit graph into a scratch bare repository, so the checkout and its submodules stay as they were. A scratch fetch carries the `http.*.extraheader` that `actions/checkout` writes, so a private submodule resolves in CI. It applies to every submodule, not only org ones. Every git read trusts the tree whatever user owns it, because a CI container checks the tree out as another user. A git failure other than "not a git repository" fails the run.
+Every gitlink on HEAD must equal the gitlink at the same path on the default branch of `origin`, or descend from it. A pin that is older, or on a side line, fails the run and names the path. The check reads the default branch with `git ls-remote`. It fetches the commit graph into a scratch bare repository, so the checkout and its submodules stay as they were. A scratch fetch carries the `http.*.extraheader` that `actions/checkout` writes, so a private submodule resolves in CI. It applies to every submodule, not only org ones.
+
+Every git read trusts the tree whatever user owns it, because a CI container checks the tree out as another user. A git failure other than "not a git repository" fails the run.
 
 ## One head per CI run: the buildhost run lock
 
-Nothing pins a commit. In CI the fork's `cmd/go` locks each org module's branch head once per run attempt, in buildhost (`/api/v1/run-locks`, keyed by `GITHUB_RUN_ID` and `GITHUB_RUN_ATTEMPT`). Every job of the attempt builds that head. A re-run is a new attempt, so it resolves the branches again, and a deleted branch falls back to master.
+Nothing pins a commit. In CI the fork's `cmd/go` locks each org module's branch head once per run try, in buildhost (`/api/v1/run-locks`, keyed by `GITHUB_RUN_ID` and `GITHUB_RUN_ATTEMPT`). Every job of the try builds that head. A re-run is a new try, so it resolves the branches again, and a deleted branch falls back to master.
 
 Outside CI the pipeline names a run too (`src/goenv.go`). Every go command one invocation starts resolves each org module's head once, and the later commands build what the first one locked. The name is `go-toolchain/local/<pid>-<nanos>/1`, made unique to the invocation so the next build resolves the heads again and picks up a head that moved. A run the caller or CI already named keeps its own identity. The pipeline sets `GOSMOPOLITAN_RUN` only when it is unset and the GitHub variables name no run.
 
