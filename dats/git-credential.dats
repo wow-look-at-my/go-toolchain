@@ -1,6 +1,6 @@
 # Runs the tests of .github/scripts/git-credential.test.ts. They check that no
-# workflow rewrites a URL with a token, and that the credential helper step
-# authenticates git against a local Basic-auth server.
+# workflow puts the token in the username alone, and that the git step
+# authenticates against a local Basic-auth server.
 
 sandbox:
 	image: node:24
