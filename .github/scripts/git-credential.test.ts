@@ -1,4 +1,4 @@
-// Tests the git credential helper step of action.yml and ci.yml. No network: a loopback server stands in for github.com.
+// Tests the "Configure git for private repos" step of action.yml and ci.yml. No network: a loopback server stands in for github.com.
 
 import { deepEqual, equal, match, notEqual, ok } from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -17,9 +17,9 @@ function workflowFiles(): string[] {
 	return [join(root, "action.yml"), ...files];
 }
 
-// A line that rewrites a URL with insteadOf and carries a token or a userinfo part.
-function tokenRewrites(text: string): string[] {
-	return text.split("\n").filter((l) => /insteadOf/i.test(l) && /PRIVATE_ORG_REPO_READ|TOKEN|secrets\.|https?:\/\/[^\s"'\/]*@/.test(l));
+// A line that rewrites a URL with insteadOf and puts a variable in the username alone, with no password.
+function usernameOnlyRewrites(text: string): string[] {
+	return text.split("\n").filter((l) => /insteadOf/i.test(l) && /https?:\/\/\$\{?[A-Za-z_]+\}?@/.test(l));
 }
 
 // The run script of every step with the given name.
@@ -57,32 +57,29 @@ async function test(name: string, fn: () => void | Promise<void>) {
 	console.log(`ok - ${name}`);
 }
 
-await test("no insteadOf rewrite carries a token in action.yml or the workflows", () => {
+await test("no insteadOf rewrite in action.yml or the workflows puts the token in the username alone", () => {
 	for (const f of workflowFiles()) {
-		deepEqual(tokenRewrites(readFileSync(f, "utf8")), [], `${f} rewrites a URL with a token`);
+		deepEqual(usernameOnlyRewrites(readFileSync(f, "utf8")), [], `${f} rewrites a URL with the token as the whole username`);
 	}
 });
 
-await test("the token-rewrite check detects a token in the rewrite", () => {
+await test("the username-only check detects the form and passes the user:password form", () => {
 	const bad = `run: git config --global url."https://\${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"`;
-	equal(tokenRewrites(bad).length, 1);
-	equal(tokenRewrites(`run: git config --global url."https://example.org/".insteadOf "https://github.com/"`).length, 0);
+	const good = `run: git config --global url."https://x-access-token:\${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"`;
+	equal(usernameOnlyRewrites(bad).length, 1);
+	equal(usernameOnlyRewrites(good).length, 0);
 });
 
-await test("action.yml has the credential helper step", () => {
+await test("action.yml rewrites the org URL with x-access-token as the username and the token as the password", () => {
 	const scripts = stepScripts(readFileSync(join(root, "action.yml"), "utf8"));
 	equal(scripts.length, 1, `want one "${stepName}" step in action.yml`);
-	const s = scripts[0];
-	match(s, /git config --global credential\.https:\/\/github\.com\.helper '!/);
-	match(s, /x-access-token/);
-	match(s, /\$PRIVATE_ORG_REPO_READ/);
-	ok(!s.includes("${"), "the token must stay a shell variable the helper reads at call time");
+	match(scripts[0], /^git config --global url\."https:\/\/x-access-token:\$\{PRIVATE_ORG_REPO_READ\}@github\.com\/wow-look-at-my\/"\.insteadOf "https:\/\/github\.com\/wow-look-at-my\/"$/);
 });
 
 await test("every ci.yml copy of the step matches action.yml", () => {
 	const want = stepScripts(readFileSync(join(root, "action.yml"), "utf8"))[0];
 	const ci = stepScripts(readFileSync(join(root, ".github", "workflows", "ci.yml"), "utf8"));
-	ok(ci.length >= 1, "ci.yml has no credential helper step");
+	ok(ci.length >= 1, "ci.yml has no step that configures git for private repos");
 	for (const s of ci) equal(s, want);
 });
 
@@ -144,9 +141,9 @@ function sh(cmd: string, cwd: string, env: Record<string, string>): Promise<{ co
 	});
 }
 
-await test("the helper authenticates ls-remote against a Basic-auth git server, and nothing else does", async () => {
+await test("the step authenticates ls-remote against a Basic-auth git server, and a wrong token does not", async () => {
 	const tmp = mkdtempSync(join(tmpdir(), "git-credential-"));
-	const bare = join(tmp, "repos", "org", "private.git");
+	const bare = join(tmp, "repos", "wow-look-at-my", "private.git");
 	mkdirSync(bare, { recursive: true });
 	const clean = { HOME: tmp, GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0" };
 	const work = join(tmp, "seed");
@@ -159,24 +156,26 @@ await test("the helper authenticates ls-remote against a Basic-auth git server, 
 		const fresh = mkdtempSync(join(tmp, "fresh-"));
 		const globalConfig = join(tmp, "gitconfig");
 		const env = { ...clean, GIT_CONFIG_GLOBAL: globalConfig, PRIVATE_ORG_REPO_READ: token };
-		const ls = `git ls-remote ${srv.url}/org/private.git HEAD`;
+		const ls = `git ls-remote ${srv.url}/wow-look-at-my/private.git HEAD`;
 
 		const before = await sh(ls, fresh, env);
-		notEqual(before.code, 0, "ls-remote must fail with no helper configured");
+		notEqual(before.code, 0, "ls-remote must fail with nothing configured");
 
-		// The step as shipped, with the host swapped for the loopback server.
-		const script = stepScripts(readFileSync(join(root, "action.yml"), "utf8"))[0].replaceAll("https://github.com", srv.url);
+		// The step as shipped, with github.com swapped for the loopback server.
+		const host = srv.url.replace("http://", "");
+		const script = stepScripts(readFileSync(join(root, "action.yml"), "utf8"))[0].replaceAll("https://", "http://").replaceAll("github.com", host);
 		const applied = await sh(script, fresh, env);
 		equal(applied.code, 0, applied.out);
-		ok(!readFileSync(globalConfig, "utf8").includes(token), "the token must not land in git config");
 
-		const withHelper = await sh(ls, fresh, env);
-		equal(withHelper.code, 0, withHelper.out);
-		match(withHelper.out, /^[0-9a-f]{40}\tHEAD$/m);
+		const withStep = await sh(ls, fresh, env);
+		equal(withStep.code, 0, withStep.out);
+		match(withStep.out, /^[0-9a-f]{40}\tHEAD$/m);
 		ok(srv.served.includes(200), "the server must have served a request");
 
-		const wrong = await sh(ls, fresh, { ...env, PRIVATE_ORG_REPO_READ: "wrong" });
-		notEqual(wrong.code, 0, "a wrong token must fail");
+		const wrongConfig = join(tmp, "gitconfig-wrong");
+		const wrongEnv = { ...env, GIT_CONFIG_GLOBAL: wrongConfig, PRIVATE_ORG_REPO_READ: "wrong" };
+		equal((await sh(script, fresh, wrongEnv)).code, 0);
+		notEqual((await sh(ls, fresh, wrongEnv)).code, 0, "a wrong token must fail");
 	} finally {
 		srv.close();
 	}
