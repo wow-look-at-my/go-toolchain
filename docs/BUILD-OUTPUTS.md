@@ -22,7 +22,9 @@ A binary at `build/<target>` is otherwise indistinguishable from one the current
 
 What counts as an artifact is `isOutputArtifact`: the bare name (`<name>.exe` and the cosmo fat APE), any `<name>_…` (BinaryName's `<name>_<goos>_<goarch>[.exe]`, the wasm shapes, the `<name>_host` symlink), any `<name>.…` (the APE's sidecar ELFs), and the `.tmp-`-prefixed spelling of all.
 
-Discovery is a directory scan keyed on target NAME rather than a re-derivation of the platform matrix. So artifacts of a previous run's platform set go too. `clearBuildOutputs` records `{dir, names}` per module (`trackedOutputs`, absolute) so the failure path works from any cwd in a multi-module run. Removal failure is FATAL on the clear path (an undeletable binary is exactly the stale binary this prevents) and best-effort on the failure/abort paths (never mask the real error). The "Up to date, nothing to do" fast exit is unaffected — it fires in `PersistentPreRunE` before `run()`. And it means the last run succeeded with its outputs intact. No flag or env var disables any of this.
+Discovery is a directory scan keyed on target NAME rather than a re-derivation of the platform matrix. So artifacts of a previous run's platform set go too. `clearBuildOutputs` records `{dir, names}` per module (`trackedOutputs`, absolute) so the failure path works from any cwd in a multi-module run. Removal failure is FATAL on the clear path (an undeletable binary is exactly the stale binary this prevents) and best-effort on the failure/abort paths (never mask the real error). The "Up to date, nothing to do" fast exit is unaffected — it fires in `PersistentPreRunE` before `run()`. And it means the last run succeeded with its outputs intact.
+
+No flag or env var disables any of this.
 
 NOTE for dats suites: dats runs commands in the module root. A suite test that execs a pipeline command must first `cd` into its own `{outputs.X}` directory. Otherwise it deletes the binaries the pipeline just built (see `dats/README.md`).
 
