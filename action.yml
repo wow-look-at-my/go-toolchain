@@ -291,7 +291,7 @@ runs:
 
     # A copy of the shared cache's key index turns its 135 MB download into a fetch of the keys added since: 7.8 s -> 4.3 s on an empty cache.
     - name: Restore the shared cache's key index
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cache/go-build/gocache-web-index-*.bin
