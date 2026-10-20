@@ -88,7 +88,10 @@ func main() {
 	cmd.ReportUpdateCheck()
 	logx.Flush()
 	if err != nil {
-		logger.Error("go-toolchain: %v", err)
+		// cobra already put the error on stderr; only a runner consumes ::error.
+		if os.Getenv("GITHUB_ACTIONS") == "true" {
+			logger.Error("go-toolchain: %v", err)
+		}
 		os.Exit(1)
 	}
 }

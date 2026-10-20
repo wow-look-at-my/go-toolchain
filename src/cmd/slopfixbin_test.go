@@ -44,14 +44,12 @@ type downloadAttempt struct {
 	url, dir, bin string
 }
 
-// errStopDownload stands in for a download the test refuses to make. The
-// resolution must carry it back, so a wrong URL or path is reported rather
-// than swallowed.
+// errStopDownload stands in for a download the test refuses to make.
 var errStopDownload = errors.New("download stopped by the test")
 
 // The pin in GO_TOOLCHAIN_SLOPFIX_VERSION decides which buildhost slot the
-// resolution asks for, and an empty pin must not collapse onto the pinned
-// directory: a pinned run and an unpinned one cache separately, so a new
+// resolution asks for. An empty pin must not collapse onto the pinned
+// directory. A pinned run and an unpinned one cache separately, so a new
 // release never serves a stale binary to the other.
 func TestEnsureSlopfixChoosesTheURLAndDirectoryForThePin(t *testing.T) {
 	for _, tc := range []struct {
@@ -74,8 +72,7 @@ func TestEnsureSlopfixChoosesTheURLAndDirectoryForThePin(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cache := t.TempDir()
-			// The empty string reads as unset through os.Getenv, which is how
-			// the resolution tells a pin from no pin.
+			// The empty string reads as unset through os.Getenv, which is how the resolution tells a pin from no pin.
 			t.Setenv(slopfixVersionEnv, tc.pin)
 			t.Setenv(slopfixBinEnv, "")
 			attempts := slopfixSeams(t, cache, "linux", "amd64")
@@ -116,8 +113,8 @@ func TestEnsureSlopfixReturnsTheCachedBinaryWithoutDownloading(t *testing.T) {
 	assert.Empty(t, *attempts(), "a warm cache must not download")
 }
 
-// NT names its executables, and a fat APE reports "cosmo" as runtime.GOOS, so
-// the cached name comes from the host OS rather than the compile-time one.
+// NT names its executables, and a fat APE reports "cosmo" as runtime.GOOS.
+// The cached name comes from the host OS rather than the compile-time one.
 func TestEnsureSlopfixNamesTheBinaryForTheHostPlatform(t *testing.T) {
 	cache := t.TempDir()
 	t.Setenv(slopfixVersionEnv, "944")

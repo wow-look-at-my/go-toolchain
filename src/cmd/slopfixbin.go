@@ -29,9 +29,7 @@ const (
 var (
 	slopfixDownloadBase = "https://dl.pazer.build/slopfix"
 	downloadSlopfixFunc = downloadSlopfix
-	// slopfixHostPlatformFunc answers the platform the published binary must
-	// run on. hostos, not runtime: a cosmo fat APE reports "cosmo" as
-	// runtime.GOOS, and runtime.GOARCH needs no such substitution.
+	// slopfixHostPlatformFunc answers the platform the published binary must run on. hostos, not runtime: a cosmo fat APE reports "cosmo" as runtime.GOOS.
 	slopfixHostPlatformFunc = func() (string, string) { return hostos.GOOS(), runtime.GOARCH }
 )
 
@@ -45,8 +43,7 @@ func slopfixDownloadURL(pin, goos, goarch string) string {
 
 // slopfixCacheKey names the cache directory a pin gets. A pin comes from the
 // environment and becomes one path segment, so everything outside the ASCII
-// letters, digits, dot, underscore and hyphen is replaced with '-'. An empty
-// pin is the unpinned case, and the unpinned case is one shared directory.
+// letters, digits, dot, underscore and hyphen is replaced with '-'.
 func slopfixCacheKey(pin string) string {
 	if pin == "" {
 		return "latest"
