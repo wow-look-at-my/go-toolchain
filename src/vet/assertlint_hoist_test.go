@@ -18,9 +18,6 @@ import (
 // hoistFixtureFile names the fixture so runAssertLint picks it up: it rewrites test files only.
 const hoistFixtureFile = "hoist_test.go"
 
-// hoistFixture holds the init shapes the flattening has to answer for: two it
-// folds into the block, and three it must leave as ifs because flattening one
-// would redeclare a name, assign across types, or lose a later read.
 // fakeT stands in for *testing.T: the rewriter keys on the receiver name and
 // method, and the require stub's TestingT needs Errorf and FailNow.
 const hoistFixture = `package main
@@ -129,9 +126,9 @@ func checkHoistSource(t *testing.T, fset *token.FileSet, src string) (*ast.File,
 }
 
 // TestAssertLintHoistCompiles runs assertlint over hoistFixture, reprints the
-// fixed file, and type-checks the result. Only the two sibling inits flatten;
-// the three shapes that would redeclare a name, assign across types, or drop a
-// read the block still makes keep their if.
+// fixed file, and type-checks the result. Only both sibling inits flatten. The
+// shapes that would redeclare a name, assign across types, or drop a read the
+// block still makes keep their if.
 func TestAssertLintHoistCompiles(t *testing.T) {
 	t.Serial()
 	fset := token.NewFileSet()
@@ -164,8 +161,7 @@ func TestAssertLintHoistCompiles(t *testing.T) {
 	assert.Contains(t, got, "msg := failure()", "the first sibling declares the name:\n"+got)
 	assert.Contains(t, got, "msg = failure()", "the second sibling assigns it:\n"+got)
 
-	// The shapes that would redeclare a name, assign across types, or drop a
-	// read the block still makes keep their if and are left untouched.
+	// The shapes that would redeclare a name, assign across types, or drop a read the block still makes keep their if and are left untouched.
 	assert.Contains(t, got, "if n := count(); n != 1 {", got)
 	assert.Contains(t, got, `if s := failure(); !strings.Contains(s, "c") {`, got)
 	assert.Contains(t, got, "if n, err := pair(); err != nil || n != 1 {", got)
