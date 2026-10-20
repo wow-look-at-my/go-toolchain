@@ -193,7 +193,8 @@ jobs:
       - name: Cache validation (second build)
         # build/ in THIS job is the fat APE. A shell starts it, which is the only way an APE starts --... see docs/CI.md
         env:
-          # No GITHUB_TOKEN, and the run below blanks GITHUB_REPOSITORY: no dependency submission here.
+          # This second build runs inside the checkout, so it submits the dependency snapshot the first build did and needs the token for it. The run lock ahead of it names the run by GITHUB_REPOSITORY, GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT, and the store matches that name against the run the OIDC token was minted by, so blanking any of the three is a refused lock, not a skipped submission. see docs/CI.md
+          GITHUB_TOKEN: ${{ github.token }}
           GOCACHEDEBUG: "1"
           GOCACHELOG: ${{ runner.temp }}/gocache.log
           # The test cache says per package why a result replayed or did not, which is what a slow second build needs answered. see docs/CI.md
@@ -202,8 +203,7 @@ jobs:
           cp build/go-toolchain /usr/local/bin/go-toolchain
           rm -rf build/
           start=$SECONDS
-          # Blank at exec, since step env cannot override runner-default GITHUB_*: no submission here.
-          GITHUB_REPOSITORY= go-toolchain
+          go-toolchain
           elapsed=$(( SECONDS - start ))
           echo "Second build took ${elapsed}s"
           # see docs/CI.md
