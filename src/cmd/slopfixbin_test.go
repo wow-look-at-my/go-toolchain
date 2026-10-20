@@ -14,7 +14,7 @@ import (
 
 // slopfixSeams points every external answer the resolution takes at the test:
 // the host it builds for, the cache root, and the download itself. It puts
-// the originals back afterwards. download returns stopDownload, so the
+// the originals back afterwards. download returns errStopDownload, so the
 // resolution is observed at the point it chooses a URL and a path rather than
 // after a network call.
 func slopfixSeams(t *testing.T, cacheDir, goos, goarch string) func() *[]downloadAttempt {
