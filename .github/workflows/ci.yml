@@ -193,7 +193,7 @@ jobs:
       - name: Cache validation (second build)
         # build/ in THIS job is the fat APE. A shell starts it, which is the only way an APE starts --... see docs/CI.md
         env:
-          # The next build re-invokes go-toolchain, which also submits the dependency snapshot; give... see docs/CI.md
+          # This second build runs inside the checkout, so it submits the dependency snapshot the first build did and needs the token for it. The run lock ahead of it names the run by GITHUB_REPOSITORY, GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT, and the store matches that name against the run the OIDC token was minted by, so blanking any of the three is a refused lock, not a skipped submission. see docs/CI.md
           GITHUB_TOKEN: ${{ github.token }}
           GOCACHEDEBUG: "1"
           GOCACHELOG: ${{ runner.temp }}/gocache.log

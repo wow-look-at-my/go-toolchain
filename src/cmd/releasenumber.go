@@ -61,10 +61,12 @@ func lookupRelease(binary string) (string, error) {
 	return createRunRelease(binary)
 }
 
-// publishProject is the buildhost project the publish uploads binary to.
-// A release made in another project counts its numbers apart, and the
-// publish then finds the number already published in its own project.
+// publishProject is the buildhost project the publish uploads binary to. A
+// release made in another project counts its numbers apart, and the publish
+// then finds the number already published in its own project.
 func publishProject(repo, binary string) string {
+	repo = strings.ToLower(repo)
+	binary = strings.ToLower(binary)
 	switch {
 	case binary == "" || binary == repo:
 		return repo
