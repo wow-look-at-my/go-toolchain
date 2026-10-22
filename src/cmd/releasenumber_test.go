@@ -208,6 +208,9 @@ func TestPublishProjectMatchesTheBuildhostPublishRule(t *testing.T) {
 		{"slopfix", "", "slopfix"},
 		{"buildhost", "buildhost-agent", "buildhost/agent"},
 		{"webhooks", "webhook-runner", "webhooks/webhook-runner"},
+		// A repository whose name carries capitals publishes under its lowercase project, and its binary's name is lowercase too.
+		{"VictoriaLogs-compat-layer", "VictoriaLogs-compat-layer", "victorialogs-compat-layer"},
+		{"VictoriaLogs-compat-layer", "victorialogs-compat-layer-cli", "victorialogs-compat-layer/cli"},
 	} {
 		assert.Equal(t, c.want, publishProject(c.repo, c.binary), "%s + %s", c.repo, c.binary)
 	}
