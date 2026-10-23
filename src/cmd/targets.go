@@ -1,3 +1,5 @@
+// cosmoOS/cosmoFatArch: the pseudo-target for the fat APE, not a normal GOOS/GOARCH pair.
+
 package cmd
 
 import (

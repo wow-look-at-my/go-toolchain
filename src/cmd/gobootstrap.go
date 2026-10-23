@@ -1,3 +1,5 @@
+// Test seams, so a test drives the go command probe without a toolchain.
+
 package cmd
 
 import (

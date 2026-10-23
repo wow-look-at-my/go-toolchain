@@ -1,3 +1,5 @@
+// selfRepository is the only repo exempt from dependency-graph submission.
+
 package cmd
 
 import (

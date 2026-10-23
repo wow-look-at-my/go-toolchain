@@ -1,3 +1,5 @@
+// activeGoCmd starts the go command this pipeline builds with: the go link to this executable.
+
 package cmd
 
 import (

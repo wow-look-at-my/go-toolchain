@@ -1,3 +1,5 @@
+// removeImport removes an import from the file's AST.
+
 package vet
 
 import (

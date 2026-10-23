@@ -1,3 +1,5 @@
+// --build reuses the matrix build, honoring the same target flags (--targets/--cosmo-platforms).
+
 package cmd
 
 import (

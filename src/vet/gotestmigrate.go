@@ -1,3 +1,5 @@
+// gotestFuncRenames maps gotest.tools function names to their testify/require equivalents.
+
 package vet
 
 import (

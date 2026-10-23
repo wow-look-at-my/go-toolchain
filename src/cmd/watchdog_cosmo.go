@@ -1,5 +1,7 @@
 //go:build cosmo
 
+// GOOS=cosmo (gosmopolitan) counts as `unix`, but golang.org/x/sys/unix has no cosmo port.
+
 package cmd
 
 import (

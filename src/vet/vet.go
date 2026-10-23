@@ -1,3 +1,5 @@
+// Analyzers returns the custom analyzers to run in-process.
+
 package vet
 
 import (

@@ -1,3 +1,5 @@
+// resolveGoFiles expands a pattern (directory, ./..., or file) into a list of .go file paths (excluding test files).
+
 package cmd
 
 import (

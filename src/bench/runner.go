@@ -1,3 +1,5 @@
+// Clear GOCACHEPROG: a cacheprog child inheriting stdout blocks io.ReadAll.
+
 package bench
 
 import (

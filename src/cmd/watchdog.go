@@ -1,3 +1,5 @@
+// activeWatchdog is the current output watchdog, if any; the step system reads it to report step names.
+
 package cmd
 
 import (

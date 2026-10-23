@@ -1,3 +1,5 @@
+// forkSubmoduleDir holds the toolchain source.
+
 package cmd
 
 import (
