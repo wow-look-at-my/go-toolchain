@@ -1,3 +1,5 @@
+// commentScan is the comment repair, running beside phases that do not read it.
+
 package cmd
 
 import (
