@@ -1,3 +1,5 @@
+// reexecUnderOwnBuild hands a run of this module to the toolchain it builds.
+
 package cmd
 
 import (

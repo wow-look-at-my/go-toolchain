@@ -1,3 +1,5 @@
+// recordArtifactSize measures a built artifact for the run summary, and logs it.
+
 package cmd
 
 import (

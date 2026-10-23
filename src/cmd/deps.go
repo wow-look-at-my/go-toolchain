@@ -1,3 +1,5 @@
+// depsCache persists dependency-check results across runs, in a JSON file (depscache_file.go).
+
 package cmd
 
 import (

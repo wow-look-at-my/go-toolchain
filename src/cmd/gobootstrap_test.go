@@ -1,5 +1,7 @@
 package cmd
 
+import _ "embed"
+
 import (
 	"fmt"
 	"os"
@@ -201,12 +203,10 @@ func TestEnsureGoVersionFailsWhenTheProbeFails(t *testing.T) {
 }
 
 // writeFakeGoBin writes a stub `go` that answers the version probe, so the
-// setup can be exercised without a real toolchain. It ends with the record a
-// go command carrying its standard library ends with, past an exit the shell
-// never reads beyond.
+// setup can be exercised without a real toolchain.
 func writeFakeGoBin(t *testing.T, path string) {
 	t.Helper()
-	script := "#!/bin/sh\necho 'go version go1.27.0cosmo.r685 linux/amd64'\nexit 0\n"
+	script := writeFakeGoBinSh
 	require.NoError(t, os.WriteFile(path, append([]byte(script), stdembRecord()...), 0755))
 }
 
@@ -333,3 +333,6 @@ func TestRecordGoMinor(t *testing.T) {
 	recordGoMinor("1.25")
 	assert.Equal(t, 25, resolvedGoMinor)
 }
+
+//go:embed testdata/write-fake-go-bin.sh
+var writeFakeGoBinSh string

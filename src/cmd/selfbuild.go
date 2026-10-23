@@ -1,3 +1,5 @@
+// apeAppendEnv names the file the fork's linker appends past an APE's load span.
+
 package cmd
 
 import (

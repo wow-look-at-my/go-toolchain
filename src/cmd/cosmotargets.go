@@ -1,3 +1,5 @@
+// DefaultCosmoPlatforms is the host platform set the fat APE covers by default; platforms left out carry no code.
+
 package cmd
 
 import (

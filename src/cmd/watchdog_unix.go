@@ -1,5 +1,7 @@
 //go:build unix && !cosmo
 
+// startWatchdog replaces the stdout and stderr descriptors with pipes, forwarding all output to the file descriptors while monitoring for stalls.
+
 package cmd
 
 import (

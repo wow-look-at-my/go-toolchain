@@ -1,3 +1,5 @@
+// ReportSchema versions the profile.json layout.
+
 package profile
 
 import (

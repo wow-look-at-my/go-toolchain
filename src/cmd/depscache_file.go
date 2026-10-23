@@ -1,3 +1,5 @@
+// Persistent dependency-check cache path.
+
 package cmd
 
 import (

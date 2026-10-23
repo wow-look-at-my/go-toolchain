@@ -1,3 +1,5 @@
+// maxTraceLanes caps "go actions #NN" lanes; spill-over clamps to the earliest-free lane.
+
 package profile
 
 import (

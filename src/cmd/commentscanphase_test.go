@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // write puts a file at path under dir, creating the directories above it.
@@ -36,6 +37,32 @@ func TestTheSweepRepairsTheTreeAndReportsIt(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(src), "3 phases")
 	assert.Contains(t, string(src), "func f() {}", "the repair stays inside the comment")
+}
+
+// A file with no header spends one counted warning, although the branch did not change it.
+func TestAFileWithNoHeaderSpendsOneWarning(t *testing.T) {
+	t.Serial()
+	logger.ResetWarnCount()
+	defer logger.ResetWarnCount()
+	dir := t.TempDir()
+	write(t, dir, "go.mod", "module x\n")
+	write(t, dir, "a.go", "package p\n\n// Load reads the settings.\nfunc Load() {}\n")
+	gitIn(t, dir, "init", "-q", "-b", "master")
+	gitIn(t, dir, "-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false", "add", "-A")
+	gitIn(t, dir, "-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "base")
+
+	scan := startCommentScan(dir)
+	<-scan.done
+	scan.report()
+
+	assert.Equal(t, int64(1), logger.WarnCount())
+	warnings := logger.EmittedWarnings()
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0].Message, "a.go:1: comments/header")
+	assert.Contains(t, warnings[0].Message, "`slopfix fix a.go` writes the header")
+	src, err := os.ReadFile(filepath.Join(dir, "a.go"))
+	require.NoError(t, err)
+	assert.Equal(t, "package p\n\n// Load reads the settings.\nfunc Load() {}\n", string(src), "the sweep writes only what the branch changed")
 }
 
 // The join is what the build waits on, and a run that started no sweep must

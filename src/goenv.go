@@ -1,3 +1,5 @@
+// ensureDirectFallback appends ",direct" so a module the proxy does not carry still resolves.
+
 package main
 
 import (
