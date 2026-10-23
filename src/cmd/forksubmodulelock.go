@@ -1,3 +1,5 @@
+// forkSubmoduleLockPrefix starts the run lock name of a fork submodule.
+
 package cmd
 
 import (

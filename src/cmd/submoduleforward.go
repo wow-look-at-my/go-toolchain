@@ -1,3 +1,5 @@
+// A submodule pin only moves forward.
+
 package cmd
 
 import (

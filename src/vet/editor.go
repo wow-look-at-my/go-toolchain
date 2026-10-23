@@ -1,3 +1,5 @@
+// Editor is the sink for vet's autofixes.
+
 package vet
 
 import (

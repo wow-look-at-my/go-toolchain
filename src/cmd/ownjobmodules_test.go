@@ -1,5 +1,7 @@
 package cmd
 
+import _ "embed"
+
 import (
 	"os"
 	"path/filepath"
@@ -9,43 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// teslamWorkflow has the shape of wow-look-at-my/teslam's CI. The root job
-// sweeps the repository. A second job builds the depthgen module with cgo.
-const teslamWorkflow = `name: CI
-on:
-  push:
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: wow-look-at-my/go-toolchain@master
-  depthgen:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build and test depthgen
-        uses: wow-look-at-my/go-toolchain@master
-        with:
-          working-directory: depthgen
-          cgo: 'true'
-          cosmo-platforms: linux/amd64
-  each:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        dir: [tool]
-    steps:
-      - uses: wow-look-at-my/go-toolchain@master
-        with:
-          working-directory: ${{ matrix.dir }}
-  other:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/setup-node@v4
-        with:
-          working-directory: tool
-`
+//go:embed testdata/teslam-workflow.yml
+var teslamWorkflow string
 
 // writeTree creates each file of files under dir, with its parent directories.
 func writeTree(t *testing.T, dir string, files map[string]string) {
@@ -93,11 +60,9 @@ func TestSweptModules_PathsAreFromTheRepositoryRoot(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0o755))
 	writeTree(t, dir, map[string]string{
-		"svc/web/go.mod":    "module example.com/web\n",
-		"svc/worker/go.mod": "module example.com/worker\n",
-		".github/workflows/worker.yaml": "jobs:\n  worker:\n    steps:\n" +
-			"      - uses: wow-look-at-my/go-toolchain@master\n" +
-			"        with:\n          working-directory: ./svc/worker/\n",
+		"svc/web/go.mod":                "module example.com/web\n",
+		"svc/worker/go.mod":             "module example.com/worker\n",
+		".github/workflows/worker.yaml": testSweptModules_PathsAreFromTheRepositoryRootYml,
 	})
 	t.Chdir(filepath.Join(dir, "svc"))
 
@@ -143,3 +108,6 @@ func TestRepoRootOf(t *testing.T) {
 
 	assert.Equal(t, dir, repoRootOf(deep), "a .git file marks a root as a .git directory does")
 }
+
+//go:embed testdata/test-swept-modules-paths-are-from-the-repository-root.yml
+var testSweptModules_PathsAreFromTheRepositoryRootYml string

@@ -1,3 +1,5 @@
+// generatedRe is Go tooling's exact pattern for detecting generated files (see cmd/go doc).
+
 package test
 
 import (

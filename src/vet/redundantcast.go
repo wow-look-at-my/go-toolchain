@@ -1,3 +1,5 @@
+// RedundantCastAnalyzer detects unnecessary type casts on literals.
+
 package vet
 
 import (

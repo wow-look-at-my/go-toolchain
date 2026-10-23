@@ -1,5 +1,7 @@
 package cmd
 
+import _ "embed"
+
 import (
 	"bufio"
 	"os"
@@ -27,11 +29,7 @@ func TestExecuteDirectiveStreamsOutputWhileRunning(t *testing.T) {
 
 	sentinel := filepath.Join(dir, "reader-saw-it")
 	helper := filepath.Join(dir, "announce-then-wait")
-	script := "#!/bin/sh\n" +
-		"echo streaming-marker\n" +
-		"i=0\n" +
-		"while [ \"$i\" -lt 100 ]; do\n" +
-		"  [ -f " + sentinel + " ] && exit 0\n" +
+	script := testExecuteDirectiveStreamsOutputWhileRunningSh + sentinel + " ] && exit 0\n" +
 		"  sleep 0.1\n" +
 		"  i=$((i+1))\n" +
 		"done\n" +
@@ -91,3 +89,6 @@ func TestStreamPrefixWriter(t *testing.T) {
 	out = captureStdout(func() { _, _ = w.Write([]byte("a\nb\n")) })
 	assert.Equal(t, prefixOutput("a\nb\n"), out)
 }
+
+//go:embed testdata/test-execute-directive-streams-output-while-running.sh
+var testExecuteDirectiveStreamsOutputWhileRunningSh string

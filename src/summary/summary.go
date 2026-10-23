@@ -1,3 +1,5 @@
+// SummaryData holds all data needed to generate the GitHub Step Summary.
+
 package summary
 
 import (

@@ -1,3 +1,5 @@
+// buildhostAttempts is how many times one request is tried before the build fails.
+
 package cmd
 
 import (

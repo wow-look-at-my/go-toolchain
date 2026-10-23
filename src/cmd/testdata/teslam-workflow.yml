@@ -1,0 +1,34 @@
+name: CI
+on:
+  push:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: wow-look-at-my/go-toolchain@master
+  depthgen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test depthgen
+        uses: wow-look-at-my/go-toolchain@master
+        with:
+          working-directory: depthgen
+          cgo: 'true'
+          cosmo-platforms: linux/amd64
+  each:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dir: [tool]
+    steps:
+      - uses: wow-look-at-my/go-toolchain@master
+        with:
+          working-directory: ${{ matrix.dir }}
+  other:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          working-directory: tool

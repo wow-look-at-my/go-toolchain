@@ -1,6 +1,9 @@
+// commentScan is the comment repair, running beside phases that do not read it.
+
 package cmd
 
 import (
+	"path/filepath"
 	"time"
 
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
@@ -10,9 +13,19 @@ import (
 // commentScan is the comment repair, running beside phases that do not
 // read it. Depth: docs/COMMENT-SCAN.md
 type commentScan struct {
+	root   string
 	done   chan struct{}
 	result commentfix.TreeResult
 	took   time.Duration
+}
+
+// relative answers path from the swept root, the way an author types it.
+func (c *commentScan) relative(path string) string {
+	rel, err := filepath.Rel(c.root, path)
+	if err != nil {
+		return path
+	}
+	return filepath.ToSlash(rel)
 }
 
 // activeCommentScan is the sweep this run started, if it reached a module.
@@ -22,7 +35,7 @@ var activeCommentScan *commentScan
 // caller must have found a go.mod: a repair is a write. The sweep is safe
 // beside tidy and generate, but NOT beside vet.
 func startCommentScan(root string) *commentScan {
-	scan := &commentScan{done: make(chan struct{})}
+	scan := &commentScan{root: root, done: make(chan struct{})}
 	start := time.Now()
 	go func() {
 		defer close(scan.done)
@@ -71,6 +84,12 @@ func (c *commentScan) report() {
 	for _, finding := range result.Findings {
 		logger.WarnFile(finding.Path, "%s:%d:%d: %q is a number in a comment: %s",
 			finding.Path, finding.Line, finding.Col, finding.Number, commentfix.Remedy)
+	}
+	// comments/header is a warning in slopfix. Here each file without a header spends one warning of the budget.
+	for _, header := range result.Headers {
+		path := c.relative(header.Path)
+		logger.WarnFile(path, "%s:%d: %s: the file opens with no header comment. `slopfix fix %s` writes the header %q",
+			path, header.Line, commentfix.IDHeader, path, header.Sentence)
 	}
 	if tl := GetTimeline(); tl != nil {
 		end := time.Now()

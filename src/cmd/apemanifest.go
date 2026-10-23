@@ -1,3 +1,5 @@
+// buildhostManifestName is the sidecar buildhost-publish reads to list multi-platform artifacts; see docs/BUILDHOST-MANIFEST.md.
+
 package cmd
 
 import (

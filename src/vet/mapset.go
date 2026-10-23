@@ -1,3 +1,5 @@
+// MapSetAnalyzer reports a map[K]bool used as a set: an all-true literal, or an empty map whose every use is a set op.
+
 package vet
 
 import (

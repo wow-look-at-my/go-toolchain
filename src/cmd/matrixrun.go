@@ -1,3 +1,5 @@
+// libraryModulesAllowed lets a module with no main package pass through the build phase with an empty job list instead of failing the run.
+
 package cmd
 
 import (

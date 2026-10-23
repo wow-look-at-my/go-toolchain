@@ -1,3 +1,5 @@
+// BannedOutputAnalyzer bans direct fmt/log writes to os.Stdout/os.Stderr in this module; use the logger package.
+
 package vet
 
 import (

@@ -1,3 +1,5 @@
+// Build outputs must never survive a failed run; see CLAUDE.md for why and how deletion is wired into every exit path.
+
 package cmd
 
 import (

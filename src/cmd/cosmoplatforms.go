@@ -1,3 +1,5 @@
+// cosmoPlatformsEnvValue returns the GOCOSMOPLATFORMS value for a fat-APE build.
+
 package cmd
 
 // cosmoPlatformsEnvValue returns the GOCOSMOPLATFORMS value for a fat-APE

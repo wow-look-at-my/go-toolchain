@@ -1,5 +1,7 @@
 package cmd
 
+import _ "embed"
+
 import (
 	"os"
 	"testing"
@@ -88,10 +90,7 @@ func TestVcsURLToModulePath(t *testing.T) {
 
 func TestParseGoImportMeta(t *testing.T) {
 	t.Serial()
-	html := `<!DOCTYPE html>
-<html><head>
-<meta name="go-import" content="gotest.tools/gotestsum git https://github.com/gotestyourself/gotestsum">
-</head></html>`
+	html := testParseGoImportMetaHtml
 
 	url, prefix, err := parseGoImportMeta(html, "gotest.tools/gotestsum")
 	require.Nil(t, err)
@@ -137,3 +136,6 @@ google.golang.org/grpc v1.80.0 h1:ggg=
 	require.Nil(t, err)
 	assert.Equal(t, 0, len(modules))
 }
+
+//go:embed testdata/test-parse-go-import-meta.html
+var testParseGoImportMetaHtml string

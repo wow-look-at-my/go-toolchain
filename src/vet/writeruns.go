@@ -1,3 +1,5 @@
+// WriteRunsAnalyzer flags a run of adjacent statements writing literal text to the same writer: render it with text/template instead.
+
 package vet
 
 import (

@@ -1,3 +1,5 @@
+// Detection is measured, not assumed: a sandbox can deny the filesystem probes, so a failed probe never returns a guess silently.
+
 package hostos
 
 import (

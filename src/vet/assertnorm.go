@@ -1,3 +1,5 @@
+// AssertNormAnalyzer detects assert.True(t, !expr) and rewrites to assert.False(t, expr), and vice versa.
+
 package vet
 
 import (
