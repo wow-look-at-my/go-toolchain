@@ -46,10 +46,13 @@ require (
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
 	github.com/tidwall/jsonc v0.3.3 // indirect
+	github.com/wow-look-at-my/go-fs-tree-fast v0.0.0 // indirect
 	github.com/wow-look-at-my/go-ipc v0.0.0 // indirect
 	github.com/wow-look-at-my/go-mmap v0.0.0 // indirect
 	github.com/wow-look-at-my/go-shm v0.0.0 // indirect
 	github.com/wow-look-at-my/go-tree-sitter v0.0.0 // indirect; go-toolchain:generate=a0022f830ef0
+	github.com/wow-look-at-my/xml-validator/reader v0.0.0 // indirect
+	github.com/wow-look-at-my/xml-validator/validator v0.0.0 // indirect
 	github.com/wow-look-at-my/yaml-fixed v0.0.0 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/yuin/goldmark v1.8.6 // indirect
