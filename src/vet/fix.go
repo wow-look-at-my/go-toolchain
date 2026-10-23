@@ -1,3 +1,5 @@
+// ASTFix represents an AST-based fix: replace OldNode with NewNodes.
+
 package vet
 
 import (

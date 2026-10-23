@@ -1,3 +1,5 @@
+// stdembRecordSize is the size of the record a go command that carries its standard library ends with.
+
 package cmd
 
 import "os"

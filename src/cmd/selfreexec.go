@@ -1,3 +1,5 @@
+// The pipeline runs only as a build of the active toolchain's front end.
+
 package cmd
 
 import (

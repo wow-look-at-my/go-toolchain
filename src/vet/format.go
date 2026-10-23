@@ -1,3 +1,5 @@
+// RunGofmt checks that all Go source files in the current directory tree are formatted, routing every unformatted file through ed: a fix-mode editor rewrites.
+
 package vet
 
 import (

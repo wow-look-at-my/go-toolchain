@@ -1,3 +1,5 @@
+// Reading refs off a remote, and running git for its output.
+
 package cmd
 
 import (

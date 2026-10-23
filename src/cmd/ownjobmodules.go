@@ -1,3 +1,5 @@
+// goToolchainActionRef opens the uses: value of a step that runs this action.
+
 package cmd
 
 import (

@@ -1,3 +1,5 @@
+// HasCoverableStatements reports whether any non-test, non-generated Go file under dir that is part of the current build contains a function body.
+
 package test
 
 import (

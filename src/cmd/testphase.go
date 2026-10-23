@@ -1,3 +1,5 @@
+// vetRunFunc is the vet phase, as a seam.
+
 package cmd
 
 import (

@@ -63,6 +63,14 @@ A sum of money is exempt. A currency sign directly against the digits makes the 
 
 A token holding `://` is a URL and is skipped whole. So citing an issue by its full address is how to keep a reference that carries a number. A qualified name -- a marker strictly between word characters, as in `example.com/mod/v2`, `net/http` or `sync.Once` -- is a name rather than prose and is left alone. A compiler directive (`//go:build`, `//go:generate`) is machine text and is never reported. And a generated file is skipped fully.
 
+## A file with no header
+
+slopfix's `comments/header` rule reports a source file that opens on code although one of its comments has a first sentence. That sentence can say what the file is. It skips a test file and a generated file. The phase gets these findings from `commentfix.FixTree` in `TreeResult.Headers`.
+
+In a file the branch changed, the sweep writes the header, the same way it repairs a number there. The diff prints under `comments/header`.
+
+Every other file of the walk is read and not written. Each one that still has no header is a `WarnFile` warning that names the file and says that `slopfix fix <file>` writes the header. These warnings count toward the budget for the whole tree, not only for the branch. In a fork, only a file whose first code line the fork wrote is reported.
+
 ## Scope
 
 A finding is a WARNING, in every module. Unlike the set checks in [VET.md](VET.md), org code is not held to a harder severity here. A stale count is prose, not broken code. So it must not fail a build on its own. They arrive by the dozen though. So the warnings budget ([WARNINGS-GATE.md](WARNINGS-GATE.md)) is what turns a repo full of them red.

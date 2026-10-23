@@ -1,3 +1,5 @@
+// PackageStringVars returns the package-level string variables dir declares.
+
 package gomod
 
 import (

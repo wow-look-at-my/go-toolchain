@@ -1,3 +1,5 @@
+// TimelineEntry records a single action in the pipeline timeline.
+
 package summary
 
 import (

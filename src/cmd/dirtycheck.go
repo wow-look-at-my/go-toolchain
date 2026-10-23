@@ -1,3 +1,5 @@
+// checkDirtyInCI returns an error if running in CI with a dirty working tree, so binaries are never shipped built from uncommitted changes.
+
 package cmd
 
 import (

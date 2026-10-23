@@ -1,3 +1,5 @@
+// Go has no build step for a dependency, so a package whose data a generate step writes ships without it.
+
 package cmd
 
 import (

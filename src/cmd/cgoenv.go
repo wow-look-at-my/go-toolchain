@@ -1,3 +1,5 @@
+// setupCGOEnvironment ensures PKG_CONFIG_PATH includes directories where C libraries may be installed.
+
 package cmd
 
 import (

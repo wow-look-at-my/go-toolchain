@@ -1,3 +1,5 @@
+// Token is an element in a linearized AST sequence: structural nodes use a single-char symbol.
+
 package lint
 
 import (

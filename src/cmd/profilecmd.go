@@ -1,3 +1,5 @@
+// noProfile disables the per-action build profile (--no-profile).
+
 package cmd
 
 import (

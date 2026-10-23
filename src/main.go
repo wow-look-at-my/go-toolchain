@@ -1,3 +1,5 @@
+// Every mode, GOCACHEPROG included, runs behind the golang.org block.
+
 package main
 
 import (

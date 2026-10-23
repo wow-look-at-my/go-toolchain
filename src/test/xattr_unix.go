@@ -1,5 +1,7 @@
 //go:build unix && !cosmo
 
+// getXattr reads the named extended attribute from path.
+
 package test
 
 import (
