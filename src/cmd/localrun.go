@@ -1,3 +1,5 @@
+// gosmoRunEnv names the run whose org module heads the fork's go command locks.
+
 package cmd
 
 import (

@@ -1,3 +1,5 @@
+// shortPkg returns the last path segment of a package name.
+
 package test
 
 import (

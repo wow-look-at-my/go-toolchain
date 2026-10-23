@@ -1,3 +1,5 @@
+// datsSuiteDir is the dats suites directory, relative to the module root.
+
 package cmd
 
 import (

@@ -1,3 +1,5 @@
+// unignorePreRun confirms interactively, then chains to the root PersistentPreRunE via unignoreCmd's OWN parent, not cmd.Parent().
+
 package cmd
 
 import (

@@ -1,5 +1,7 @@
 package cmd
 
+import _ "embed"
+
 import (
 	"os"
 	"path/filepath"
@@ -27,11 +29,8 @@ func resetProfileState(t *testing.T) {
 	})
 }
 
-const testGraphJSON = `[
-	{"ID":1,"Mode":"build","Package":"example.com/m/pkga","NeedBuild":true,
-	 "ActionID":"aaaaaaaaaaaaaaaaaaaa",
-	 "TimeStart":"2026-07-04T10:00:01Z","TimeDone":"2026-07-04T10:00:03Z"}
-]`
+//go:embed testdata/test-graph-json.json
+var testGraphJSON string
 
 // seedCollector installs an active collector whose single dump file already
 // contains testGraphJSON, as if a go invocation had run and dumped it.

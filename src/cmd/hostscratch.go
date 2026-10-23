@@ -1,3 +1,5 @@
+// scratchBase answers a base a native tool can open, "" for os.MkdirTemp's default.
+
 package cmd
 
 import "os"

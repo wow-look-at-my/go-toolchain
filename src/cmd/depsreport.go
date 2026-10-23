@@ -1,3 +1,5 @@
+// WaitWithProgress waits for the check to complete, showing progress if it takes too long.
+
 package cmd
 
 import (

@@ -1,3 +1,5 @@
+// wellKnownHosts are code-hosting domains that resolve directly without vanity URL meta-tag resolution.
+
 package cmd
 
 import (

@@ -1,3 +1,5 @@
+// forkBuildEnv is everything a build job takes from the toolchain this binary links.
+
 package cmd
 
 import (

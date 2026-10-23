@@ -1,0 +1,9 @@
+[
+	{"ID":0,"Mode":"go build","Priority":3,"Deps":[1],"UnknownField":true},
+	{"ID":1,"Mode":"build","Package":"example.com/m/pkga","NeedBuild":true,
+	 "ActionID":"aaaaaaaaaaaaaaaaaaaa","BuildID":"x/y",
+	 "TimeReady":"2026-07-04T10:00:00Z","TimeStart":"2026-07-04T10:00:01Z","TimeDone":"2026-07-04T10:00:03Z",
+	 "CmdReal":1500000000,"CmdUser":1200000000,"CmdSys":100000000},
+	{"ID":2,"Mode":"build","Package":"example.com/m/pkgb",
+	 "ActionID":"bbbbbbbbbbbbbbbbbbbb"}
+]

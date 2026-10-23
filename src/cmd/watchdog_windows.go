@@ -1,5 +1,7 @@
 //go:build windows
 
+// startWatchdog is a no-op on Windows (dup2 is not available).
+
 package cmd
 
 import (

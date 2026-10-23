@@ -1,3 +1,5 @@
+// corruptIndexMarker is cmd/go's error for an unparseable cached module index; it has no build id to gate on.
+
 package cmd
 
 import (

@@ -1,3 +1,5 @@
+// Run discovers and runs all .dats test files in the given directory.
+
 package integration
 
 import (

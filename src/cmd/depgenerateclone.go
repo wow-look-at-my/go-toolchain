@@ -1,3 +1,5 @@
+// A cached directive has no input: a module zip carries a gitlink, not the submodule under it.
+
 package cmd
 
 import (

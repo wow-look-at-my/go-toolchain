@@ -1,3 +1,5 @@
+// getTestVarName extracts the test variable name (t or b) from the body.
+
 package vet
 
 import (

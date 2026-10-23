@@ -1,3 +1,5 @@
+// generatedFileRe matches the canonical "// Code generated ...
+
 package cmd
 
 import (

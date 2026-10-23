@@ -1,3 +1,5 @@
+// Suggestion describes a refactoring suggestion for a pair of near-duplicate blocks.
+
 package lint
 
 import (

@@ -1,3 +1,5 @@
+// The zig and LLD the fork's cmd/dist requires for the APE loaders, whose bytes cmd/link's tests pin.
+
 package cmd
 
 import (

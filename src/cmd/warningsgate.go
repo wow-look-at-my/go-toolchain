@@ -1,3 +1,5 @@
+// warningsUncappedUntil lifts the budget while CI reports comment repairs instead of applying them.
+
 package cmd
 
 import (

@@ -1,3 +1,5 @@
+// ReleaseEnv names the buildhost release number for a build that already has one.
+
 package cmd
 
 import (

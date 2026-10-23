@@ -1,3 +1,5 @@
+// math32Funcs lists math package functions/constants that have float32 equivalents in github.com/chewxy/math32.
+
 package vet
 
 import (
