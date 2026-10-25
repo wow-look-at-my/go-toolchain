@@ -27,6 +27,8 @@ env:
 jobs:
   host-build:
     runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
+    # A warm run builds and tests this tree in about ten minutes, so ninety is a wide ceiling. It exists for the install that stalls with no ceiling of its own: on master a stuck apt-get held this job. For the whole six-hour default (job 120386040020).
+    timeout-minutes: 90
     steps:
       # No persisted credentials: the header checkout leaves in the workspace names THIS repository, so every git question about another is asked as the wrong identity. The fork follows this branch at the commit the run locked, the same commit the pipeline's resolveForkCommit takes.
       - uses: wow-look-at-my/actions@parallel-checkout#latest
