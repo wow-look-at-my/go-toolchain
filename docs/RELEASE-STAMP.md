@@ -31,3 +31,11 @@ for _, s := range bi.Settings {
 ```
 
 A program prints `<name> <release> (<release.revision>)`. A missing `release` means the binary was not built for a release. The program says so as an error, not as a stand-in version.
+
+## The version variable
+
+A program that keeps its version in a variable gets it filled, with no code that reads the build info. `releaseVarLDFlags` (`src/cmd/releasevar.go`) writes `-X` for each `Version` or `version` string variable in the main package. It does the same for each package of the module that the main package imports from a non-test file. That covers the cobra layout, where `main` calls `cmd.Execute` and the root command reads `cmd.Version`. The value is `<release> (<release.revision>)`, so cobra's own `--version` prints `<name> version 53 (f870077…)`.
+
+A build with no release leaves the variable alone. The program keeps its placeholder.
+
+The stamp goes on the link only. The linker flags are part of the link action ID (`linkActionID` in `cmd/go/internal/work/exec.go`) and of no compile action ID. A new release number changes no compile result in the build cache. The tests never get the flag.
