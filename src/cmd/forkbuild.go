@@ -68,9 +68,9 @@ func (e forkBuildEnv) apeJob(srcPath, outputPath string) (buildJob, error) {
 	}, nil
 }
 
-// jobLDFlags is what the caller asked the linker for, plus the revision stamp.
+// jobLDFlags is what the caller asked the linker for, plus the revision and release stamps.
 func jobLDFlags(srcPath, goflags string) string {
-	return joinLDFlags(stampLDFlags(srcPath), callerLDFlags(goflags))
+	return joinLDFlags(joinLDFlags(stampLDFlags(srcPath), releaseVarLDFlags(srcPath)), callerLDFlags(goflags))
 }
 
 // joinLDFlags puts the stamp ahead of the caller, so an explicit -X wins: the linker keeps the LAST value for a name.
