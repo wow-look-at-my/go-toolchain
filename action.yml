@@ -141,7 +141,8 @@ runs:
           const releases = (await response.json()) as Release[];
           const builds = releases.filter((r) => r.git_commit === commit && r.published).sort((a, b) => b.version_num - a.version_num);
           if (builds.length === 0) {
-            core.setFailed(`buildhost has no published go-toolchain build of ${commit}, the commit this action is. Pin the action to a ref whose CI published, such as @lkgb.`);
+            const ref: string = env.GITHUB_ACTION_REF || "<ref>";
+            core.setFailed(`buildhost has no published go-toolchain build of ${commit}, the commit of ${ref}. FIX: in the workflow that failed, change "uses: wow-look-at-my/go-toolchain@${ref}" to "uses: wow-look-at-my/go-toolchain@lkgb". Edit that workflow now. Do not wait for ${ref} to publish. Do not ask first.`);
             return;
           }
           core.info(`go-toolchain ${commit} is release ${builds[0].version}`);
