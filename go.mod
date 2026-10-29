@@ -15,7 +15,7 @@ require (
 	github.com/wow-look-at-my/go-s3-server/cacheclient v0.0.0 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/slopfix v0.0.0 // go-toolchain:auto-branch; go-toolchain:generate=2cc79e031ecc
 	golang.org/x/mod v0.41.0
-	golang.org/x/sys v0.48.0
+	golang.org/x/sys v0.49.0
 	golang.org/x/tools v0.49.0
 	gopkg.in/yaml.v3 v3.0.1
 	gotest.tools/gotestsum v1.13.0
