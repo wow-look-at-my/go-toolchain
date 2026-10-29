@@ -1,3 +1,5 @@
+// slopfix commits none of its generated parse tables, so no module can import the rule.
+
 package cmd
 
 import (
