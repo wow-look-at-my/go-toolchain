@@ -1,3 +1,5 @@
+// GetWatermark reads the coverage watermark xattr from dir.
+
 package test
 
 import (

@@ -23,6 +23,10 @@ func Equalf(t TestingT, expected, actual interface{}, msg string, args ...interf
 
 func NotEqual(t TestingT, expected, actual interface{}, msgAndArgs ...interface{}) bool { return true }
 
+func Contains(t TestingT, s, contains interface{}, msgAndArgs ...interface{}) bool { return true }
+
+func NotContains(t TestingT, s, contains interface{}, msgAndArgs ...interface{}) bool { return true }
+
 func NoError(t TestingT, err error, msgAndArgs ...interface{}) bool { return true }
 
 // Ordering assertions mirror the assert stub.

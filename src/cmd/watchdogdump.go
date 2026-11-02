@@ -1,5 +1,7 @@
 //go:build unix || cosmo
 
+// stallDumpAfter is the silence that makes the watchdog dump stacks.
+
 package cmd
 
 import (

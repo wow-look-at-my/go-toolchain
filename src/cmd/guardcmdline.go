@@ -1,3 +1,5 @@
+// guardcmdline.go holds the guardcmdline code.
+
 package cmd
 
 import (
@@ -17,14 +19,6 @@ const ancestryLimit = 8
 func selfPID() int { return os.Getpid() }
 
 // readCmdline reads a process's argv from the source its HOST provides.
-//
-// The build TARGET is cosmo on every host the pipeline ships to, so the host
-// cannot be spelled as a filename constraint: a `_darwin.go` half is compiled
-// out of the very binary a Mac runs, and the /proc reader is what answers
-// there, where /proc does not exist. The host is measured instead, the same way
-// the classifier decides its own blindness in claudeguard_proc.go. A host that
-// answers neither source yields no argv, so the walk above acquits rather than
-// guesses.
 func readCmdline(pid int) ([]string, bool) {
 	if hostos.GOOS() == "linux" {
 		return readProcCmdline(pid)
@@ -88,7 +82,8 @@ func shellScript(argv []string) (string, bool) {
 }
 
 // takesCommandString reports whether a shell flag is the one that takes a
-// command string: a bare -c, or a bundled form such as -lc that ends in it.
+// command string. This is a bare -c, or a bundled form such as -lc that
+// ends in it.
 func takesCommandString(a string) bool {
 	if a == "-c" {
 		return true

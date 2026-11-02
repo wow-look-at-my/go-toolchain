@@ -1,3 +1,5 @@
+// enforceCoverage compares the measured total coverage against the effective minimum and returns nil (pass) or an error (fail).
+
 package cmd
 
 import (

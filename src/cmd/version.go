@@ -1,3 +1,5 @@
+// buildVersion is derived from Go's built-in VCS stamping.
+
 package cmd
 
 import (

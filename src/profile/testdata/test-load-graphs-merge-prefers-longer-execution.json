@@ -1,0 +1,6 @@
+[
+		{"ID":1,"Mode":"build","Package":"p","ActionID":"cccccccccccccccccccc",
+		 "TimeStart":"2026-07-04T10:00:00Z","TimeDone":"2026-07-04T10:00:01Z"},
+		{"ID":1,"Mode":"build","Package":"p","ActionID":"cccccccccccccccccccc",
+		 "TimeStart":"2026-07-04T11:00:00Z","TimeDone":"2026-07-04T11:00:05Z"}
+	]

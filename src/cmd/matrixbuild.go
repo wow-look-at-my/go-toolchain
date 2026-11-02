@@ -1,3 +1,5 @@
+// hostRunnableArtifact names the APE, which runs here by construction.
+
 package cmd
 
 import (

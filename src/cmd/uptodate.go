@@ -1,3 +1,5 @@
+// fingerprintFile returns the path where the last-successful-run fingerprint is stored.
+
 package cmd
 
 import (

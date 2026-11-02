@@ -1,5 +1,7 @@
 package cmd
 
+import _ "embed"
+
 import (
 	"os"
 	"path/filepath"
@@ -34,16 +36,10 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.27
 )
 `,
-		"go.sum":             "github.com/pierrec/lz4/v4 v4.1.27 h1:abc=\n",
-		"vendor/modules.txt": "# github.com/wow-look-at-my/dep v0.0.0\n## explicit; go 1.21\n",
-		".gitmodules":        "[submodule \"dep\"]\n\tpath = dep\n\turl = https://github.com/wow-look-at-my/dep.git\n\tbranch = master\n",
-		".github/workflows/ci.yml": `jobs:
-  test:
-    steps:
-      - uses: wow-look-at-my/dats@master
-      - uses: wow-look-at-my/actions@secret-server#latest
-      - uses: actions/checkout@v7
-`,
+		"go.sum":                   "github.com/pierrec/lz4/v4 v4.1.27 h1:abc=\n",
+		"vendor/modules.txt":       "# github.com/wow-look-at-my/dep v0.0.0\n## explicit; go 1.21\n",
+		".gitmodules":              "[submodule \"dep\"]\n\tpath = dep\n\turl = https://github.com/wow-look-at-my/dep.git\n\tbranch = master\n",
+		".github/workflows/ci.yml": testFindOrgPinsAcceptsThePlaceholderYml,
 	})
 
 	pins, err := findOrgPins(root)
@@ -83,7 +79,7 @@ func TestCheckOrgPinsUnpinsWhatItCan(t *testing.T) {
 			"replace example.com/fork => github.com/wow-look-at-my/fork v1.2.3\n",
 		"go.sum": "github.com/pierrec/lz4/v4 v4.1.27 h1:abc=\n" +
 			"github.com/wow-look-at-my/dated v0.0.0-20260913211206-5bf638fdce71/go.mod h1:abc=\n",
-		".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - uses: wow-look-at-my/dats@v1\n      - uses: actions/checkout@v7\n",
+		".github/workflows/ci.yml": testCheckOrgPinsUnpinsWhatItCanYml,
 	})
 
 	require.NoError(t, checkOrgPins(root))
@@ -148,12 +144,7 @@ func TestFindOrgPinsLeavesASpecSubmoduleOnItsCommit(t *testing.T) {
 
 func TestFindOrgPinsRefusesAnActionAtATagOrACommit(t *testing.T) {
 	root := writeOrgPinFiles(t, map[string]string{
-		".github/workflows/ci.yml": `jobs:
-  test:
-    steps:
-      - uses: wow-look-at-my/dats@v1
-      - uses: wow-look-at-my/dats@0123456789abcdef0123456789abcdef01234567
-`,
+		".github/workflows/ci.yml": testFindOrgPinsRefusesAnActionAtATagOrACommitYml,
 	})
 
 	pins, err := findOrgPins(root)
@@ -184,7 +175,7 @@ func TestAnActionOnItsDefaultBranchIsNotAPin(t *testing.T) {
 		return "master"
 	}
 	root := writeOrgPinFiles(t, map[string]string{
-		".github/workflows/godoc.yml": "jobs:\n  build:\n    steps:\n      - uses: wow-look-at-my/static-pkgsite-action@v1\n      - uses: wow-look-at-my/dats@v2\n",
+		".github/workflows/godoc.yml": testAnActionOnItsDefaultBranchIsNotAPinYml,
 	})
 
 	require.NoError(t, checkOrgPins(root))
@@ -194,3 +185,15 @@ func TestAnActionOnItsDefaultBranchIsNotAPin(t *testing.T) {
 	assert.Contains(t, string(ci), "uses: wow-look-at-my/static-pkgsite-action@v1\n")
 	assert.Contains(t, string(ci), "uses: wow-look-at-my/dats@master\n")
 }
+
+//go:embed testdata/test-find-org-pins-accepts-the-placeholder.yml
+var testFindOrgPinsAcceptsThePlaceholderYml string
+
+//go:embed testdata/test-check-org-pins-unpins-what-it-can.yml
+var testCheckOrgPinsUnpinsWhatItCanYml string
+
+//go:embed testdata/test-find-org-pins-refuses-an-action-at-a-tag-or-a-commit.yml
+var testFindOrgPinsRefusesAnActionAtATagOrACommitYml string
+
+//go:embed testdata/test-an-action-on-its-default-branch-is-not-a-pin.yml
+var testAnActionOnItsDefaultBranchIsNotAPinYml string

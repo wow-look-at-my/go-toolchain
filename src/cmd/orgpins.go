@@ -1,3 +1,5 @@
+// An org dependency has no version of its own.
+
 package cmd
 
 import (

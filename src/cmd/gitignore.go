@@ -1,3 +1,5 @@
+// ensureBuildDirInGitignore ignores the build output directory.
+
 package cmd
 
 import (

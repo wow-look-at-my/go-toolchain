@@ -1,3 +1,5 @@
+// guardcmdline_proc.go holds the guardcmdline proc code.
+
 package cmd
 
 import (
@@ -8,9 +10,7 @@ import (
 
 // readProcCmdline reads a process's argv from /proc, which stores it NUL
 // separated with a trailing NUL. It is the reader a Linux host answers on,
-// whether the build target is linux or the cosmo fat APE. No build tag selects
-// it: readCmdline in guardcmdline.go measures the host instead, because the
-// build target is cosmo on every host.
+// whether the build target is linux or the cosmo fat APE.
 func readProcCmdline(pid int) ([]string, bool) {
 	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
 	if err != nil || len(b) == 0 {

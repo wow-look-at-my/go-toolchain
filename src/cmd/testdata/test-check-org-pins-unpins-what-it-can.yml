@@ -1,0 +1,5 @@
+jobs:
+  test:
+    steps:
+      - uses: wow-look-at-my/dats@v1
+      - uses: actions/checkout@v7

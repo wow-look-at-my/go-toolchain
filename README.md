@@ -22,6 +22,7 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 - **Dependency graph submission** — submits a dependency snapshot to GitHub in CI, feeding the repo's dependency graph. No opt-out. A failed submission fails the build.
 - **Automatic GOMEMLIMIT** — the compiler's runtime caps every binary's Go heap at the container's cgroup limit instead of being OOM-killed. `GOMEMLIMIT=off` opts out at run time.
 - **Revision stamping** — declare `var gitHash string` in a main package and the build fills it, covering the container builds where Go's own `vcs.revision` finds no `.git`. A `-ldflags` set in `GOFLAGS` is honored rather than replaced. See [docs/VCS-STAMP.md](docs/VCS-STAMP.md).
+- **Release stamping** — a release build fills a `Version` variable in the main package, or in a package of the module it imports, with `<release> (<commit>)`. See [docs/RELEASE-STAMP.md](docs/RELEASE-STAMP.md).
 - **Output stall watchdog** — prints a loud `STALLED: no output for Ns` warning when the pipeline goes silent for 5+ seconds. Disable with `GO_TOOLCHAIN_NO_WATCHDOG=1`.
 - **CPU profiling** — run benchmarks under pprof via the `profile` subcommand.
 - **Local install** — `install` puts the binary in `~/.local/bin`.

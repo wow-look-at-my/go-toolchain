@@ -1,3 +1,5 @@
+// MaxRecordedWarnings bounds retained distinct warning text for the recap; the distinct count itself stays unbounded.
+
 package logger
 
 import "sync"

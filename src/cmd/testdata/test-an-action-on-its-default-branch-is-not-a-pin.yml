@@ -1,0 +1,5 @@
+jobs:
+  build:
+    steps:
+      - uses: wow-look-at-my/static-pkgsite-action@v1
+      - uses: wow-look-at-my/dats@v2

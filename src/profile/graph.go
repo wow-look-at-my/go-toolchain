@@ -1,3 +1,5 @@
+// Action is a row of cmd/go's -debug-actiongraph JSON dump.
+
 package profile
 
 import (

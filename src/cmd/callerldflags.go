@@ -1,3 +1,5 @@
+// callerLDFlags is the -ldflags the caller set in GOFLAGS.
+
 package cmd
 
 import "strings"

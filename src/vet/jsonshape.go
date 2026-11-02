@@ -1,3 +1,5 @@
+// jsonHole stands for an interpolated value.
+
 package vet
 
 import "strings"

@@ -1,3 +1,5 @@
+// CommentSpanAnalyzer reports a comment bigger than the code it documents, by lines or by chars past commentSpanCharFloor.
+
 package vet
 
 import (

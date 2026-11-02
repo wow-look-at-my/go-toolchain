@@ -1,3 +1,5 @@
+// Handler, if set, is called for each Run; a non-nil IProcess return is used instead of a looked-up response.
+
 package runner
 
 import (

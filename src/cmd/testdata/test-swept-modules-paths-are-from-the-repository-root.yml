@@ -1,0 +1,6 @@
+jobs:
+  worker:
+    steps:
+      - uses: wow-look-at-my/go-toolchain@master
+        with:
+          working-directory: ./svc/worker/

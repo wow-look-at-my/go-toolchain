@@ -1,3 +1,5 @@
+// claudeguard.go holds the claudeguard code.
+
 package cmd
 
 import (

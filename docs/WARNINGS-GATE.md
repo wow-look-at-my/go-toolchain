@@ -39,6 +39,8 @@ The returned error is the one-line `build failed: N distinct warnings emitted (t
 
 `logger.EmittedWarnings` retains the first `logger.MaxRecordedWarnings` (200) DISTINCT warnings, each with its repeat count. The distinct count itself is unbounded. And the recap reports the difference explicitly (`... and N more (only the first 200 are recorded)`) rather than silently truncating. The deduplication set outlives that retention cap, so a repeat of an unretained warning still folds instead of inflating the count. `WarnFile` messages are retained with their `file: ` prefix. So the recap keeps the annotation's location.
 
+A warning that slopfix reports for the author also counts. Each file without a header (`comments/header`) is one warning, even when the branch did not change the file. See [COMMENT-SCAN.md](COMMENT-SCAN.md).
+
 ## What does NOT count
 
 Only `src/logger`'s `Warn`/`WarnFile` reach the counters. In particular the output watchdog's `STALLED: no output for Ns` banner does not: it is written with a raw `fmt.Fprintf(w.origStderr, ...)` (`src/cmd/watchdog.go`) that deliberately bypasses the logger. Loud, red, `⚠`-prefixed, and uncounted.

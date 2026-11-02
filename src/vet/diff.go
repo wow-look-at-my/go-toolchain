@@ -1,3 +1,5 @@
+// unifiedDiff renders a unified diff from old (current content) to want (canonical content), labeled with path.
+
 package vet
 
 import (

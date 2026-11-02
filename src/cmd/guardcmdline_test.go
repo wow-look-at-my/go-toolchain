@@ -81,8 +81,8 @@ func TestReadCmdlineReadsThisProcess(t *testing.T) {
 }
 
 // ps prints a whole command line on one line, so a shell's command string --
-// which holds the spaces -- has to be recovered before capturesStdout can read
-// it. This is the host half every non-linux reader answers through.
+// which holds the spaces. It has to be recovered before capturesStdout can
+// read it. This is the host half every non-linux reader answers through.
 func TestPSArgvRejoinsAShellCommandString(t *testing.T) {
 	got, ok := psArgv("/bin/sh -c go-toolchain | head -30")
 	require.True(t, ok)
@@ -110,7 +110,7 @@ func TestPSArgvHandlesABundledFlag(t *testing.T) {
 }
 
 // A non-shell command line is handed back as ps printed it: nothing there needs
-// rejoining, and a guess would corrupt an argv the walk then reads.
+// rejoining. A guess would corrupt an argv the walk then reads.
 func TestPSArgvLeavesANonShellAlone(t *testing.T) {
 	got, ok := psArgv("/usr/bin/go-toolchain matrix")
 	require.True(t, ok)

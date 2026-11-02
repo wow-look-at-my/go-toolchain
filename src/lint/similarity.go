@@ -1,3 +1,5 @@
+// DuplicatePair records a pair of blocks that are near-duplicates.
+
 package lint
 
 import "github.com/wow-look-at-my/go-containers/set"

@@ -1,3 +1,5 @@
+// hslToRGB converts HSL to RGB.
+
 package cmd
 
 import (

@@ -1,3 +1,5 @@
+// generateMarker records the approved go:generate hash of a module.
+
 package cmd
 
 import (

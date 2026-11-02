@@ -1,3 +1,5 @@
+// chromeEvent is an event in Chrome's Trace Event Format.
+
 package trace
 
 import (

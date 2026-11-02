@@ -1,3 +1,5 @@
+// forkTestify is the in-house fork with loosened numeric equality.
+
 package vet
 
 import (

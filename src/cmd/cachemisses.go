@@ -1,3 +1,5 @@
+// cacheMissTracker captures package import paths from go build -v / go test -v stderr output.
+
 package cmd
 
 import (

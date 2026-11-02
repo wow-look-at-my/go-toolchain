@@ -1,5 +1,7 @@
 //go:build cosmo
 
+// cosmo has no native xattr syscalls, so the watermark for /a/b lives in a sidecar file /a/.b.xattr.<attr> in the PARENT dir.
+
 package test
 
 import (

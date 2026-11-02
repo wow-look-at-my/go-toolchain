@@ -1,5 +1,7 @@
 //go:build cosmo
 
+// hostGOOS is memoized: the host cannot change under a running process.
+
 package hostos
 
 import (

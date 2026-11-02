@@ -1,3 +1,5 @@
+// fileHash returns the hex-encoded sha256 digest of the file at path.
+
 package cmd
 
 import (

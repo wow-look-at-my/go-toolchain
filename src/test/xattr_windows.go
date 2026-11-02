@@ -1,5 +1,7 @@
 //go:build windows
 
+// adsPath returns the NTFS Alternate Data Stream path for the given attribute.
+
 package test
 
 import (

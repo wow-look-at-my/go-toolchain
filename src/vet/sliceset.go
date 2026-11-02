@@ -1,3 +1,5 @@
+// SliceSetAnalyzer reports a slice the package asks membership of.
+
 package vet
 
 import (

@@ -12,8 +12,7 @@
 // cannot fire. That is a known gap, not a design. See unclassifiableSink,
 // which says so out loud. See docs/AGENT-OUTPUT-GUARD.md for what closing the
 // gap needs. A character device is decided from its own path
-// (isTerminalDevicePath below): this build carries
-// no platform ioctl helper.
+// (isTerminalDevicePath below): this build carries no platform ioctl helper.
 
 package cmd
 

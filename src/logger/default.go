@@ -1,3 +1,5 @@
+// stdoutWriter always delegates to the current os.Stdout, so tests can replace it after logger init.
+
 package logger
 
 import (

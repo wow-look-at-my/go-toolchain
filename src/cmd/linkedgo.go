@@ -1,3 +1,5 @@
+// LinkedGoArgs answers the go command line argv asks for, and whether it asks for one at all.
+
 package cmd
 
 import (

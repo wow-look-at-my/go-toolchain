@@ -1,3 +1,5 @@
+// addMatrixTargetFlags registers the target-selection flags shared by the matrix command and release --build.
+
 package cmd
 
 import (

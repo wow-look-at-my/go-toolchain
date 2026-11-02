@@ -1,3 +1,5 @@
+// diagnosticLineCap bounds a failure report so a panic's stack trace does not bury the cause.
+
 package bench
 
 import (

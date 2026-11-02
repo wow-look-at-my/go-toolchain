@@ -1,3 +1,5 @@
+// distHeader opens every file cmd/dist generates.
+
 package cmd
 
 import (

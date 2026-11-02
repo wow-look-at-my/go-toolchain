@@ -1,3 +1,5 @@
+// Report is the top-level coverage report for JSON output.
+
 package test
 
 import (

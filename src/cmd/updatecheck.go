@@ -1,3 +1,5 @@
+// Background check compares this build's commit to buildhost's newest go-toolchain release; see GO_TOOLCHAIN_BUILDHOST_URL.
+
 package cmd
 
 import (

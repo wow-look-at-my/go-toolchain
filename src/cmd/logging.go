@@ -1,3 +1,5 @@
+// rawStderr bypasses the logger for mid-line progress and prompts the auto-newline/filtering would corrupt.
+
 package cmd
 
 import (

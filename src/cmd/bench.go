@@ -1,3 +1,5 @@
+// benchResult holds the output of a benchmark run for downstream consumers (e.g. CI summary).
+
 package cmd
 
 import (

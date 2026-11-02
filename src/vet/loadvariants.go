@@ -1,3 +1,5 @@
+// parseRecorder records every parsed file, so Verify can prove none went unseen.
+
 package vet
 
 import (

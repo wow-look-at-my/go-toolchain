@@ -1,3 +1,5 @@
+// setPkgName is the local name the rewrite spells the set package as.
+
 package vet
 
 import (

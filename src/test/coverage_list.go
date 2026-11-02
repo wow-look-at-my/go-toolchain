@@ -1,3 +1,5 @@
+// hsvToRGB converts HSV to RGB.
+
 package test
 
 import (

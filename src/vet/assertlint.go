@@ -1,3 +1,5 @@
+// AssertLintAnalyzer detects manual assertion patterns that should use helper functions.
+
 package vet
 
 import (

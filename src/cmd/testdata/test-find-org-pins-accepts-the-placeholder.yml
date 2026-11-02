@@ -1,0 +1,6 @@
+jobs:
+  test:
+    steps:
+      - uses: wow-look-at-my/dats@master
+      - uses: wow-look-at-my/actions@secret-server#latest
+      - uses: actions/checkout@v7

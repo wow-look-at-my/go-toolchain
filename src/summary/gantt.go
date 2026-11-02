@@ -1,3 +1,5 @@
+// RenderGantt produces a Mermaid Gantt chart from timeline entries.
+
 package summary
 
 import (

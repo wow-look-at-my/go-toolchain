@@ -1,3 +1,5 @@
+// runLockStoreEnv names the buildhost server that holds the run locks, as the fork's go command reads it.
+
 package cmd
 
 import (

@@ -1,3 +1,5 @@
+// resolveLinks spells path as the kernel resolves it, so darwin's /var and /private/var compare equal.
+
 package vet
 
 import (

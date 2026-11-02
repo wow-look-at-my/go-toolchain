@@ -1,3 +1,5 @@
+// ciOnlyEnv names variables that pin a commit, which no build may set.
+
 package cmd
 
 import (

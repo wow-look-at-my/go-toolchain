@@ -1,3 +1,5 @@
+// ghTokenPrefixes are the known prefixes for GitHub personal access tokens and other GitHub-issued tokens.
+
 package cmd
 
 import (

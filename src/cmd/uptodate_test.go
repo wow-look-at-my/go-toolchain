@@ -1,5 +1,7 @@
 package cmd
 
+import _ "embed"
+
 import (
 	"encoding/json"
 	"fmt"
@@ -102,12 +104,12 @@ func TestComputeFingerprintIncludesActionYML(t *testing.T) {
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.WriteFile("main.go", []byte("package main\n"), 0644)
-	os.WriteFile("action.yml", []byte("name: x\nruns:\n  using: composite\n"), 0644)
+	os.WriteFile("action.yml", []byte(testComputeFingerprintIncludesActionYMLYml), 0644)
 
 	fp1, err := computeFingerprint(runner.NewMock())
 	require.NoError(t, err)
 
-	os.WriteFile("action.yml", []byte("name: y\nruns:\n  using: composite\n"), 0644)
+	os.WriteFile("action.yml", []byte(testComputeFingerprintIncludesActionYMLYml2), 0644)
 	fp2, err := computeFingerprint(runner.NewMock())
 	require.NoError(t, err)
 	assert.NotEqual(t, fp1, fp2, "an action.yml edit must bust the fingerprint")
@@ -448,3 +450,9 @@ func TestUpToDateTracksEmbeddedFiles(t *testing.T) {
 		require.Truef(t, isUpToDate(r), "after re-baseline, a no-op run on %s must report up to date", embed)
 	}
 }
+
+//go:embed testdata/test-compute-fingerprint-includes-action-yml.yml
+var testComputeFingerprintIncludesActionYMLYml string
+
+//go:embed testdata/test-compute-fingerprint-includes-action-yml-2.yml
+var testComputeFingerprintIncludesActionYMLYml2 string

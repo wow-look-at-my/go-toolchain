@@ -1,3 +1,5 @@
+// Upstream testify package paths.
+
 package vet
 
 import (

@@ -1,3 +1,5 @@
+// missingGenerator names the earliest `go run` source file of a directive that the directive's own directory does not hold, or "" when they are all there.
+
 package cmd
 
 import (

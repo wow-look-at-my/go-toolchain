@@ -1,3 +1,5 @@
+// GraphArgFunc returns an extra go test flag when profiling is on; a hook avoids an import cycle through src/profile.
+
 package test
 
 import (

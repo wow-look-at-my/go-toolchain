@@ -1,5 +1,7 @@
 //go:build unix || cosmo
 
+// Only the dup2 implementations reach these, and windows has none.
+
 package cmd
 
 import (

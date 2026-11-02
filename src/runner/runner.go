@@ -1,3 +1,5 @@
+// IsCmd checks if this config runs the given command with the given prefix args.
+
 package runner
 
 import (

@@ -1,3 +1,5 @@
+// activeTrace collects fine-grained trace events for Chrome trace export.
+
 package cmd
 
 import (

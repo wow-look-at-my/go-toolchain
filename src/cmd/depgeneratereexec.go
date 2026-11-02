@@ -1,3 +1,5 @@
+// Set on the child, so the rebuild runs at most a single time per run.
+
 package cmd
 
 import (

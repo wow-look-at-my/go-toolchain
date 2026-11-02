@@ -1,0 +1,5 @@
+[
+	{"ID":1,"Mode":"build","Package":"example.com/m/pkga","NeedBuild":true,
+	 "ActionID":"aaaaaaaaaaaaaaaaaaaa",
+	 "TimeStart":"2026-07-04T10:00:01Z","TimeDone":"2026-07-04T10:00:03Z"}
+]

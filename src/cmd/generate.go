@@ -1,3 +1,5 @@
+// Label replaces File in the hash, so a version bump changing no directive needs no fresh approval.
+
 package cmd
 
 import (

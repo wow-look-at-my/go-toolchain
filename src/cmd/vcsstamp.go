@@ -1,3 +1,5 @@
+// RevisionEnv names the commit for a tree that carries no git history.
+
 package cmd
 
 import (

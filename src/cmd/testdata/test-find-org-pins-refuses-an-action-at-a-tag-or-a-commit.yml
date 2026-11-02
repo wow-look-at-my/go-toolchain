@@ -1,0 +1,5 @@
+jobs:
+  test:
+    steps:
+      - uses: wow-look-at-my/dats@v1
+      - uses: wow-look-at-my/dats@0123456789abcdef0123456789abcdef01234567

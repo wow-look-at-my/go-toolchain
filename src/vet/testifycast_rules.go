@@ -1,3 +1,5 @@
+// constRepresentable reports whether constant v can be represented exactly in basic type b.
+
 package vet
 
 import (

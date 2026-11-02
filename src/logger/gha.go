@@ -1,3 +1,5 @@
+// escapeGHAData escapes % up front (so escapes below aren't re-escaped), then CR/LF, so a multi-line message annotates intact.
+
 package logger
 
 import (

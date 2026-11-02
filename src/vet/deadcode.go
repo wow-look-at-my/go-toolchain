@@ -1,3 +1,5 @@
+// DeadCodeAnalyzer detects unexported package-level symbols that are never referenced within the package: functions, types, constants, and variables.
+
 package vet
 
 import (

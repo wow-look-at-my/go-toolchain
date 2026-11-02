@@ -1,3 +1,5 @@
+// Register adds all subcommands to the given root command.
+
 package cmd
 
 import (

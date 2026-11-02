@@ -1,3 +1,5 @@
+// JSONInterpAnalyzer reports a JSON document built out of string pieces: a format string, a concatenation, or a template.
+
 package vet
 
 import (
