@@ -388,14 +388,6 @@ What that run then found is this repo's own bug, not a fork gap: `-coverprofile`
 
 An earlier revision asserted the full pipeline on the belief that buildhost served the fork for every os/arch. It did not. And that claim was never checked.
 
-### the agent output guard reports itself inoperative on an NT host
-
-The dimension Windows cannot match. The APE is a cosmo build everywhere, so claudeguard_proc.go is the classifier on NT too --. It reads /proc, which NT does not have. The readlink fails, `unclassifiableSink` sees a host that is not linux, and `blindClassifierSink` allows the run. That is a documented decision, not an accident, and this step asserts both halves of it. A bare pipeline run with captured stdout under CLAUDECODE=1 must NOT print "refused to run".
-
-When someone teaches `inspectStdout` to classify a Windows handle, this step goes red and asks to be turned into the refusal assertion the other two.
-
-It must also print the INOPERATIVE banner naming `windows`. That banner is the only thing a human on this host gets while the guard is blind. It doubles as a second reading of host detection from inside the guard. The banner named `linux` here until `runtime.CosmoHostOS()` was wired, which is the same defect the Host detection step above caught.
-
 ### cleanup
 
 The run's housekeeping job. It needs `identical` and the smoke jobs, so the hand-offs they read survive until each one read them. The publish itself happens in `build`, where the composite action publishes build/ straight to buildhost over OIDC. No GHA artifact is involved.
