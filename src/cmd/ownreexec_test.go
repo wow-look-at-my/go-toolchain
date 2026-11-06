@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -74,6 +75,25 @@ func TestBuildSelfPassNamesItsPhaseToTheWatchdog(t *testing.T) {
 	assert.Equal(t, "pass 2: standard library", during, "the watchdog names the phase that is running")
 	stepAfter, _ := watchdog.stepName.Load().(string)
 	assert.Empty(t, stepAfter, "a failed phase clears its name")
+}
+
+// A cold build of both payloads takes longer than the watchdog's silence limit, so it has to print its packages.
+func TestBuildSelfPassCompilesVerbosely(t *testing.T) {
+	t.Serial()
+	var buildArgs []string
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if i := slices.Index(cfg.Args, "embedstd"); i >= 0 {
+			require.NoError(t, os.WriteFile(cfg.Args[i+2], nil, 0o644))
+			return runner.MockProcess(nil, nil), nil
+		}
+		buildArgs = cfg.Args
+		return runner.MockProcess(nil, errors.New("build failed")), nil
+	}
+	job := buildJob{goos: cosmoOS, outputPath: filepath.Join(t.TempDir(), "go-toolchain"), goroot: t.TempDir()}
+	_, err := buildSelfPass(mock, job, []string{"go"}, t.TempDir(), 1, nil)
+	require.Error(t, err)
+	assert.Contains(t, buildArgs, "-v")
 }
 
 func TestReexecUnderOwnBuildLeavesAConsumerAlone(t *testing.T) {
