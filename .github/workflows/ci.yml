@@ -39,6 +39,31 @@ jobs:
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
+      # The fork commit keys every cross-run cache below: the module cache holds trees the fork's generators wrote. The build cache holds objects its compiler wrote. see docs/CI.md
+      - name: Name the fork commit
+        id: fork
+        run: echo "sha=$(git rev-parse HEAD:_gosmopolitan)" >> "$GITHUB_OUTPUT"
+
+      # Fetched modules and the generated trees gendep keeps beside them survive across runs; a module version is fixed bytes, so the tree is too. see docs/CI.md
+      - name: Restore the module cache
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: gomod-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gomod-${{ runner.os }}-${{ steps.fork.outputs.sha }}-
+            gomod-${{ runner.os }}-
+
+      # The disk build cache the stock Go fills for make.bash and the fork fills for everything after; tool build IDs are content-derived, so a stale entry cannot answer. see docs/CI.md
+      - name: Restore the build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: gobuild-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gobuild-${{ runner.os }}-${{ steps.fork.outputs.sha }}-
+            gobuild-${{ runner.os }}-
+
       # The fork's last published release is the bootstrap compiler for its make.bash. Its go command carries the cache client in process, so go_bootstrap compiles from the shared cache. A stock Go cannot reach it.
       - name: Take the fork's release
         uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@lkgb
@@ -61,7 +86,7 @@ jobs:
       - name: Install the APE loader tools
         uses: ./_gosmopolitan/.github/actions/apeld-tools
 
-      # The pipeline links the fork's go command, so the fork's own build is what earliest compiles it; it runs after the secrets because a CI run of the fork's go command refuses to build with no shared cache configured. see docs/CI.md
+      # The pipeline links the fork's go command, so the fork's own build is what earliest compiles it. It runs after the secrets because a CI run of the fork's go command refuses to build with no shared cache configured. see docs/CI.md
       - name: Build the bootstrap go command from the fork checkout
         working-directory: _gosmopolitan/src
         run: ./make.bash
@@ -97,7 +122,7 @@ jobs:
             echo "GOTELEMETRY=off"
           } >> "$GITHUB_ENV"
 
-      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs, and a missing generator is a hard failure.
+      # golang.org/x/text and the tools fork both name stringer in a //go:generate directive the fetch runs. A missing generator is a hard failure.
       - name: Install the generators
         uses: wow-look-at-my/actions@cached-run#latest
         with:
@@ -105,12 +130,12 @@ jobs:
           paths: ~/go/bin
           run: |
             go="$PWD/_gosmopolitan/bin/go"
-            # No GOOS, GOARCH or GOBIN: the fork targets cosmo, so each generator comes out an APE every host runs, and cmd/go reads that as a cross-compile, which refuses GOBIN and lands in a per-target subdirectory of GOPATH/bin.
+            # No GOOS, GOARCH or GOBIN: the fork targets cosmo. Each generator comes out an APE every host runs, and cmd/go reads that as a cross-compile. This refuses GOBIN and lands in a per-target subdirectory of GOPATH/bin.
             genbin="$("$go" env GOPATH)/bin/$("$go" env GOOS)_$("$go" env GOARCH)"
             mkdir -p "$genbin"
-            # The fork's own go goes on PATH beside it: a dependency's generate directive starts `go` by name, and the runner's own go answers a GOROOT this owns.
+            # The fork's own go goes on PATH beside it: a dependency's generate directive starts `go` by name. The runner's own go answers a GOROOT this owns.
             export PATH="$genbin:$PWD/_gosmopolitan/bin:$PATH"
-            # Each generator is built from a GitHub checkout whose golang.org requirements point at GitHub, so no go command here resolves a path through golang.org. The org's own x/tools is what gopls and the analyzers here already build against. Completing x/text runs a directive that starts gotext, so gotext cannot come from a module fetch either.
+            # Each generator is built from a GitHub checkout whose golang.org requirements point at GitHub. No go command here resolves a path through golang.org. The org's own x/tools is what gopls and the analyzers here already build against. Completing x/text runs a directive that starts gotext, so gotext cannot come from a module fetch either.
             bash .github/scripts/build-from-github.sh "$go" https://github.com/wow-look-at-my/gosmopolitan_tools "" "$genbin" cmd/stringer cmd/goyacc
             bash .github/scripts/build-from-github.sh "$go" https://github.com/golang/text v0.42.0 "$genbin" cmd/gotext
             bash .github/scripts/build-from-github.sh "$go" https://github.com/protocolbuffers/protobuf-go v1.34.1 "$genbin" cmd/protoc-gen-go
@@ -136,14 +161,14 @@ jobs:
               Windows-X64) protoc_asset=win64 ;;
               *) echo "no protoc release for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
             esac
-            # GitHub's release host answers a transient HTTP error under load, and that answer alone failed this job. The URL is pinned, so curl asks it again before the step fails. A 504 that cuts the transfer short arrives as a receive error (56), which --retry leaves alone, so --retry-all-errors is what makes the asking cover it.
+            # GitHub's release host answers a transient HTTP error under load, and that answer alone failed this job. The URL is pinned, so curl asks it again before the step fails. A 504 that cuts the transfer short arrives as a receive error (56). These --retry leaves alone, so --retry-all-errors is what makes the asking cover it.
             curl -fsSL --retry 5 --retry-delay 5 --retry-max-time 300 --retry-all-errors -o "$RUNNER_TEMP/protoc.zip" \
               "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-${protoc_asset}.zip"
             unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$HOME/protoc"
             chmod +x "$HOME/protoc/bin/protoc"
             echo "$HOME/protoc/bin" >> "$GITHUB_PATH"
 
-      # The bootstrap pipeline is an APE the fork's own go command built from this tree, with the flags the pipeline builds itself with, so its compiler shares the passes' tool ID. see docs/CI.md
+      # The bootstrap pipeline is an APE the fork's own go command built from this tree, with the flags the pipeline builds itself with. Its compiler shares the passes' tool ID. see docs/CI.md
       - name: Build the bootstrap pipeline from the fork checkout
         run: |
           set -euo pipefail
@@ -263,6 +288,28 @@ jobs:
           bwrap --ro-bind-try /usr /usr --ro-bind-try /bin /bin --ro-bind-try /lib /lib \
             --ro-bind-try /lib64 /lib64 --ro-bind-try /etc /etc \
             --dev /dev --proc /proc --tmpfs /tmp --chdir / --unshare-pid --die-with-parent true
+
+      - name: Name the fork commit
+        id: fork
+        run: echo "sha=$(git rev-parse HEAD:_gosmopolitan)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the module cache
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: gomod-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gomod-${{ runner.os }}-${{ steps.fork.outputs.sha }}-
+            gomod-${{ runner.os }}-
+
+      - name: Restore the build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: gobuild-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gobuild-${{ runner.os }}-${{ steps.fork.outputs.sha }}-
+            gobuild-${{ runner.os }}-
 
       # Explicit name (host-build's "Upload host binary" hand-off): the strict cache-download... see docs/CI.md
       - name: Download host binary
@@ -387,6 +434,30 @@ jobs:
 
       # The NT leg gets no backend step: a WSL1 dockerd answers `docker version` and then fails every run in runc, which is worse than no daemon. see docs/DATS-PHASE.md
 
+      - name: Name the fork commit
+        id: fork
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD:_gosmopolitan)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the module cache
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: gomod-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gomod-${{ runner.os }}-${{ steps.fork.outputs.sha }}-
+            gomod-${{ runner.os }}-
+
+      # GOCACHE is named outright so the path cached is the path the APE writes, whatever the host calls its cache directory. see docs/CI.md
+      - name: Restore the build cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/go-build
+          key: gobuild-${{ runner.os }}-${{ steps.fork.outputs.sha }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gobuild-${{ runner.os }}-${{ steps.fork.outputs.sha }}-
+            gobuild-${{ runner.os }}-
+
       - name: Download host binary
         uses: wow-look-at-my/actions@cache-download#latest
         with:
@@ -452,6 +523,7 @@ jobs:
         env:
           # A build inside the checkout submits a dependency snapshot, and a missing token fails it.
           GITHUB_TOKEN: ${{ github.token }}
+          GOCACHE: ${{ runner.temp }}/go-build
         run: |
           set -euo pipefail
           "${{ runner.temp }}/$GT_APE" matrix --no-benchmark
