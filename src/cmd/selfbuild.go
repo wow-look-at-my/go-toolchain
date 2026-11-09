@@ -130,6 +130,10 @@ func buildSelfPass(r runner.CommandRunner, job buildJob, goCmd []string, work st
 	passJob.ldflags = joinLDFlags(passJob.ldflags, "-X "+forkCommitVar+"="+resolvedForkCommit)
 	logger.Info("  pass %d: building both payloads and merging the APE", pass)
 	buildStep := logSubStep(fmt.Sprintf("pass %d: build and merge", pass), "main")
+	// A non-nil hook selects runBuild's -v path, so a cold pass prints each package it compiles.
+	if onFirstOutput == nil {
+		onFirstOutput = func() {}
+	}
 	if err := runBuild(r, passJob, onFirstOutput); err != nil {
 		buildStep.failed()
 		return "", err
