@@ -51,7 +51,7 @@ func TestClearNodePositionsCallExpr(t *testing.T) {
 	clearNodePositions(call)
 	assert.Equal(t, token.NoPos, call.Lparen)
 	assert.Equal(t, token.NoPos, call.Rparen)
-	assert.Equal(t, token.NoPos, call.Ellipsis)
+	assert.Equal(t, token.Pos(15), call.Ellipsis, "the printer writes ... only for a valid Ellipsis, so it must survive")
 }
 
 func TestClearNodePositionsParenExpr(t *testing.T) {

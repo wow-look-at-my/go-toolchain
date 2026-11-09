@@ -60,17 +60,18 @@ func generateASTFix(pass *analysis.Pass, st *assertFixState, ifStmt *ast.IfStmt,
 		}
 		rest = nil
 	}
-	if len(st.orphanedVars(ifStmt, dropped)) > 0 {
+	initCollapses := st.collapsesNoErrorInit(ifStmt, assertFunc, append(dropped, errCall))
+	if len(st.orphanedVars(ifStmt, dropped, initCollapses)) > 0 {
 		return nil, false
 	}
 	// The message goes with the failure call, unless it is the last reader of a variable.
 	var msgArgs []ast.Expr
 	var blanked []*types.Var
-	orphans := st.orphanedVars(ifStmt, append(dropped, errCall))
+	orphans := st.orphanedVars(ifStmt, append(dropped, errCall), initCollapses)
 	switch {
 	case len(orphans) == 0:
 		dropped = append(dropped, errCall)
-	case st.messageCanStay(ifStmt, errCall, dropped):
+	case st.messageCanStay(ifStmt, errCall, dropped, initCollapses):
 		msgArgs, _ = failureMessageArgs(pass, errCall)
 		dropped = append(dropped, errCall.Fun)
 	case st.allBlankable(orphans, append(dropped, errCall)):
@@ -566,9 +567,9 @@ func clearNodePositions(node ast.Node) {
 			x.Lparen = token.NoPos
 			x.Rparen = token.NoPos
 		case *ast.CallExpr:
+			// Ellipsis keeps its position: the printer writes `...` only for a valid one.
 			x.Lparen = token.NoPos
 			x.Rparen = token.NoPos
-			x.Ellipsis = token.NoPos
 		case *ast.IndexExpr:
 			x.Lbrack = token.NoPos
 			x.Rbrack = token.NoPos
