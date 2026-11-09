@@ -136,8 +136,12 @@ jobs:
               Windows-X64) protoc_asset=win64 ;;
               *) echo "no protoc release for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
             esac
-            curl -fsSL -o "$RUNNER_TEMP/protoc.zip" \
-              "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-${protoc_asset}.zip"
+            # The release CDN can answer 504 for a long time, so wait it out.
+            until curl -fsSL -o "$RUNNER_TEMP/protoc.zip" \
+              "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-${protoc_asset}.zip"; do
+              echo "::warning::protoc download failed; retrying in 20s"
+              sleep 20
+            done
             unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$HOME/protoc"
             chmod +x "$HOME/protoc/bin/protoc"
             echo "$HOME/protoc/bin" >> "$GITHUB_PATH"
