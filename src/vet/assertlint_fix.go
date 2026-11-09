@@ -67,11 +67,11 @@ func generateASTFix(pass *analysis.Pass, st *assertFixState, ifStmt *ast.IfStmt,
 	// The message goes with the failure call, unless it is the last reader of a variable.
 	var msgArgs []ast.Expr
 	var blanked []*types.Var
-	orphans := st.orphanedVars(ifStmt, append(dropped, errCall))
+	orphans := st.orphanedVars(ifStmt, append(dropped, errCall), initCollapses)
 	switch {
 	case len(orphans) == 0:
 		dropped = append(dropped, errCall)
-	case st.messageCanStay(ifStmt, errCall, dropped):
+	case st.messageCanStay(ifStmt, errCall, dropped, initCollapses):
 		msgArgs, _ = failureMessageArgs(pass, errCall)
 		dropped = append(dropped, errCall.Fun)
 	case st.allBlankable(orphans, append(dropped, errCall)):

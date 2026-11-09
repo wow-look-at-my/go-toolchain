@@ -49,6 +49,23 @@ func (*myErr) Error() string { return "mine" }
 
 func mine() *myErr { return nil }
 
+func cached() (string, bool) { return "", false }
+
+func joined(parts []string) bool { return len(parts) > 1 }
+
+func TestInitVarReadByMessage(t *testing.T) {
+	if got, ok := cached(); ok {
+		t.Fatalf("cached = %q, true; want a miss", got)
+	}
+}
+
+func TestSpreadArgument(t *testing.T) {
+	core := []string{"a"}
+	if joined(append(append([]string{}, core...), "b")) {
+		t.Fatal("accepted")
+	}
+}
+
 func TestTranslateNonErrorResult(t *testing.T) {
 	r := registry{}
 	if got := r.TranslateStream([]byte("{}")); got != nil {
@@ -247,6 +264,14 @@ func TestAssertLintCLIProxyAPIShapes(t *testing.T) {
 		src := fn("TestErrorFromTwoResults")
 		assert.Contains(t, src, "_, err := pair()")
 		assert.Contains(t, src, "require.NoError(t, err)")
+	})
+	t.Run("a hoisted init keeps the message that is the only reader of its name", func(t *testing.T) {
+		src := fn("TestInitVarReadByMessage")
+		assert.Contains(t, src, "got, ok := cached()")
+		assert.Contains(t, src, `require.False(t, ok, "cached = %q, true; want a miss", got)`)
+	})
+	t.Run("a spread argument keeps its ellipsis", func(t *testing.T) {
+		assert.Contains(t, fn("TestSpreadArgument"), `require.False(t, joined(append(append([]string{}, core...), "b")))`)
 	})
 	t.Run("imports the rewrite left unused are removed", func(t *testing.T) {
 		src := string(importsOut)
