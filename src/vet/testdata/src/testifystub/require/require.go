@@ -29,6 +29,8 @@ func NotContains(t TestingT, s, contains interface{}, msgAndArgs ...interface{})
 
 func NoError(t TestingT, err error, msgAndArgs ...interface{}) bool { return true }
 
+func Error(t TestingT, err error, msgAndArgs ...interface{}) bool { return true }
+
 // Ordering assertions mirror the assert stub.
 func Greater(t TestingT, e1, e2 interface{}, msgAndArgs ...interface{}) bool { return true }
 

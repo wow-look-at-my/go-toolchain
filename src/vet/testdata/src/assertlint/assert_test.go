@@ -11,7 +11,7 @@ func TestManualAssertions(t *testing.T) {
 	var x, y int
 
 	// These should trigger assertlint
-	if err != nil { // want "use assert.Nil instead of if \\+ t.Error/t.Fatal"
+	if err != nil { // want "use assert.NoError instead of if \\+ t.Error/t.Fatal"
 		t.Error("error")
 	}
 
@@ -23,7 +23,7 @@ func TestManualAssertions(t *testing.T) {
 		t.Errorf("x != y")
 	}
 
-	if err == nil { // want "use assert.NotNil instead of if \\+ t.Error/t.Fatal"
+	if err == nil { // want "use assert.Error instead of if \\+ t.Error/t.Fatal"
 		t.Error("expected error")
 	}
 }
@@ -32,7 +32,7 @@ func TestManualFatal(t *testing.T) {
 	var err error
 
 	// Fatal should use require
-	if err != nil { // want "use require.Nil instead of if \\+ t.Error/t.Fatal"
+	if err != nil { // want "use require.NoError instead of if \\+ t.Error/t.Fatal"
 		t.Fatal(err)
 	}
 }
@@ -123,7 +123,7 @@ func TestWithBVar(t *testing.T) {
 	b := t
 	b.Helper()
 	var err error
-	if err != nil { // want "use assert.Nil instead of if \\+ t.Error/t.Fatal"
+	if err != nil { // want "use assert.NoError instead of if \\+ t.Error/t.Fatal"
 		b.Error("error")
 	}
 }
@@ -148,6 +148,21 @@ func TestCompoundCondition(t *testing.T) {
 
 	if x || y { // want "use assert.False instead of if \\+ t.Error/t.Fatal"
 		t.Error("should be false")
+	}
+}
+
+func TestNilByType(t *testing.T) {
+	var lines []string
+	var v any
+
+	// A slice compares to nil the way assert.Nil does.
+	if lines != nil { // want "use assert.Nil instead of if \\+ t.Error/t.Fatal"
+		t.Error("lines set")
+	}
+
+	// assert.Nil also passes for a typed nil inside an any, so this stays an if.
+	if v != nil {
+		t.Error("v set")
 	}
 }
 

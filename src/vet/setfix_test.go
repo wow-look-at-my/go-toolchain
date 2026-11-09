@@ -107,11 +107,41 @@ func TestSetFixRewritesEveryUse(t *testing.T) {
 				"\tif s.Contains(want) {\n\t\tn++\n\t}\n" +
 				"\treturn n\n}",
 		},
+		{
+			// CLIProxyAPI internal/signature/gemini_validation.go.
+			name:     "array elements with an elided type",
+			analyzer: SliceSetAnalyzer,
+			body: "var ids = [][4]byte{\n\t{0x8f, 0x3d, 0x6b, 0x5f},\n}\n\n" +
+				"func f(k [4]byte) bool {\n\treturn slices.Contains(ids, k)\n}",
+			want: "var ids = set.Of[[4]byte]([4]byte{0x8f, 0x3d, 0x6b, 0x5f})",
+		},
+		{
+			name:     "struct elements with an elided type",
+			analyzer: SliceSetAnalyzer,
+			body: "type point struct{ x, y int }\n\n" +
+				"func f(p point) bool {\n\tpts := []point{{1, 2}, {3, 4}}\n\treturn slices.Contains(pts, p)\n}",
+			want: "pts := set.Of[point](point{1, 2}, point{3, 4})",
+		},
+		{
+			name:     "pointer elements elide the address",
+			analyzer: SliceSetAnalyzer,
+			body: "type point struct{ x, y int }\n\n" +
+				"func f(p *point) bool {\n\tpts := []*point{{1, 2}}\n\treturn slices.Contains(pts, p)\n}",
+			want: "pts := set.Of[*point](&point{1, 2})",
+		},
+		{
+			name:     "map keys with an elided type",
+			analyzer: MapSetAnalyzer,
+			body:     "func f(k [2]int) bool {\n\tm := map[[2]int]bool{{1, 2}: true}\n\treturn m[k]\n}",
+			want:     "m := set.Of[[2]int]([2]int{1, 2})",
+		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			const header = "package main\n\nimport \"slices\"\n\nvar _ = slices.Contains\n\n"
 			got := applySetFixes(t, c.analyzer, header+c.body+"\n")
 			require.Contains(t, got, "\""+setPackage+"\"", "the rewrite must import the set package")
+			_, err := parser.ParseFile(token.NewFileSet(), "fixed.go", got, 0)
+			require.NoError(t, err, "the rewrite does not parse:\n%s", got)
 			require.Contains(t, got, c.want)
 		})
 	}

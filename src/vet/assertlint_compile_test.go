@@ -267,7 +267,7 @@ func TestAssertLintRewriteCompiles(t *testing.T) {
 		src := fn("TestErrorsChained")
 		assert.Contains(t, src, "err := run(nil)")
 		assert.Contains(t, src, `err = run([]string{"a"})`)
-		assert.Contains(t, src, "assert.NotNil(t, err)")
+		assert.Contains(t, src, "assert.Error(t, err)")
 	})
 	t.Run("a reused name with another type stays an if", func(t *testing.T) {
 		src := fn("TestMixedTypes")
@@ -296,8 +296,8 @@ func TestAssertLintRewriteCompiles(t *testing.T) {
 		assert.Contains(t, src, "if !assert.NotNil(t, check) {\n\t\t\tcontinue\n\t\t}")
 		assert.Contains(t, src, "assert.NoError(t, check())")
 	})
-	t.Run("a variable only the message reads stays", func(t *testing.T) {
-		assert.Contains(t, fn("TestMessageOnlyVar"), `t.Errorf("%s", name)`)
+	t.Run("a message that is the only reader of a variable stays as msgAndArgs", func(t *testing.T) {
+		assert.Contains(t, fn("TestMessageOnlyVar"), `assert.Equal(t, 1, capacity(1), "%s", name)`)
 	})
 	t.Run("work before the failure call stays", func(t *testing.T) {
 		src := fn("TestWorkBeforeFailure")
@@ -307,7 +307,7 @@ func TestAssertLintRewriteCompiles(t *testing.T) {
 	t.Run("an init shadowing a name the block reads later stays an if", func(t *testing.T) {
 		src := fn("TestShadowOuterRead")
 		assert.Contains(t, src, "if _, err := pair(); err != nil {")
-		assert.Contains(t, src, "assert.NotNil(t, err)")
+		assert.Contains(t, src, "assert.Error(t, err)")
 	})
 	t.Run("an existing variable read after the if is not overwritten", func(t *testing.T) {
 		src := fn("TestReuseThenRead")

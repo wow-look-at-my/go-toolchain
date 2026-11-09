@@ -106,7 +106,8 @@ func fixFileUnusedRangeVars(filename string) (bool, error) {
 
 	ast.Inspect(f, func(n ast.Node) bool {
 		rs, ok := n.(*ast.RangeStmt)
-		if !ok {
+		// `for i = range` assigns a variable the loop does not own; code after the loop can read it.
+		if !ok || rs.Tok != token.DEFINE {
 			return true
 		}
 		if rs.Key != nil {
@@ -140,6 +141,7 @@ func fixFileUnusedRangeVars(filename string) (bool, error) {
 		if !used {
 			rv.ident.Name = "_"
 			modified = true
+			dropBlankRangeVars(rv.scope)
 		}
 	}
 
@@ -157,4 +159,16 @@ func fixFileUnusedRangeVars(filename string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// dropBlankRangeVars removes the blank variables a range clause no longer
+// needs.
+func dropBlankRangeVars(rs *ast.RangeStmt) {
+	if isBlankIdent(rs.Value) {
+		rs.Value = nil
+	}
+	if rs.Value == nil && isBlankIdent(rs.Key) {
+		rs.Key = nil
+		rs.Tok = token.ILLEGAL
+	}
 }
