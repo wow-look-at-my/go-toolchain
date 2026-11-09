@@ -4,6 +4,7 @@ package vet
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/build"
@@ -166,6 +167,7 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 	analyzedFiles := set.New[string]()
 	var diagnostics []Diagnostic
 	var nParsed int
+	var fixedCfg buildtags.Config
 
 	for i, tagCfg := range discovery.Configs {
 		// The default config covers the whole module; extras need only gated directories.
@@ -181,20 +183,22 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 			filesChanged = true
 		}
 		if err != nil {
-			return filesChanged, err
+			// A failure part way through still gates what was written before it.
+			return filesChanged, errors.Join(err, settleFixes(ed, tagCfg))
 		}
 		// A fix rewrote the tree; the caller re-runs the whole vet, so stop
 		// here rather than analyzing later configurations against stale ASTs.
 		if filesChanged {
+			fixedCfg = tagCfg
 			break
 		}
 	}
 
 	if missed := buildtags.Verify(discovery, analyzedFiles); len(missed) > 0 {
-		return filesChanged, buildtags.UnreachableError(missed, "vet")
+		return filesChanged, errors.Join(buildtags.UnreachableError(missed, "vet"), settleFixes(ed, fixedCfg))
 	}
 
-	return finishSemantic(pattern, ed, progress, filesChanged, diagnostics)
+	return finishSemantic(pattern, ed, progress, filesChanged, diagnostics, fixedCfg)
 }
 
 // moduleHasGoFiles reports whether the tree holds a Go file the loader owes an
@@ -394,21 +398,13 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 // configuration has run. Re-run on a rewritten tree, then render the collected
 // diagnostics and editor violations.
 func finishSemantic(pattern string, ed Editor, progress ProgressFunc,
-	filesChanged bool, diagnostics []Diagnostic,
+	filesChanged bool, diagnostics []Diagnostic, fixedCfg buildtags.Config,
 ) (bool, error) {
-	// After applying fixes, clean up any side effects (unused vars). filesChanged
-	// is only ever true for a fix-mode editor (a check editor never writes), so
-	// this whole block is local-only without testing the CI flag.
+	// filesChanged is only ever true for a fix-mode editor (a check editor
+	// never writes), so this whole block is local-only without testing the CI flag.
 	if filesChanged {
-		if _, err := FixUnusedRangeVars("./..."); err != nil {
-			return filesChanged, fmt.Errorf("fixing unused range vars: %w", err)
-		}
-		// Run go mod tidy to add any new dependencies (e.g., testify)
-		tidyCmd := exec.Command("go", "mod", "tidy")
-		tidyCmd.Stdout = os.Stdout
-		tidyCmd.Stderr = os.Stderr
-		if err := tidyCmd.Run(); err != nil {
-			return filesChanged, fmt.Errorf("go mod tidy failed: %w", err)
+		if err := settleFixes(ed, fixedCfg); err != nil {
+			return filesChanged, err
 		}
 		// Re-run analysis to verify fixes worked (don't report old diagnostics)
 		_, err := vetSemantic(pattern, ed, progress)
@@ -419,6 +415,11 @@ func finishSemantic(pattern string, ed Editor, progress ProgressFunc,
 	var msgs []string
 	if ve := ed.Err(); ve != nil {
 		msgs = append(msgs, ve.Error())
+	}
+	if a, ok := ed.(*applyEditor); ok {
+		if re := a.revertErr(); re != nil {
+			msgs = append(msgs, re.Error())
+		}
 	}
 	if len(diagnostics) > 0 {
 		sort.Slice(diagnostics, func(i, j int) bool {

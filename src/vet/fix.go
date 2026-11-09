@@ -30,6 +30,8 @@ type ASTFixes struct {
 	File  *ast.File
 	Fset  *token.FileSet
 	Fixes []ASTFix
+	// ImportNames are the imports the fixes can leave unused, by local name; Fprint deletes each no selector names.
+	ImportNames map[*ast.ImportSpec]string
 }
 
 // SourceLocation identifies a position in source code.
@@ -111,6 +113,8 @@ func (f *ASTFixes) Fprint(w io.Writer) error {
 		}
 		return true
 	})
+
+	pruneUnusedImports(f.Fset, f.File, f.ImportNames)
 
 	// Orphaned comments (positions refer to replaced code) would be placed wrong by the printer.
 	f.removeOrphanedComments()

@@ -52,7 +52,7 @@ func generateASTFix(pass *analysis.Pass, st *assertFixState, ifStmt *ast.IfStmt,
 	if !ok {
 		return nil, false
 	}
-	dropped := []ast.Node{errCall}
+	var dropped []ast.Node
 	if assertPkg == "require" {
 		// Statements after t.Fatal never run; they go with it.
 		for _, s := range rest {
@@ -63,11 +63,22 @@ func generateASTFix(pass *analysis.Pass, st *assertFixState, ifStmt *ast.IfStmt,
 	if st.dropOrphansVar(ifStmt, dropped) {
 		return nil, false
 	}
+	// The message goes with the failure call, unless it is the last reader of a variable.
+	var msgArgs []ast.Expr
+	if st.dropOrphansVar(ifStmt, append(dropped, errCall)) {
+		msgArgs, ok = failureMessageArgs(pass, errCall)
+		if !ok || st.dropOrphansVar(ifStmt, append(dropped, errCall.Fun)) {
+			return nil, false
+		}
+		dropped = append(dropped, errCall.Fun)
+	} else {
+		dropped = append(dropped, errCall)
+	}
 
 	var commit func()
 	var newNodes []ast.Node
 	switch {
-	case isNoErrorInit(ifStmt, assertFunc):
+	case st.collapsesNoErrorInit(ifStmt, assertFunc, dropped):
 		// Special case: if err := X; err != nil → require.NoError(t, X)
 		assign := ifStmt.Init.(*ast.AssignStmt)
 		noErrorCall := makeCall(
@@ -75,6 +86,7 @@ func generateASTFix(pass *analysis.Pass, st *assertFixState, ifStmt *ast.IfStmt,
 			ast.NewIdent(tVar),
 			assign.Rhs[0],
 		)
+		noErrorCall.Args = append(noErrorCall.Args, msgArgs...)
 		newNodes = []ast.Node{assertionStmt(noErrorCall, rest)}
 
 	case ifStmt.Init == nil:
@@ -83,6 +95,7 @@ func generateASTFix(pass *analysis.Pass, st *assertFixState, ifStmt *ast.IfStmt,
 		if assertCall == nil {
 			return nil, false
 		}
+		assertCall.Args = append(assertCall.Args, msgArgs...)
 		newNodes = []ast.Node{assertionStmt(assertCall, rest)}
 
 	default:
@@ -91,6 +104,7 @@ func generateASTFix(pass *analysis.Pass, st *assertFixState, ifStmt *ast.IfStmt,
 		if assertCall == nil {
 			return nil, false
 		}
+		assertCall.Args = append(assertCall.Args, msgArgs...)
 		var init ast.Stmt
 		init, commit, ok = st.hoistInit(ifStmt)
 		if !ok {
@@ -102,6 +116,7 @@ func generateASTFix(pass *analysis.Pass, st *assertFixState, ifStmt *ast.IfStmt,
 	if commit != nil {
 		commit()
 	}
+	st.dropped = append(st.dropped, dropped...)
 	st.replaced = append(st.replaced, ifStmt)
 	prepareFixNodes(newNodes, ifStmt.Pos())
 	return &ASTFix{
@@ -110,15 +125,48 @@ func generateASTFix(pass *analysis.Pass, st *assertFixState, ifStmt *ast.IfStmt,
 	}, true
 }
 
-// isNoErrorInit reports the `if err := X; err != nil` shape
-// determineAssertion names NoError, with the right-hand side the rewrite
-// passes on.
-func isNoErrorInit(ifStmt *ast.IfStmt, assertFunc string) bool {
+// collapsesNoErrorInit reports the `if err := X; err != nil` shape whose
+// rewrite is `NoError(t, X)`. The init declares the variable the condition
+// checks, X has that single result, and nothing the rewrite keeps reads the
+// variable. Any other init is hoisted instead.
+func (st *assertFixState) collapsesNoErrorInit(ifStmt *ast.IfStmt, assertFunc string, dropped []ast.Node) bool {
 	if assertFunc != "NoError" {
 		return false
 	}
 	assign, ok := ifStmt.Init.(*ast.AssignStmt)
-	return ok && assign.Tok == token.DEFINE && len(assign.Rhs) == 1
+	if !ok || assign.Tok != token.DEFINE || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
+		return false
+	}
+	lhs, ok := assign.Lhs[0].(*ast.Ident)
+	if !ok {
+		return false
+	}
+	operand, _, ok := nilOperand(ifStmt.Cond)
+	if !ok {
+		return false
+	}
+	checked, ok := ast.Unparen(operand).(*ast.Ident)
+	obj := st.pass.TypesInfo.Defs[lhs]
+	if !ok || obj == nil || st.pass.TypesInfo.Uses[checked] != obj {
+		return false
+	}
+	for _, u := range st.uses[obj] {
+		if u == checked || nodesContain(dropped, u.Pos()) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// nodesContain reports whether pos lies inside one of nodes.
+func nodesContain(nodes []ast.Node, pos token.Pos) bool {
+	for _, n := range nodes {
+		if pos >= n.Pos() && pos < n.End() {
+			return true
+		}
+	}
+	return false
 }
 
 // assertionStmt is the statement an assertion call becomes. Statements that
@@ -175,6 +223,8 @@ type assertFixState struct {
 	hoisted map[*types.Scope]map[string]types.Type
 	// replaced are the ifs this pass rewrites.
 	replaced []ast.Node
+	// dropped are the nodes earlier fixes delete. A read inside one is gone too.
+	dropped []ast.Node
 
 	// uses lists every identifier that refers to an object, in source order.
 	uses map[types.Object][]*ast.Ident
@@ -182,7 +232,7 @@ type assertFixState struct {
 	writes set.Set[*ast.Ident]
 	// assigns maps each write identifier to its assignment statement.
 	assigns map[*ast.Ident]*ast.AssignStmt
-	// unusedExempt are declarations the compiler never reports unused: parameters and results, plus range variables.
+	// unusedExempt are declarations the compiler never reports unused: parameters and results. A range variable is not one.
 	unusedExempt set.Set[token.Pos]
 }
 
@@ -212,12 +262,6 @@ func newAssertFixState(pass *analysis.Pass, file *ast.File) *assertFixState {
 		case *ast.IncDecStmt:
 			if id, ok := x.X.(*ast.Ident); ok {
 				st.writes.Add(id)
-			}
-		case *ast.RangeStmt:
-			for _, e := range []ast.Expr{x.Key, x.Value} {
-				if id, ok := e.(*ast.Ident); ok {
-					st.unusedExempt.Add(id.Pos())
-				}
 			}
 		case *ast.FuncType:
 			for _, fl := range []*ast.FieldList{x.Params, x.Results} {
@@ -251,12 +295,7 @@ func (st *assertFixState) insideReplaced(n ast.Node) bool {
 // reader of. The compiler rejects that, so such an if is not rewritten.
 func (st *assertFixState) dropOrphansVar(ifStmt *ast.IfStmt, dropped []ast.Node) bool {
 	inDropped := func(pos token.Pos) bool {
-		for _, d := range dropped {
-			if pos >= d.Pos() && pos < d.End() {
-				return true
-			}
-		}
-		return false
+		return nodesContain(dropped, pos) || nodesContain(st.dropped, pos)
 	}
 	orphaned := false
 	for _, d := range dropped {
@@ -542,9 +581,13 @@ func buildBinaryAssert(pass *analysis.Pass, bin *ast.BinaryExpr, tVar, assertPkg
 		}
 		return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), expected, actual)
 
-	case "Nil", "NotNil":
-		// assert.Nil(t, value)
-		return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), bin.X)
+	case "Nil", "NotNil", "NoError", "Error":
+		// assert.Nil(t, value); nil may be on either side.
+		operand := bin.X
+		if isNil(bin.X) {
+			operand = bin.Y
+		}
+		return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), operand)
 
 	case "Less", "Greater", "LessOrEqual", "GreaterOrEqual":
 		// assert.Less(t, left, right)
