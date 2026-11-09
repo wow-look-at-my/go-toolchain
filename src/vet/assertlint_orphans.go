@@ -4,6 +4,7 @@ package vet
 
 import (
 	"go/ast"
+	"go/token"
 	"go/types"
 
 	"github.com/wow-look-at-my/go-containers/set"
@@ -43,6 +44,50 @@ func (st *assertFixState) orphanedVars(ifStmt *ast.IfStmt, dropped []ast.Node) [
 		})
 	}
 	return orphans
+}
+
+// collapsesNoErrorInit reports the `if err := X; err != nil` shape whose
+// rewrite is `NoError(t, X)`. The init declares the variable the condition
+// checks, X has that single result, and nothing the rewrite keeps reads the
+// variable. Any other init is hoisted instead.
+func (st *assertFixState) collapsesNoErrorInit(ifStmt *ast.IfStmt, assertFunc string, dropped []ast.Node) bool {
+	if assertFunc != "NoError" {
+		return false
+	}
+	assign, ok := ifStmt.Init.(*ast.AssignStmt)
+	if !ok || assign.Tok != token.DEFINE || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
+		return false
+	}
+	lhs, ok := assign.Lhs[0].(*ast.Ident)
+	if !ok {
+		return false
+	}
+	operand, _, ok := nilOperand(ifStmt.Cond)
+	if !ok {
+		return false
+	}
+	checked, ok := ast.Unparen(operand).(*ast.Ident)
+	obj := st.pass.TypesInfo.Defs[lhs]
+	if !ok || obj == nil || st.pass.TypesInfo.Uses[checked] != obj {
+		return false
+	}
+	for _, u := range st.uses[obj] {
+		if u == checked || nodesContain(dropped, u.Pos()) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// nodesContain reports whether pos lies inside one of nodes.
+func nodesContain(nodes []ast.Node, pos token.Pos) bool {
+	for _, n := range nodes {
+		if pos >= n.Pos() && pos < n.End() {
+			return true
+		}
+	}
+	return false
 }
 
 // inDropped reports whether id lies in dropped or in a node an earlier fix deleted.
