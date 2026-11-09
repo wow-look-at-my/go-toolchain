@@ -25,6 +25,8 @@ var AssertLintAnalyzer = &analysis.Analyzer{
 func runAssertLint(pass *analysis.Pass) (any, error) {
 	// Group fixes by file
 	fileToFixes := make(map[*ast.File][]ASTFix)
+	importNames := make(map[*ast.File]map[*ast.ImportSpec]string)
+	blanks := make(map[*ast.File][]func())
 
 	for _, file := range pass.Files {
 		// Only check test files
@@ -32,6 +34,7 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 		if !strings.HasSuffix(filename, "_test.go") {
 			continue
 		}
+		importNames[file] = importLocalNames(pass, file)
 
 		// Track needed imports for this file
 		needsAssert := false
@@ -96,9 +99,13 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 		// Process diagnostics and generate AST fixes, in source order: a hoist
 		// sees the names every earlier hoist in its block declared.
 		for _, d := range diagnostics {
-			message := fmt.Sprintf("use %s.%s instead of if + t.Error/t.Fatal", d.assertPkg, d.assertFunc)
+			assertFunc, ok := typedAssertFunc(pass, d.ifStmt, d.assertFunc)
+			if !ok {
+				continue
+			}
+			message := fmt.Sprintf("use %s.%s instead of if + t.Error/t.Fatal", d.assertPkg, assertFunc)
 
-			fix, report := generateASTFix(pass, state, d.ifStmt, d.assertPkg, d.assertFunc)
+			fix, report := generateASTFix(pass, state, d.ifStmt, d.assertPkg, assertFunc)
 			if !report {
 				continue
 			}
@@ -112,6 +119,7 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 			}
 			pass.Reportf(d.ifStmt.Pos(), "%s", message)
 		}
+		blanks[file] = state.blanks
 
 		// Add imports directly to the AST if needed
 		if (needsAssert && !hasAssert) || (needsRequire && !hasRequire) {
@@ -132,9 +140,11 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 	var result []*ASTFixes
 	for file, fixes := range fileToFixes {
 		result = append(result, &ASTFixes{
-			File:  file,
-			Fset:  pass.Fset,
-			Fixes: fixes,
+			File:        file,
+			Fset:        pass.Fset,
+			Fixes:       fixes,
+			ImportNames: importNames[file],
+			Edits:       blanks[file],
 		})
 	}
 	return result, nil
@@ -271,12 +281,12 @@ func determinePositiveAssertFunc(cond ast.Expr) string {
 		switch c.Op {
 		case token.EQL:
 			// Check for nil comparison
-			if isNil(c.Y) {
+			if isNil(c.Y) || isNil(c.X) {
 				return "Nil"
 			}
 			return "Equal"
 		case token.NEQ:
-			if isNil(c.Y) {
+			if isNil(c.Y) || isNil(c.X) {
 				return "NotNil"
 			}
 			return "NotEqual"
@@ -317,12 +327,12 @@ func determineNegativeAssertFunc(cond ast.Expr) string {
 	case *ast.BinaryExpr:
 		switch c.Op {
 		case token.EQL:
-			if isNil(c.Y) {
+			if isNil(c.Y) || isNil(c.X) {
 				return "NotNil"
 			}
 			return "NotEqual"
 		case token.NEQ:
-			if isNil(c.Y) {
+			if isNil(c.Y) || isNil(c.X) {
 				return "Nil"
 			}
 			return "Equal"

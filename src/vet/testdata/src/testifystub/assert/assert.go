@@ -21,6 +21,10 @@ func NotNil(t TestingT, object interface{}, msgAndArgs ...interface{}) bool { re
 
 func NoError(t TestingT, err error, msgAndArgs ...interface{}) bool { return true }
 
+func Error(t TestingT, err error, msgAndArgs ...interface{}) bool { return true }
+
+func NotContains(t TestingT, s, contains interface{}, msgAndArgs ...interface{}) bool { return true }
+
 func Equalf(t TestingT, expected, actual interface{}, msg string, args ...interface{}) bool {
 	return true
 }

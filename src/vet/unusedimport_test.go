@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -66,6 +67,45 @@ func main() {
 	data, err := os.ReadFile("main.go")
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "_, v := range")
+}
+
+// TestFixUnusedRangeVarsDropsBlankClauses pins the clause each blanking
+// leaves. `for _, _ :=` is "no new variables on left side of :=", which the
+// CLIProxyAPI aistudio_executor_test.go rewrite once produced. A range with
+// `=` assigns a variable code after the loop can read, so it stays.
+func TestFixUnusedRangeVarsDropsBlankClauses(t *testing.T) {
+	t.Serial("the fixer reads ./..., so the test changes the working directory")
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	code := `package main
+
+func main() {
+	for i, v := range []string{"a"} {
+	}
+	for k := range map[string]int{} {
+	}
+	for i, v := range []int{1} {
+		_ = i
+	}
+	var last int
+	for last = range []int{1} {
+	}
+	_ = last
+}
+`
+	require.NoError(t, os.WriteFile("main.go", []byte(code), 0644))
+
+	_, err := FixUnusedRangeVars("./...")
+	require.NoError(t, err)
+
+	data, err := os.ReadFile("main.go")
+	require.NoError(t, err)
+	got := string(data)
+	assert.Equal(t, 2, strings.Count(got, "for range"), got)
+	assert.Contains(t, got, "for i := range []int{1}")
+	assert.Contains(t, got, "for last = range")
+	assert.NotContains(t, got, "_, _")
 }
 
 func TestFixUnusedRangeVarsGlobPattern(t *testing.T) {
