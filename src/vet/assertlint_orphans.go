@@ -13,8 +13,10 @@ import (
 // orphanedVars returns the local variables that deleting the dropped nodes
 // leaves declared and not used. A failure message is often the only reader of
 // a loop index, and the compiler rejects the variable once it is gone. A read
-// that an earlier fix in this file already deleted counts as gone too.
-func (st *assertFixState) orphanedVars(ifStmt *ast.IfStmt, dropped []ast.Node) []*types.Var {
+// that an earlier fix in this file already deleted counts as gone too. A
+// variable declared inside dropped goes with it. A name the if's init declares
+// goes only when the init collapses (the NoError shape); a hoisted init keeps it.
+func (st *assertFixState) orphanedVars(ifStmt *ast.IfStmt, dropped []ast.Node, initCollapses bool) []*types.Var {
 	seen := set.New[*types.Var]()
 	var orphans []*types.Var
 	for _, d := range dropped {
@@ -27,8 +29,10 @@ func (st *assertFixState) orphanedVars(ifStmt *ast.IfStmt, dropped []ast.Node) [
 			if !ok || v.IsField() || v.Parent() == nil || v.Parent() == st.pass.Pkg.Scope() {
 				return true
 			}
-			// A name the if itself declares leaves along with it (the NoError shape).
-			if v.Pos() >= ifStmt.Pos() && v.Pos() < ifStmt.End() {
+			if nodesContain(dropped, v.Pos()) {
+				return true
+			}
+			if initCollapses && ifStmt.Init != nil && v.Pos() >= ifStmt.Init.Pos() && v.Pos() < ifStmt.Init.End() {
 				return true
 			}
 			if st.unusedExempt.Contains(v.Pos()) || st.blankedVars.Contains(v) || !seen.Add(v) {
@@ -100,7 +104,7 @@ func (st *assertFixState) inDropped(dropped []ast.Node, id *ast.Ident) bool {
 // assertion evaluates its arguments on the passing path too, where a field
 // read can dereference nil. A call can do work the test never did. Keeping
 // the message must leave no variable unused.
-func (st *assertFixState) messageCanStay(ifStmt *ast.IfStmt, errCall *ast.CallExpr, dropped []ast.Node) bool {
+func (st *assertFixState) messageCanStay(ifStmt *ast.IfStmt, errCall *ast.CallExpr, dropped []ast.Node, initCollapses bool) bool {
 	args, ok := failureMessageArgs(st.pass, errCall)
 	if !ok {
 		return false
@@ -112,7 +116,7 @@ func (st *assertFixState) messageCanStay(ifStmt *ast.IfStmt, errCall *ast.CallEx
 			return false
 		}
 	}
-	return len(st.orphanedVars(ifStmt, append(dropped, errCall.Fun))) == 0
+	return len(st.orphanedVars(ifStmt, append(dropped, errCall.Fun), initCollapses)) == 0
 }
 
 // allBlankable reports whether every orphan is a variable a `:=` range clause

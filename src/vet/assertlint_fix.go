@@ -60,7 +60,8 @@ func generateASTFix(pass *analysis.Pass, st *assertFixState, ifStmt *ast.IfStmt,
 		}
 		rest = nil
 	}
-	if len(st.orphanedVars(ifStmt, dropped)) > 0 {
+	initCollapses := st.collapsesNoErrorInit(ifStmt, assertFunc, append(dropped, errCall))
+	if len(st.orphanedVars(ifStmt, dropped, initCollapses)) > 0 {
 		return nil, false
 	}
 	// The message goes with the failure call, unless it is the last reader of a variable.
