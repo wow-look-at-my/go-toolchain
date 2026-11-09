@@ -98,6 +98,8 @@ A parameter is not a candidate either. It arrives from a caller, and what to sto
 
 The type argument is written out. `set.Of(1, 2)` off a `[]float64` literal will infer `int`, and `set.Of[float64](1, 2)` cannot.
 
+An element whose type the literal elided gets it back as a call argument (`spellElidedType`): `[][4]byte{{1, 2, 3, 4}}` becomes `set.Of[[4]byte]([4]byte{1, 2, 3, 4})`, and a `[]*T` element `{...}` becomes `&T{...}`.
+
 **One use with no spelling blocks the whole variable.** Half a rewrite does not compile. So the finding stays a diagnostic and the file is untouched. The same answer covers a `slices.Index` read, a `nil` comparison, and an append whose result lands somewhere else.
 
 ### What the fixer refuses to touch
@@ -112,6 +114,21 @@ Fixers reaching the same file is ordinary -- the testify rewrite and this one bo
 
 A file that already binds the name `set` to something else keeps its diagnostic and loses its fix (`setNameFree`). The fix goes through the same `Editor` as every other AST fix. It writes locally, and on CI the analyzer's own diagnostic is what fails the build.
 
+
+## assertlint: an if that calls t.Error, rewritten to testify
+
+`src/vet/assertlint.go` reports `if cond { t.Error(...) }` and rewrites it to the assertion of the opposite of `cond`. A rewrite must compile and must assert what the if checked. When no assertion does both, the if stays and is not reported.
+
+- **The operand's type picks a nil check** (`typedAssertFunc`). An interface that implements `error` gets `NoError` or `Error`. A pointer, slice, map, channel or function gets `Nil` or `NotNil`. Any other interface gets nothing: `assert.Nil` passes for a typed nil inside it, which `x != nil` rejects.
+- **`if err := X; err != nil` collapses to `NoError(t, X)`** only when the init declares that one variable and nothing kept reads it (`collapsesNoErrorInit`). Any other init is hoisted.
+- **The failure message is dropped**, unless it is the last reader of a variable (`orphanedVars`). Then it stays as msgAndArgs when every argument is a name or a literal. An assertion evaluates its arguments on the passing path too, where a field read can dereference nil. Failing that, a `:=` range variable becomes `_`. Any other orphan keeps the if.
+- **An import the rewrite leaves unused is deleted** when the file is printed (`pruneUnusedImports`). The analyzer records each import's name from type info, since a package name need not match its path.
+
+## The fix gate: a fix that does not compile is undone
+
+`src/vet/fixgate.go` closes every round of fixes (`settleFixes`). It blanks range variables the round left unused, runs `go mod tidy` for the imports it added. Then type-checks each package that holds a file the round wrote. A package that fails gets its written files back as they were, and those files take no further fix this run. The revert is logged as an error. The run fails with the package, the files and the type errors.
+
+The editor keeps each file's content from before its first write since the last gate, so a revert never discards the user's own edits. The same gate runs when a round stops part way on an error.
 
 ## writeruns: a document spelled one write at a time
 

@@ -35,7 +35,7 @@ type Editor interface {
 // NewEditor returns an apply-on-disk editor when fix is true, or a report-only editor on CI.
 func NewEditor(fix bool) Editor {
 	if fix {
-		return &applyEditor{written: set.New[string]()}
+		return &applyEditor{written: set.New[string](), before: make(map[string][]byte), refused: set.New[string]()}
 	}
 	return &checkEditor{}
 }
@@ -44,6 +44,12 @@ func NewEditor(fix bool) Editor {
 type applyEditor struct {
 	mu      sync.Mutex // fixers run concurrently, so the record below is locked
 	written set.Set[string]
+	// before holds each file as it was ahead of the first write since the last fix gate.
+	before map[string][]byte
+	// refused are the files a fix gate reverted; no later fix writes them.
+	refused set.Set[string]
+	// reverted describes each package a fix gate reverted.
+	reverted []string
 }
 
 func (a *applyEditor) Require(path string, want []byte, _ string) (bool, error) {
@@ -55,10 +61,28 @@ func (a *applyEditor) Apply(path string, want []byte) (bool, error) {
 }
 
 func (a *applyEditor) write(path string, want []byte) (bool, error) {
+	key := editorKey(path)
+	a.mu.Lock()
+	refused := a.refused.Contains(key)
+	_, saved := a.before[key]
+	a.mu.Unlock()
+	if refused {
+		return false, nil
+	}
+	var old []byte
+	if !saved {
+		var err error
+		if old, err = os.ReadFile(path); err != nil {
+			return false, err
+		}
+	}
 	wrote, err := writeIfDiffer(path, want)
 	if wrote {
 		a.mu.Lock()
-		a.written.Add(editorKey(path))
+		a.written.Add(key)
+		if _, ok := a.before[key]; !ok && !saved {
+			a.before[key] = old
+		}
 		a.mu.Unlock()
 	}
 	return wrote, err

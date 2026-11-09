@@ -249,6 +249,9 @@ func constructorFix(value ast.Expr, kind setKind) (*ASTFix, bool) {
 		if !ok {
 			return nil, false
 		}
+		for i, e := range elems {
+			elems[i] = spellElidedType(e, elem)
+		}
 		return &ASTFix{OldNode: value, NewNodes: []ast.Node{setCall("Of", elem, elems...)}}, true
 	}
 	return nil, false
@@ -435,7 +438,7 @@ func setFixesByFile(pass *analysis.Pass, edits []fileEdit) []*ASTFixes {
 		if fixesNameSetPackage(fixes) {
 			astutil.AddImport(pass.Fset, file, setPackage)
 		}
-		result = append(result, &ASTFixes{File: file, Fset: pass.Fset, Fixes: fixes})
+		result = append(result, &ASTFixes{File: file, Fset: pass.Fset, Fixes: fixes, ImportNames: importLocalNames(pass, file)})
 	}
 	return result
 }

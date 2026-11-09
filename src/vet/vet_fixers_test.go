@@ -114,7 +114,7 @@ func foo() {
 	assert.True(t, fixed)
 
 	result, _ := os.ReadFile(src)
-	assert.Contains(t, string(result), "for key, _ := range")
+	assert.Contains(t, string(result), "for key := range")
 }
 
 func TestFixFileUnusedRangeVars_BothUsed(t *testing.T) {
