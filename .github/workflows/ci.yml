@@ -136,12 +136,9 @@ jobs:
               Windows-X64) protoc_asset=win64 ;;
               *) echo "no protoc release for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
             esac
-            # The release CDN can answer 504 for a long time, so wait it out.
-            until curl -fsSL -o "$RUNNER_TEMP/protoc.zip" \
-              "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-${protoc_asset}.zip"; do
-              echo "::warning::protoc download failed; retrying in 20s"
-              sleep 20
-            done
+            # GitHub's release host answers a transient HTTP error under load, and that answer alone failed this job. The URL is pinned, so curl asks it again before the step fails. A 504 that cuts the transfer short arrives as a receive error (56), which --retry leaves alone, so --retry-all-errors is what makes the asking cover it.
+            curl -fsSL --retry 5 --retry-delay 5 --retry-max-time 300 --retry-all-errors -o "$RUNNER_TEMP/protoc.zip" \
+              "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-${protoc_asset}.zip"
             unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$HOME/protoc"
             chmod +x "$HOME/protoc/bin/protoc"
             echo "$HOME/protoc/bin" >> "$GITHUB_PATH"

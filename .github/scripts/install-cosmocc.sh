@@ -22,8 +22,8 @@ elif [ -x "$dir/bin/x86_64-unknown-cosmo-cc" ] && [ -x "$dir/bin/aarch64-unknown
 	echo "cosmocc is already installed in $dir"
 else
 	zip="${RUNNER_TEMP:-/tmp}/cosmocc-$version.zip"
-	# cosmo.zip refuses connections from GitHub-hosted runners. The project's GitHub release carries the same zip.
-	curl -fsSL "https://github.com/jart/cosmopolitan/releases/download/$version/cosmocc-$version.zip" -o "$zip"
+	# cosmo.zip refuses connections from GitHub-hosted runners. The project's. GitHub release carries the same zip, and curl asks again on a transient. HTTP error.
+	curl -fsSL --retry 5 --retry-delay 5 --retry-max-time 300 --retry-all-errors "https://github.com/jart/cosmopolitan/releases/download/$version/cosmocc-$version.zip" -o "$zip"
 	# macOS ships shasum and no sha256sum.
 	if command -v sha256sum > /dev/null 2>&1; then
 		echo "$sha256  $zip" | sha256sum -c -
