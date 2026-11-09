@@ -566,9 +566,9 @@ func clearNodePositions(node ast.Node) {
 			x.Lparen = token.NoPos
 			x.Rparen = token.NoPos
 		case *ast.CallExpr:
+			// Ellipsis keeps its position: the printer writes `...` only for a valid one.
 			x.Lparen = token.NoPos
 			x.Rparen = token.NoPos
-			x.Ellipsis = token.NoPos
 		case *ast.IndexExpr:
 			x.Lbrack = token.NoPos
 			x.Rbrack = token.NoPos
