@@ -26,6 +26,7 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 	// Group fixes by file
 	fileToFixes := make(map[*ast.File][]ASTFix)
 	importNames := make(map[*ast.File]map[*ast.ImportSpec]string)
+	blanks := make(map[*ast.File][]func())
 
 	for _, file := range pass.Files {
 		// Only check test files
@@ -118,6 +119,7 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 			}
 			pass.Reportf(d.ifStmt.Pos(), "%s", message)
 		}
+		blanks[file] = state.blanks
 
 		// Add imports directly to the AST if needed
 		if (needsAssert && !hasAssert) || (needsRequire && !hasRequire) {
@@ -142,6 +144,7 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 			Fset:        pass.Fset,
 			Fixes:       fixes,
 			ImportNames: importNames[file],
+			Edits:       blanks[file],
 		})
 	}
 	return result, nil

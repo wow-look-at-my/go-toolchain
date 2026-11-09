@@ -86,6 +86,13 @@ func TestLoopIndexOnlyInMessages(t *testing.T) {
 	}
 }
 
+func TestFieldReadInMessage(t *testing.T) {
+	a := &auth{ID: "a"}
+	if capacity(1) != 1 {
+		t.Errorf("auth %s", a.ID)
+	}
+}
+
 func TestLoopIndexOneMessage(t *testing.T) {
 	samples := []string{"a"}
 	for i, sig := range samples {
@@ -207,12 +214,15 @@ func TestAssertLintCLIProxyAPIShapes(t *testing.T) {
 		assert.Contains(t, src, `require.False(t, got == nil || got == "")`)
 		assert.NotContains(t, src, "NoError")
 	})
-	t.Run("the last message that reads the loop index stays", func(t *testing.T) {
+	t.Run("a loop index only dropped messages read becomes _", func(t *testing.T) {
 		src := fn("TestLoopIndexOnlyInMessages")
-		assert.Contains(t, src, "for i, id := range want {")
+		assert.Contains(t, src, "for _, id := range want {")
 		assert.Contains(t, src, "require.NoError(t, err)")
 		assert.Contains(t, src, "require.NotNil(t, got)")
-		assert.Contains(t, src, `require.Equal(t, id, got.ID, "Pick() #%d auth.ID = %q, want %q", i, got.ID, id)`)
+		assert.Contains(t, src, "require.Equal(t, id, got.ID)\n")
+	})
+	t.Run("a message that reads a field is not evaluated on the passing path", func(t *testing.T) {
+		assert.Contains(t, fn("TestFieldReadInMessage"), `t.Errorf("auth %s", a.ID)`)
 	})
 	t.Run("a message that is the only reader of a range variable stays", func(t *testing.T) {
 		assert.Contains(t, fn("TestLoopIndexOneMessage"), `require.True(t, valid(sig), "sample %d invalid", i)`)

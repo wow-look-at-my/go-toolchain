@@ -32,6 +32,8 @@ type ASTFixes struct {
 	Fixes []ASTFix
 	// ImportNames are the imports the fixes can leave unused, by local name; Fprint deletes each no selector names.
 	ImportNames map[*ast.ImportSpec]string
+	// Edits change nodes in place, such as a range variable renamed to _; Fprint runs them before the replacements.
+	Edits []func()
 }
 
 // SourceLocation identifies a position in source code.
@@ -94,6 +96,9 @@ func (f *ASTFixes) printFix(fix ASTFix) {
 
 // Fprint applies fixes and writes the result to w.
 func (f *ASTFixes) Fprint(w io.Writer) error {
+	for _, edit := range f.Edits {
+		edit()
+	}
 	// Apply fixes using astutil.Apply
 	astutil.Apply(f.File, nil, func(c *astutil.Cursor) bool {
 		node := c.Node()
