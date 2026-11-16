@@ -20,7 +20,7 @@ It does run a passive **background update check** (`updatecheck.go`). `main.go`'
 
 ## The up-to-date fingerprint
 
-`uptodate.go`: the root `PersistentPreRunE` exits 0 with "Up to date, nothing to do" when the stored fingerprint matches and every build output still exists. The fingerprint is a SHA-256 over the Go version, this binary's version, `outputDir`, the run's flags, the run's environment. `.go`, `go.mod`/`go.sum`, `.dats` suites and their `.golden` snapshots, `action.yml`, anything under a `testdata` directory, and every file `go list` reports for a `//go:embed` directive.
+`uptodate.go`: the root `PersistentPreRunE` exits 0 with "Up to date, nothing to do" when the stored fingerprint matches and every build output still exists. The fingerprint is a SHA-256 over the Go version, this binary's version, `outputDir`, the run's flags, the run's environment.
 
 Two of those inputs are not files, and both are there because leaving them out made the skip lie:
 
