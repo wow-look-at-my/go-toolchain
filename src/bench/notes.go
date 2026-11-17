@@ -1,3 +1,5 @@
+// notes.go holds NotesRef.
+
 package bench
 
 import (

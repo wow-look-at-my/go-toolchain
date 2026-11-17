@@ -1,3 +1,5 @@
+// compare.go holds Comparison.
+
 package bench
 
 import (

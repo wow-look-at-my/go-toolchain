@@ -63,9 +63,8 @@ func Analyze(r runner.CommandRunner) (string, error) {
 }
 
 // UploadSARIF posts the SARIF file to GitHub's code-scanning API via the
-// codeql CLI's `github upload-results` subcommand. Requires GITHUB_TOKEN
-// (or GH_TOKEN), GITHUB_SHA, GITHUB_REF, and GITHUB_REPOSITORY in the
-// environment. The codeql CLI reads GITHUB_TOKEN from the env directly.
+// codeql CLI's `github upload-results` subcommand. The codeql CLI reads
+// GITHUB_TOKEN from the env directly.
 func UploadSARIF(r runner.CommandRunner, sarifPath string) error {
 	if os.Getenv("GITHUB_TOKEN") == "" && os.Getenv("GH_TOKEN") == "" {
 		return fmt.Errorf("no GITHUB_TOKEN/GH_TOKEN in environment")
