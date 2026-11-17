@@ -33,19 +33,11 @@ A container build usually is not. `COPY . .` with `.git` in `.dockerignore` hand
 
 `stampVarNames` is the table, tried in this order against what the package declares:
 
-`gitHash`, `GitHash`, `gitCommit`, `GitCommit`, `commit`, `Commit`, `revision`, `Revision`
-
 A package that declares none of them gets no stamp and no warning: it never asked for one. Declaring `var gitHash string` in `package main` is the whole opt-in — there is no flag, no input, and no configuration file.
 
 Discovery is `gomod.PackageStringVars`, which parses the package's non-test files and reports only the package-level variables it can PROVE hold strings. An explicit `string` type, or an initializer that is a string literal. That narrowness is not fussiness. `cmd/link`'s `addstrdata` returns silently for a symbol it cannot find, but calls `Errorf` for a symbol that is not a string variable. Stamping only what the source proves is a string is what keeps this from breaking a consumer that happens to reuse a name.
 
 ## Where the revision comes from
-
-In order:
-
-1. `GO_TOOLCHAIN_VCS_REVISION`
-2. `git rev-parse HEAD`
-3. `GITHUB_SHA`
 
 The explicit variable leads because it answers the case the others cannot. A build whose tree has no history, where git has nothing to report and the CI variable is not in the container either. A Dockerfile passes it through:
 

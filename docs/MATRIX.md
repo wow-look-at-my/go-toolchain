@@ -29,7 +29,7 @@ go-toolchain matrix
 
 A narrower set is **not** automatically a smaller binary, and the default set saves nothing. An APE carries one payload per ARCHITECTURE, and those platforms still need both. Darwin/arm64 boots the arm64 image, linux/amd64 and windows/amd64 the amd64 one. Measured saving for the default set: **0%**. Only collapsing to a single architecture drops a payload (**-46.9%**). The win of the default is one artifact instead of six, not fewer bytes.
 
-Accepted: `linux/amd64`, `linux/arm64`, `darwin/arm64`, `windows/amd64`. `darwin/amd64` (Intel-mac runtime never proven on real hardware) and `windows/arm64` (amd64-only PE payload) are refused — a published platform set says where the binary runs. So an unproven host cannot be in it.
+Accepted. `darwin/amd64` (Intel-mac runtime never proven on real hardware) and `windows/arm64` (amd64-only PE payload) are refused — a published platform set says where the binary runs. So an unproven host cannot be in it.
 
 **Publishing.** The APE publishes as a *single* artifact carrying its whole platform set. One upload, one download link, one checksum, with an `APE:<platforms>` badge. The `buildhost-artifacts.json` file go-toolchain writes alongside the binary says so — see [BUILDHOST-MANIFEST.md](BUILDHOST-MANIFEST.md).
 

@@ -39,5 +39,5 @@ PATH="$GOROOT/bin:$GOROOT/lib/wasm:$PATH" GOTOOLCHAIN=local \
   GOOS=js GOARCH=wasm go test ./...
 ```
 
-Rejected spellings fail fast with a pointer to the right one. `js/amd64`, `linux/wasm` and `wasm/amd64` (impossible pairings), a native `os/arch` pair in `--targets` (the fat APE is the only native output. Use `--cosmo-platforms` to choose which hosts it covers), and a wasm target in `--cosmo-platforms` (an APE covers native hosts, and wasm is not one).
+Rejected spellings fail fast with a pointer to the right one. Use `--cosmo-platforms` to choose which hosts it covers), and a wasm target in `--cosmo-platforms` (an APE covers native hosts, and wasm is not one).
 

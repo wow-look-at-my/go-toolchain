@@ -6,7 +6,7 @@ After the build phase — the root pipeline at the `runBuildPhase` call site in 
 
 go-toolchain imports `github.com/wow-look-at-my/dats` and calls `dats.Run(ctx, dats.Options{...})` (seam: `datsRunFunc`). The suites run in this process. There is no binary to resolve, no cache directory, no buildhost download, no version that can drift. The old `GO_TOOLCHAIN_DATS_BIN` / `GO_TOOLCHAIN_DATS_BRANCH` bootstrap knobs are gone with the code that needed them.
 
-The dats library's own contract carries the interesting half. `Run` returns an error only when the RUN can not be carried out (a bad path, a parse failure, an unusable sandbox), while failing TESTS come back in the `Result`. So the phase checks both — `err` and `res.Ok()` — and `Ok()` is not `Failed == 0`. A file whose teardown command failed fails the run with every test green.
+The dats library's own contract carries the interesting half. `Run` returns an error only when the RUN can not be carried out (a bad path, a parse failure, an unusable sandbox), while failing TESTS come back in the `Result`. A file whose teardown command failed fails the run with every test green.
 
 ## The gate comes first
 
@@ -38,7 +38,7 @@ It has to be inside the module root because dats sandboxes every suite command. 
 
 Copies, not in-place execution: the matrix cosmo artifact is a fat APE that rewrites its own file on first exec. So nothing may ever execute a `build/` artifact where it sits.
 
-Staged names are the bare `OutputName` plus `.exe` on windows hosts. The root path stages what `runBuildPhase` built. The matrix path stages the host-named `build.BinaryName(name, hostos.GOOS(), runtime.GOARCH)` artifact. A missing host artifact is Debug-logged and skipped, so a cross-only build still runs its suites (and fails honestly if it needed one).
+The root path stages what `runBuildPhase` built. The matrix path stages the host-named `build.BinaryName(name, hostos.GOOS(), runtime.GOARCH)` artifact. A missing host artifact is Debug-logged and skipped, so a cross-only build still runs its suites (and fails honestly if it needed one).
 
 ## Read-only in the sandbox
 

@@ -64,6 +64,7 @@ require (
 	golang.org/x/term v0.46.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
+	mvdan.cc/sh/v3 v3.14.1 // indirect
 )
 
 replace gonum.org/v1/gonum v0.17.0 => github.com/gonum/gonum v0.17.0
