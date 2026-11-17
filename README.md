@@ -15,7 +15,7 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 - **File length checks** — warns at lines, fails at 750. Generated files are exempt unless `--count-generated` is passed.
 - **Auto-fix, or CI check** — locally the linter fixes violations in place. On CI the same checks run read-only, and a non-canonical tree fails the build with a diff of the fix.
 - **testify migration** — rewrites fork and `gotest.tools` imports to upstream `stretchr/testify`, adding the type conversions upstream's strict comparisons need. See [docs/VET.md](docs/VET.md).
-- **Custom vet analyzers** — `mapset` and `sliceset` (a `map[K]bool` or a slice used as a set, rewritten in place to `go-containers/set`), `writeruns` (a document written one string at a time), `jsoninterp` (JSON built by formatting, concatenation or a template). See [docs/VET.md](docs/VET.md).
+- See [docs/VET.md](docs/VET.md).
 - **Comment scan** — repairs a number written in any comment, in any language. It runs beside the dependency work and lands ahead of vet. slopfix owns the rule and the walk, and repairs every finding it reports. See [docs/COMMENT-SCAN.md](docs/COMMENT-SCAN.md).
 - **Go generate** — detects and runs `//go:generate` directives with hash-based approval.
 - **Dependency handling** — reports outdated dependencies, and submits a dependency snapshot. A `github.com/wow-look-at-my/` dependency carries no version this repo records. The `cmd/go` in gosmopolitan resolves it to the head of a branch, so the token on its go.mod line is a placeholder. A frozen one is rewritten to the placeholder ([docs/ORG-PINS.md](docs/ORG-PINS.md)).
@@ -35,7 +35,7 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 - **Build profile** — per-action timings: what the build spent its time on. See [docs/PROFILE.md](docs/PROFILE.md).
 - **Vanity URL resolution** — resolves vanity-URL module dependencies via the Go proxy or go-import meta tags.
 - **Go proxy/sumdb support** — honors `GOPROXY` and `GOSUMDB`, and fetches direct with sumdb off when neither is set. `GO_PROXY_CONFIG` is ignored.
-- **No contact with golang.org** — neither go-toolchain nor the go command it embeds ever contacts golang.org or a host under it. A `golang.org/x` or `google.golang.org` module comes from its GitHub repository. A `GOPROXY`, `GOSUMDB` or `GOVULNDB` that names golang.org is an error. See [docs/GOLANG-ORG.md](docs/GOLANG-ORG.md).
+- **No contact with golang.org** — neither go-toolchain nor the go command it embeds ever contacts golang.org or a host under it. A `golang.org/x` or `google.golang.org` module comes from its GitHub repository. See [docs/GOLANG-ORG.md](docs/GOLANG-ORG.md).
 - **Generated code exclusion** — files carrying the standard `DO NOT EDIT.` marker are excluded from tests and coverage.
 - **Release management** — `release` creates a GitHub release with checksums, structured notes and rolling tags.
 - **Buildhost publishing** — CI publishes binaries to [buildhost](https://pazer.build) over OIDC, downloadable as raw binary, tar.gz, deb, Homebrew, npm or OCI.
@@ -181,7 +181,7 @@ Debug output goes to stderr and info to stdout. Warnings and errors become `::wa
 
 ### Subcommands
 
-- **`matrix`** — build the release APE, plus optional wasm targets (`--cosmo-platforms`, `--targets`, `--parallel`, `--no-benchmark`)
+- **`matrix`** — build the release APE, plus optional wasm targets
 - **`bench`** — run and manage benchmarks
   - `run` — run benchmarks and show deltas vs stored results
   - `save` — run benchmarks and store results in git notes
@@ -189,7 +189,7 @@ Debug output goes to stderr and info to stdout. Warnings and errors become `::wa
   - `compare <commit1> <commit2>` — compare benchmark results between commits
 - **`lint`** — detect near-duplicate code blocks using AST comparison
 - **`install`** — install the binary to `~/.local/bin`
-- **`release`** — create a GitHub release with checksums and structured release notes (`--tag`, `--from`, `--build`)
+- **`release`** — create a GitHub release with checksums and structured release notes
 - **`version`** — show build version, the gosmopolitan commit this binary links, and staleness information
   - `raw` — print just the version number
   - `json` — print version info as JSON (version, commit, gosmopolitan commit, dates, staleness)

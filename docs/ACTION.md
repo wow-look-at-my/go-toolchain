@@ -20,7 +20,7 @@ A block is a maximal group of comment lines separated by nothing except blank li
 
 The step after it runs `wow-look-at-my/actions@no-tests-in-yaml#latest`. A test written inside a `run:` script fails the job. A workflow step is a scheduler: an assertion living there runs only on a runner, only after a push, and only in that repository. So nobody can run it against a change before sending it.
 
-Rules, each reading only `run:` scripts. A redirect or heredoc writing a file that is a test by name (`*_test.go`, `*.test.ts`, `*.dats`, and the rest). A comparison paired with a failure on one line — `grep -q … || exit 1`, `if ! grep …`, `[ … ] || { … }`, and the annotate-and-exit line a `case` arm uses. A shell function named `assert*`, `expect*`, `must*` and friends.
+Rules, each reading only `run:` scripts. A redirect or heredoc writing a file that is a test by name.
 
 A step that merely runs a command fails on its own exit code and matches nothing, which is what keeps an ordinary build silent. No input turns a rule off. It scans the same local call chain the comment-wall guard does, needs no permissions beyond a checkout.
 
@@ -98,7 +98,7 @@ A dependency's `//go:generate` directives run when the dependency is fetched. A 
 
 It uses the runner's `go` when there is one. A self-hosted runner frequently has none. The step then links go-toolchain as `$RUNNER_TEMP/gt-go/go`, and the binary acts as the go command under that name. That go builds for `GOOS=cosmo`. Its `go install` writes into `$GOPATH/bin/cosmo_amd64` and ignores `GOBIN`. The step puts that directory on `PATH` beside `$GOPATH/bin`.
 
-The step sets `GOPROXY=direct`, `GOSUMDB=off`, `GOTOOLCHAIN=local` and `GOTELEMETRY=off`, whatever the runner set. No value names golang.org.
+No value names golang.org.
 
 ## 1e. The CodeQL permission check
 
@@ -151,7 +151,7 @@ Nameless discovery is clean only when the run's hand-off set is unambiguous at d
 
 **This is the only name saved.** The pre-build per-job name `go-build-<job>[.m<idx>]` and the bare `go-build` alias are gone. Each was a second key that a multi-producer run raced on. So the second finisher's save collided and had to be absorbed with `continue-on-error`. The action now saves ONE hand-off, under that name. A download naming anything else restores nothing.
 
-That is why this repo's own `identical`, `smoke` and `publish` jobs spell `go-build-build.broot` in full. A consumer that still downloads either legacy name gets a miss and must migrate to the name above. `src/cmd/handoffname_test.go` pins both the template and the absence of any second hand-off.
+A consumer that still downloads either legacy name gets a miss and must migrate to the name above. `src/cmd/handoffname_test.go` pins both the template and the absence of any second hand-off.
 
 **Why the name carries the job id, a leg index, and a build identity.** The hand-off runs on EVERY go-toolchain run. It goes through the org cache-upload action, which replaces `actions/upload-artifact`. Cache storage is free and artifact storage is billed. The name carries the calling job's id, so the cache key (`cache-xfer-<run_id>-go-build-<job>-<run_attempt>`) is distinct per job. Concurrent jobs in one run, the standard linux plus darwin pattern, can then no longer collide.
 
@@ -163,7 +163,7 @@ The old shared `go-build` name made the second finisher fail its save with a 409
 
 The dots make the suffixes collision-proof against job ids. A job id cannot contain a dot, so `go-build-<jobA>.m<i>` or `go-build-<jobA>.b<build>` can never equal, or restore-prefix shadow, any `go-build-<jobB>`. `job-index` is 0-based in matrix definition order and same across re-run attempts of the same leg, which keeps cache-download's cross-attempt fallback working.
 
-A downstream job cache-downloads with NO name, which self-discovers the current run's hand-off. That is the preferred mode when the run saves only one hand-off. And it needs no knowledge of the producing job's id. A run carrying several hand-offs needs an explicit `go-build-<uploader job id>.b<build>`, or `go-build-<uploader job id>.m<index>.b<build>` such as `go-build-build.m2.broot`, because discovery will otherwise be ambiguous. A matrix producer is always such a case, because each leg saves its own name.
+A downstream job cache-downloads with NO name, which self-discovers the current run's hand-off. That is the preferred mode when the run saves only one hand-off. And it needs no knowledge of the producing job's id. A matrix producer is always such a case, because each leg saves its own name.
 
 ## 4. Autorelease, and the permissions it needs
 
@@ -179,7 +179,7 @@ So the publish stays byte-identical.
 
 **`apt-depends` and `depends` go straight to the publish.** `apt-depends` is a Debian relationship string for system packages. `depends` names other buildhost projects, such as `ascii-timeline`. buildhost then lists them in the deb's Depends, adds their APT repositories in `install.sh`. It declares them as `depends_on` in the brew formula, so `apt-get install` and `brew install` install them too. An empty input sends nothing and leaves the stored value untouched.
 
-**The grants are read only where a publish happens.** A missing grant otherwise surfaces at the end of the publish. The error there is `Resource not accessible by integration`. `wow-look-at-my/actions@has-permission` reads `id-token: write`, `deployments: write` and `artifact-metadata: write` the moment the action finds a binary to publish. A build that publishes nothing needs none of the three. It reads the running workflow file and resolves the scope the way GitHub does.
+**The grants are read only where a publish happens.** A missing grant otherwise surfaces at the end of the publish. The error there is `Resource not accessible by integration`. A build that publishes nothing needs none of the three. It reads the running workflow file and resolves the scope the way GitHub does.
 
 The job's own `permissions:` block, then the workflow-level block when the job declares none. A missing grant fails the step that reads it. And the error names the grant and the block it came from.
 
