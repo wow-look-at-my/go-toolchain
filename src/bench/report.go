@@ -1,3 +1,5 @@
+// report.go holds BenchmarkResult.
+
 package bench
 
 import (

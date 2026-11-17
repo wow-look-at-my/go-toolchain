@@ -43,7 +43,7 @@ The `set` package itself is exempt from that warning, under its own path and its
 
 ### What disqualifies a made-empty bool map
 
-The use walk (`mapSetUses`) accepts a write of `true`, `delete`, `clear`, `len`, a key-only `range`, and an index read. Anything else means the map is not provably a set. And the candidate is dropped:
+The use walk (`mapSetUses`) accepts a write, a key-only `range`, and an index read. Anything else means the map is not provably a set. And the candidate is dropped:
 
 - `v, ok := m[k]` -- present-and-false is not the same as absent.
 - `m[k] = <anything but true>`, and any compound assignment.
@@ -85,16 +85,6 @@ A parameter is not a candidate either. It arrives from a caller, and what to sto
 ## The fixer: what the checks prove, they rewrite
 
 `src/vet/setfix.go` turns a reported map or slice into a set. It runs for both checks, because both name the same remedy.
-
-| before | after |
-| --- | --- |
-| `make(map[K]bool)`, `map[K]bool{}`, `make([]T, 0)`, `[]T{}` | `set.New[K]()` |
-| `map[K]bool{"a": true}`, `[]T{a, b}` | `set.Of[K]("a")`, `set.Of[T](a, b)` |
-| `var m map[K]bool` | `var m set.Set[K]` |
-| `m[k] = true`, `s = append(s, v)` | `m.Add(k)`, `s.Add(v)` |
-| `m[k]`, `slices.Contains(s, v)` | `m.Contains(k)`, `s.Contains(v)` |
-| `delete(m, k)`, `clear(m)`, `len(m)` | `m.Remove(k)`, `m.Clear()`, `m.Len()` |
-| `for k := range m`, `for _, v := range s` | `for k := range m.All()` |
 
 The type argument is written out. `set.Of(1, 2)` off a `[]float64` literal will infer `int`, and `set.Of[float64](1, 2)` cannot.
 
@@ -159,7 +149,7 @@ A refactor of this kind must not move a byte of the output. An equality test pin
 
 ### What counts as a write
 
-A statement joins a run when its result is dropped (it is an expression statement), its writer is one this can name (`w`, `s.buf`), and its text is spelled. `fmt.Fprint`/`Fprintf`/`Fprintln` and `io.WriteString` name the writer first. `Write`, `WriteString`, `WriteByte` and `WriteRune` name it as the receiver.
+A statement joins a run when its result is dropped (it is an expression statement), its writer is one this can name (`w`, `s.buf`), and its text is spelled. `fmt.Fprint`/`Fprintf`/`Fprintln` and `io.WriteString` name the writer first.
 
 Things end a run: any other statement, a write to a different writer, and a write whose text is computed. `b.WriteByte(c)` inside an escaper writes one byte of a value, and no template renders it.
 
@@ -196,16 +186,16 @@ The question this check keeps answering: `html/template` escapes by context, so 
 No. There is no `json/template`, and neither template package has a JSON context.
 
 - **`text/template` escapes nothing at all.** It has no notion of an output language, and no reference to `encoding/json` anywhere in the package. Every action writes its value verbatim. A JSON template is therefore the concatenation case with extra steps.
-- **`html/template` escapes for HTML**, and its typed strings are the whole set of languages it knows: `HTML`, `HTMLAttr`, `CSS`, `JS`, `JSStr`, `URL` and `Srcset` (`content.go`). There is no `JSON` among them, and none for XML either.
+- **`html/template` escapes for HTML**, and its typed strings are the whole set of languages it knows. There is no `JSON` among them, and none for XML either.
 - The place the standard library JSON-escapes for a template is `jsValEscaper` (`html/template/js.go`), which marshals the value with `json.Marshal`. It is reachable only from `stateJS` (`escape.go`) -- that is, a value inside a `<script>` element of an HTML document. Handed a bare JSON document, `html/template` escapes it as HTML instead. That is a different and equally incorrect answer: a `<` in your data becomes `&lt;`.
 
-So a template whose text is JSON is reported like the other shapes. This is the one place `writeruns` and `jsoninterp` point in opposite directions: `writeruns` names `text/template` as the remedy for a document written one line.
+So a template whose text is JSON is reported like the other shapes.
 
 ### What counts as a document
 
 A finding needs a value entering the text AND text that is JSON.
 
-The value is a format verb (`fmt.Sprintf`, `Fprintf`, `Errorf`, `Printf`, `Appendf`), an operand of a `+` concatenation that is not a string literal, or a template action. A doubled `%%` interpolates nothing, and an expression the type checker folded to a constant carries no runtime value. Neither is reported.
+The value is a format verb, an operand of a `+` concatenation that is not a string literal, or a template action. A doubled `%%` interpolates nothing, and an expression the type checker folded to a constant carries no runtime value. Neither is reported.
 
 `isJSONDocument` judges the text (`src/vet/jsonshape.go`), on the whole document rather than one piece of it. The literal parts of a concatenation are joined first. So `` `{"sha":"` + sha + `"}` `` is read as `{"sha":""}` and a fragment that means nothing alone is still read in place. Things must hold.
 

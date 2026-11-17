@@ -120,8 +120,6 @@ func renderTestifyImports(filename string) ([]byte, []importRewrite, error) {
 	return canonicalizeGoSource(buf.Bytes()), changes, nil
 }
 
-// syncModuleGraph runs go mod tidy and, when the repo vendors its dependencies,
-// go mod vendor — leaving go.mod, go.sum and vendor/modules.txt consistent.
 func syncModuleGraph() error {
 	tidy := exec.Command("go", "mod", "tidy")
 	tidy.Stdout = os.Stdout

@@ -36,7 +36,7 @@ A finding it cannot repair is a defect in slopfix rather than a message for the 
 
 ## What is scanned
 
-The walk is slopfix's, in `commentfix.TreeFiles`. The `slopfix comments` command reads the same list. It starts at the repository root, not at a module. It skips a hidden directory, `vendor`, `node_modules`, `testdata`, `build`, and any file above a megabyte.
+The walk is slopfix's, in `commentfix.TreeFiles`. The `slopfix comments` command reads the same list. It starts at the repository root, not at a module.
 
 It skips a nested module too, whose text belongs to that module. The exception is a root that is not itself a module: skipping there scans nothing, because the repository's modules all sit below the root.
 
@@ -48,12 +48,10 @@ A file whose extension `commentfix` has no comment syntax for is skipped rather 
 
 ## What counts as a number
 
-The check walks each comment's tokens -- runs of letters, digits and the name characters `_`, `.`, `/`, `:` and `-` -- and reports shapes:
-
-- **A digit run**, unless it touches a letter or wears an ordinal suffix. So `sha256`, `amd64`, `p95`, `10ms` and `wasip1` are names and stay. A bare `500`, a `2.5`, and a version literal like `1.24.7` are numbers and go.
+- **A digit run**, unless it touches a letter or wears an ordinal suffix. A bare `500`, a `2.5`, and a version literal like `1.24.7` are numbers and go.
 - **A whole alphabetic word** that can tally a set: the cardinals from `two` up, the scales `hundred` to `trillion`, and `dozen`. Case does not matter. A word that merely contains one (`twoPhase`, `threefold`) is not a match, because the whole run must be the word.
 
-`zero`, `one`, `once`, `twice` and the ordinals are not reported. None of them counts a set that can grow. "exactly one is found" is a condition, "newest first" an order, "a zero deadline" a value.
+None of them counts a set that can grow. "exactly one is found" is a condition, "newest first" an order, "a zero deadline" a value.
 
 A number behind a section sign is exempt. `§7.3` and `§ 4` cite a section of a document. The sign is the spelling a reader looks it up by. It is the escape hatch for a document that publishes no slug -- the sign covers only the number it introduces.
 
@@ -61,7 +59,7 @@ An HTTP status code is exempt, but only when the word `HTTP` (in any case) sits 
 
 A sum of money is exempt. A currency sign directly against the digits makes the token an amount, which states what something costs rather than counting what is below. Only the amount goes free, so `$1 is the boundary, and 4 dp under it` still reports the `4`, and `costs $ 5` reports.
 
-A token holding `://` is a URL and is skipped whole. So citing an issue by its full address is how to keep a reference that carries a number. A qualified name -- a marker strictly between word characters, as in `example.com/mod/v2`, `net/http` or `sync.Once` -- is a name rather than prose and is left alone. A compiler directive (`//go:build`, `//go:generate`) is machine text and is never reported. And a generated file is skipped fully.
+A token holding `://` is a URL and is skipped whole. So citing an issue by its full address is how to keep a reference that carries a number. A qualified name -- a marker strictly between word characters, as -- is a name rather than prose and is left alone. A compiler directive (`//go:build`, `//go:generate`) is machine text and is never reported. And a generated file is skipped fully.
 
 ## A file with no header
 

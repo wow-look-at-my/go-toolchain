@@ -43,7 +43,8 @@ if [[ -n "$replaces" ]]; then
 	"$go_cmd" -C "$work" mod edit "${replace_args[@]}"
 fi
 
+# -trimpath keeps the checkout directory out of each build cache key. The directory has a new name on each run.
 for pkg in "$@"; do
 	GOFLAGS=-mod=mod GOTOOLCHAIN=local GOTELEMETRY=off GOSUMDB=off GONOSUMDB='*' \
-		"$go_cmd" -C "$work" build -o "$out/$(basename "$pkg")" "./$pkg"
+		"$go_cmd" -C "$work" build -trimpath -o "$out/$(basename "$pkg")" "./$pkg"
 done
