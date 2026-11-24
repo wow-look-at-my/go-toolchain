@@ -46,6 +46,9 @@ func usableRevision(rev string) string {
 	return rev
 }
 
+// linkerMain is the linker's name for the package of a program.
+const linkerMain = "main"
+
 // stampLDFlags is the -X list filling importPath's revision variables, empty
 // when the package declares none. Depth: docs/VCS-STAMP.md.
 func stampLDFlags(importPath string) string {
@@ -75,7 +78,7 @@ func revisionStamp(importPath string, declared set.Set[string], rev string) stri
 	}
 	flags := make([]string, len(names))
 	for i, name := range names {
-		flags[i] = "-X " + importPath + "." + name + "=" + rev
+		flags[i] = "-X " + linkerMain + "." + name + "=" + rev
 	}
 	return strings.Join(flags, " ")
 }
