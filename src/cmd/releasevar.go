@@ -32,7 +32,7 @@ func releaseVarLDFlags(importPath string) string {
 		return ""
 	}
 	var flags []string
-	if f := releaseVarStamp(importPath, gomod.PackageStringVars(dir), value); f != "" {
+	if f := releaseVarStamp(linkerMain, gomod.PackageStringVars(dir), value); f != "" {
 		flags = append(flags, f)
 	}
 	for _, pkg := range moduleImports(mod, dir) {
