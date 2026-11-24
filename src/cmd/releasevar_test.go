@@ -61,6 +61,18 @@ func TestReleaseVarLDFlagsFillsTheVersionOfAnImportedPackage(t *testing.T) {
 		"the main package declares no version, the cmd package it imports declares two, and a package it does not import is left alone")
 }
 
+func TestReleaseVarLDFlagsNamesTheMainPackageAsTheLinkerDoes(t *testing.T) {
+	t.Serial()
+	root := writeModule(t)
+	require.NoError(t, os.WriteFile(filepath.Join(root, "version.go"), []byte("package main\n\nvar Version = \"dev\"\n"), 0o644))
+	t.Chdir(root)
+	t.Setenv(gosmoReleaseEnv, "53")
+	t.Setenv(gosmoReleaseRevisionEnv, "f870077")
+	assert.Equal(t, "-X 'main.Version=53 (f870077)' -X 'example.com/m/cmd.Version=53 (f870077)' -X 'example.com/m/cmd.version=53 (f870077)'",
+		releaseVarLDFlags("example.com/m"),
+		"the linker finds a program's own variable under main, not under the import path of its package")
+}
+
 func TestReleaseVarLDFlagsIsEmptyWithoutARelease(t *testing.T) {
 	t.Serial()
 	t.Chdir(writeModule(t))

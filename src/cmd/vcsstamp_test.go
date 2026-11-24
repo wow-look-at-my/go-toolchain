@@ -22,8 +22,8 @@ func TestRevisionStampNamesOnlyTheDeclaredVariables(t *testing.T) {
 	t.Serial()
 	declared := set.Of("gitHash", "Commit", "unrelated")
 	got := revisionStamp("example.com/m/cmd/srv", declared, "abc123")
-	assert.Equal(t, "-X example.com/m/cmd/srv.gitHash=abc123 -X example.com/m/cmd/srv.Commit=abc123", got,
-		"a name the package does not declare must never reach the linker")
+	assert.Equal(t, "-X main.gitHash=abc123 -X main.Commit=abc123", got,
+		"a name the package does not declare must never reach the linker, and the linker knows a program's package as main")
 }
 
 func TestRevisionStampIsEmptyForAPackageThatDeclaresNoStampVariable(t *testing.T) {
